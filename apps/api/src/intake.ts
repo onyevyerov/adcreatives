@@ -1,32 +1,8 @@
-import { IsoDate, PROJECTS_DIR, ProjectState, projectPaths, RunSource, type Storage } from "@adc/shared";
-import { z } from "zod";
+import { IntakeFile, PROJECTS_DIR, ProjectState, projectPaths, type Storage } from "@adc/shared";
 
-/**
- * `projects/<id>/intake.json` — вхідні дані нового проєкту, які пише API перед командою `start`.
- *
- * Команда `start` у `PipelineCommand` не має полів, а `project.json` пише лише оркестратор,
- * тому URL, текст і фото клієнта передаються файлом: оркестратор на `start` читає цей файл,
- * створює `project.json` (`input` = `intake.input`, `origin` = `intake.origin`) і ставить
- * `crawl` з `{url, manualText}` та, якщо `photos` не порожній, `ingest` з `{files: photos}`.
- * Файл пишеться один раз і далі не змінюється.
- *
- * TODO(shared): перенести схему в `packages/shared/src/schemas/project.ts`, а ключ —
- * у `projectPaths(id).intake` (див. звіт B6).
- */
-export const IntakeFile = z.object({
-  projectId: z.string(),
-  createdAt: IsoDate,
-  origin: RunSource,
-  /** Та сама форма, що й `ProjectState.input`. */
-  input: ProjectState.shape.input,
-  /** Ключі сховища завантажених фото: `projects/<id>/uploads/<file>`. */
-  photos: z.array(z.string()),
-  /** commandId команди `start`, поставленої разом із цим файлом. */
-  startCommandId: z.string(),
-});
-export type IntakeFile = z.infer<typeof IntakeFile>;
+export { IntakeFile } from "@adc/shared";
 
-export const intakeKey = (projectId: string) => `${projectPaths(projectId).root}/intake.json`;
+export const intakeKey = (projectId: string) => projectPaths(projectId).intake;
 
 /** ID проєкту в URL: nanoid (21 символ) або ID з eval/тестів — лише безпечні символи. */
 export const PROJECT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;

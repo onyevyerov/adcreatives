@@ -159,6 +159,24 @@ export const ProjectState = z.object({
 });
 export type ProjectState = z.infer<typeof ProjectState>;
 
+/**
+ * `intake.json` — вхідні дані нового проєкту. Пише API (`POST /api/projects`) один раз перед
+ * командою `start`; оркестратор на `start` читає файл і створює `project.json`
+ * (`input` = `intake.input`, `origin` = `intake.origin`), ставить `crawl {url, manualText}`
+ * і, після нього, `ingest {files: photos}`.
+ */
+export const IntakeFile = z.object({
+  projectId: z.string(),
+  createdAt: IsoDate,
+  origin: RunSource.default("chat"),
+  input: ProjectState.shape.input,
+  /** Ключі сховища завантажених фото: `projects/<id>/uploads/<file>`. */
+  photos: z.array(z.string()).default([]),
+  /** commandId команди `start`, поставленої разом із цим файлом. */
+  startCommandId: z.string().optional(),
+});
+export type IntakeFile = z.infer<typeof IntakeFile>;
+
 /** `rev/<n>/pipeline.json` — лічильники спроб ревізії (пише оркестратор). */
 export const PipelineCounters = z.object({
   /** Спроби кожної стадії: stage → номер останньої спроби. */

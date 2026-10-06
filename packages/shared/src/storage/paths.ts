@@ -50,6 +50,8 @@ export function projectPaths(projectId: string) {
   return {
     root,
     project: join(root, "project.json"),
+    /** Вхідні дані проєкту від API (див. `IntakeFile`). */
+    intake: join(root, "intake.json"),
     uploadsDir: join(root, "uploads"),
     upload: (fileName: string) => join(root, "uploads", fileName),
     crawlDir: join(root, "crawl"),

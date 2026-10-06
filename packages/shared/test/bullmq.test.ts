@@ -1,8 +1,23 @@
-import type { PipelineJob, QueueName } from "@adc/shared";
 import type { JobsOptions } from "bullmq";
 import { describe, expect, it } from "vitest";
-import { type BullQueueLike, createBullQueue, stageEventJobId } from "../src/queue.ts";
-import { stageJob } from "./helpers.ts";
+import { type BullQueueLike, createBullQueue, stageEventJobId } from "../src/bullmq.ts";
+import type { PipelineJob, QueueName, StageJob, StageName, StageParamsMap } from "../src/index.ts";
+import { makeJobId } from "../src/index.ts";
+
+function stageJob<S extends StageName>(
+  stage: S,
+  params: StageParamsMap[S],
+  opts: { suffix?: string } = {},
+): StageJob<S> {
+  return {
+    jobId: makeJobId("p1", stage, 1, 1, opts.suffix),
+    projectId: "p1",
+    rev: 1,
+    stage,
+    attempt: 1,
+    params,
+  };
+}
 
 function fakeBull() {
   const added: Array<{ queue: QueueName; name: string; data: unknown; opts?: JobsOptions }> = [];

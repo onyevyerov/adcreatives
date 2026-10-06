@@ -15,7 +15,6 @@
   "dependencies": {
     "@adc/shared": "workspace:*",
     "@hono/node-server": "^2.1.3",
-    "bullmq": "^6.3.11",
     "hono": "^4.13.13",
     "ioredis": "^5.11.1",
     "nanoid": "^6.0.2",

@@ -3,7 +3,6 @@ export * from "./auth.ts";
 export * from "./config.ts";
 export * from "./deps.ts";
 export * from "./intake.ts";
-export * from "./queue/bullmq.ts";
 export * from "./routes/events.ts";
 export * from "./routes/files.ts";
 export * from "./routes/stats.ts";

@@ -1,33 +1,16 @@
 import {
   type ChatIntent,
   type Format,
+  IntakeFile,
   type Language,
   normalizeFormats,
-  RunSource,
+  projectPaths,
   type Storage,
 } from "@adc/shared";
-import { z } from "zod";
 
-/**
- * `projects/<id>/intake.json` — заявка, яку пише API (`POST /api/projects`) перед командою `start`.
- * Схема дзеркалить `apps/api/src/intake.ts` (B6); пізніше переїде в shared.
- */
-export const IntakeFile = z.object({
-  projectId: z.string(),
-  createdAt: z.string(),
-  origin: RunSource.default("chat"),
-  input: z.object({
-    kind: z.enum(["site", "manual"]),
-    url: z.string().nullable(),
-    manualText: z.string().nullable(),
-  }),
-  /** Ключі сховища `projects/<id>/uploads/<file>`. */
-  photos: z.array(z.string()).default([]),
-  startCommandId: z.string().optional(),
-});
-export type IntakeFile = z.infer<typeof IntakeFile>;
+export { IntakeFile } from "@adc/shared";
 
-export const intakeKey = (projectId: string) => `projects/${projectId}/intake.json`;
+export const intakeKey = (projectId: string) => projectPaths(projectId).intake;
 
 export async function readIntake(storage: Storage, projectId: string): Promise<IntakeFile | null> {
   const key = intakeKey(projectId);

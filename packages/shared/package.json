@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
+    "bullmq": "^6.3.11",
     "ioredis": "^5.11.1",
     "ipaddr.js": "^2.5.0",
     "yaml": "^2.9.1",

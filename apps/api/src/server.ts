@@ -1,9 +1,9 @@
 import { createConsoleLogger, loadRootEnv, storageFromEnv } from "@adc/shared";
+import { createBullQueue } from "@adc/shared/bullmq";
 import { serve } from "@hono/node-server";
 import { Redis } from "ioredis";
 import { createApp } from "./app.ts";
 import { configFromEnv } from "./config.ts";
-import { BullQueue } from "./queue/bullmq.ts";
 
 /** Точка входу: `pnpm --filter @adc/api start` (PORT, APP_PASSWORD, REDIS_URL, DATA_DIR, COST_TARGET_USD). */
 loadRootEnv();
@@ -18,7 +18,7 @@ const connect = (name: string) => {
 };
 const redis = connect("events");
 // Окреме з'єднання для BullMQ, щоб його службові команди не змішувались із SSE/стрімами.
-const queue = BullQueue.connect(connect("bullmq"));
+const queue = createBullQueue({ connection: connect("bullmq") });
 const storage = storageFromEnv();
 const port = Number(process.env.PORT) || 3000;
 
