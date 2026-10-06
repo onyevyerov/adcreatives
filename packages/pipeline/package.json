@@ -2,5 +2,23 @@
   "name": "@adc/pipeline",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@adc/brandkit": "workspace:*",
+    "@adc/shared": "workspace:*",
+    "ioredis": "^5.11.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@types/ioredis-mock": "^8.2.8",
+    "ioredis-mock": "^8.13.1"
+  }
 }
