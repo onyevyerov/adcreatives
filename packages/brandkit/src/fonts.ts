@@ -1,0 +1,177 @@
+import type { FontChoice, Language, Typography } from "@adc/shared";
+import { z } from "zod";
+import fontsData from "./fonts.json" with { type: "json" };
+
+/**
+ * Мапінг шрифтів на Google Fonts за курованим списком `fonts.json`.
+ * Для української (або кириличної назви бренду) шрифт обов'язково має підмножину `cyrillic`.
+ */
+
+export const FontCategory = z.enum(["sans-serif", "serif", "display", "handwriting", "monospace"]);
+export type FontCategory = z.infer<typeof FontCategory>;
+
+const FontsFile = z.object({
+  note: z.string(),
+  fonts: z.array(
+    z.object({
+      family: z.string(),
+      category: FontCategory,
+      subsets: z.array(z.string()).min(1),
+      weights: z.array(z.number().int()).min(1),
+    }),
+  ),
+  substitutes: z.record(z.string(), z.string()),
+  fallbacks: z.record(FontCategory, z.object({ heading: z.string(), body: z.string() })),
+});
+export type GoogleFont = z.infer<typeof FontsFile>["fonts"][number];
+
+const DATA = FontsFile.parse(fontsData);
+const BY_KEY = new Map(DATA.fonts.map((f) => [fontKey(f.family), f]));
+
+const GENERIC = new Set([
+  "sans-serif",
+  "serif",
+  "monospace",
+  "cursive",
+  "fantasy",
+  "system-ui",
+  "ui-sans-serif",
+  "ui-serif",
+  "ui-monospace",
+  "inherit",
+  "initial",
+  "emoji",
+  "math",
+]);
+
+function fontKey(family: string): string {
+  return family
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+/** `"Montserrat", Arial, sans-serif` → `Montserrat`; лише generic-сімейства → null. */
+export function primaryFamily(cssFamily: string): string | null {
+  for (const part of cssFamily.split(",")) {
+    const name = part
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .trim();
+    if (name && !GENERIC.has(name.toLowerCase())) return name;
+  }
+  return null;
+}
+
+export function findGoogleFont(family: string): GoogleFont | null {
+  const name = primaryFamily(family) ?? family;
+  return BY_KEY.get(fontKey(name)) ?? null;
+}
+
+export function hasCyrillic(font: GoogleFont): boolean {
+  return font.subsets.includes("cyrillic");
+}
+
+/** Список шрифтів (для тестів і підказки моделі). */
+export function googleFonts(): readonly GoogleFont[] {
+  return DATA.fonts;
+}
+
+/** Чи потрібна кирилиця: мова відео українська або назва бренду кирилична. */
+export function needsCyrillic(language: Language, brandName = ""): boolean {
+  return language === "uk" || /[Ѐ-ӿ]/.test(brandName);
+}
+
+function nearestWeights(requested: readonly number[], available: readonly number[], role: Role): number[] {
+  const wanted = requested.length ? requested : [role === "heading" ? 700 : 400];
+  const out = new Set<number>();
+  for (const w of wanted) {
+    const nearest = available.reduce((best, a) => (Math.abs(a - w) < Math.abs(best - w) ? a : best));
+    out.add(nearest);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+type Role = "heading" | "body";
+
+export interface FontResolution {
+  choice: FontChoice;
+  /** null — без змін. */
+  fix: string | null;
+}
+
+/**
+ * Перевіряє одну роль: шрифт є в списку і (за потреби) має кирилицю.
+ * Інакше — заміна з `substitutes`, потім запасний шрифт тієї ж категорії.
+ */
+export function resolveFont(
+  choice: FontChoice,
+  role: Role,
+  opts: { cyrillic: boolean; detected: readonly string[] },
+): FontResolution {
+  const ok = (f: GoogleFont | null | undefined): boolean => !!f && (!opts.cyrillic || hasCyrillic(f));
+  const detectedKeys = new Set(opts.detected.map((d) => fontKey(primaryFamily(d) ?? d)));
+  const requested = primaryFamily(choice.family) ?? choice.family;
+  const found = findGoogleFont(requested);
+  const roleUk = role === "heading" ? "заголовків" : "тексту";
+
+  const build = (font: GoogleFont): FontChoice => ({
+    family: font.family,
+    weights: nearestWeights(choice.weights, font.weights, role),
+    origin: detectedKeys.has(fontKey(font.family)) ? "site" : "substitute",
+  });
+
+  if (found && ok(found)) return { choice: build(found), fix: null };
+
+  const subName = DATA.substitutes[fontKey(requested)];
+  const sub = subName ? findGoogleFont(subName) : null;
+  const category: FontCategory = found?.category ?? guessCategory(requested);
+  const fallbackName = DATA.fallbacks[category]?.[role] ?? (role === "heading" ? "Montserrat" : "Inter");
+  const replacement = sub && ok(sub) ? sub : findGoogleFont(fallbackName);
+  if (!replacement || !ok(replacement)) {
+    throw new Error(`fonts.json: запасний шрифт ${fallbackName} відсутній або без кирилиці`);
+  }
+
+  const reason = found ? "не має кирилиці" : "немає в перевіреному списку Google Fonts";
+  return {
+    choice: build(replacement),
+    fix: `Шрифт ${roleUk} «${requested}» ${reason} — замінено на «${replacement.family}».`,
+  };
+}
+
+function guessCategory(family: string): FontCategory {
+  const k = fontKey(family);
+  if (/mono|code|courier/.test(k)) return "monospace";
+  if (/script|hand|brush|marker/.test(k)) return "handwriting";
+  if (/serif|garamond|times|georgia|baskerville|bodoni|didot|playfair|antiqua/.test(k) && !/sans/.test(k))
+    return "serif";
+  return "sans-serif";
+}
+
+export interface TypographyFixResult {
+  typography: Typography;
+  fixes: string[];
+}
+
+/** Нормалізує типографіку бренд-кіта: Google Fonts, кирилиця, наявні накреслення, `detected`. */
+export function fixTypography(
+  input: Typography,
+  opts: { language: Language; brandName?: string; siteFonts?: readonly string[] },
+): TypographyFixResult {
+  const detected: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of [...(opts.siteFonts ?? []), ...input.detected]) {
+    const name = primaryFamily(raw);
+    if (!name || seen.has(fontKey(name))) continue;
+    seen.add(fontKey(name));
+    detected.push(name);
+  }
+  const cyrillic = needsCyrillic(opts.language, opts.brandName);
+  const heading = resolveFont(input.heading, "heading", { cyrillic, detected });
+  const body = resolveFont(input.body, "body", { cyrillic, detected });
+  return {
+    typography: { heading: heading.choice, body: body.choice, detected },
+    fixes: [heading.fix, body.fix].filter((f): f is string => f !== null),
+  };
+}

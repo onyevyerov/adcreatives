@@ -2,5 +2,21 @@
   "name": "@adc/brandkit",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
+    "live": "tsx live/live.ts"
+  },
+  "dependencies": {
+    "@adc/shared": "workspace:*",
+    "sharp": "^0.35.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.131.0"
+  }
 }
