@@ -1,0 +1,26 @@
+{
+  "name": "adcreative",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.6",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "test": "pnpm -r --if-present test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "smoke": "pnpm --filter @adc/render smoke",
+    "eval": "tsx scripts/eval.ts",
+    "sfx-cache": "tsx scripts/sfx-cache.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.3"
+  }
+}

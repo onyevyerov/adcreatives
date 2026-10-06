@@ -1,0 +1,23 @@
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Секрети
+.env
+.env.local
+.env.*.local
+
+# Дані й результати прогонів
+.data/
+eval/runs/
+**/bundle/
+out/
+
+# Редактори / ОС
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,10 @@
+packages:
+  - packages/*
+  - apps/*
+  - tests/*
+
+# pnpm 10 не запускає postinstall-скрипти залежностей без явного дозволу.
+onlyBuiltDependencies:
+  - "@biomejs/biome"
+  - esbuild
+  - sharp
