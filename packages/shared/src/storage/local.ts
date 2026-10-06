@@ -1,7 +1,38 @@
-import { appendFile, copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import {
+  appendFile,
+  copyFile,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "../env.ts";
 import { NotFoundInStorageError, type Storage, StorageKeyError } from "./Storage.ts";
+
+/** Тимчасовий файл атомарного запису (`<ім'я>.<pid>.<hex>.tmp`) — не показується в list(). */
+const TMP_FILE = /\.\d+\.[0-9a-f]{8}\.tmp$/;
+
+/**
+ * rename поверх наявного файлу. На Linux атомарний; на Windows може тимчасово впасти з
+ * EPERM/EBUSY/EACCES, якщо файл саме відкритий читачем, — кілька коротких повторів.
+ */
+async function renameReplacing(from: string, to: string): Promise<void> {
+  for (let i = 0; ; i++) {
+    try {
+      await rename(from, to);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (i >= 20 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) throw err;
+      await new Promise((r) => setTimeout(r, 5 * (i + 1)));
+    }
+  }
+}
 
 /** Нормалізує ключ сховища і відкидає все, що виходить за межі кореня. */
 export function normalizeKey(key: string): string {
@@ -58,10 +89,21 @@ export class LocalStorage implements Storage {
     return parse ? parse(value) : (value as T);
   }
 
+  /**
+   * Атомарний запис: тимчасовий файл поруч + rename. Стадії читають `project.json` і артефакти,
+   * поки оркестратор чи інша стадія їх переписує, — читач бачить або старий, або новий файл.
+   */
   async write(key: string, data: string | Uint8Array): Promise<void> {
     const abs = this.absPath(key);
     await mkdir(path.dirname(abs), { recursive: true });
-    await writeFile(abs, data);
+    const tmp = `${abs}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+    await writeFile(tmp, data);
+    try {
+      await renameReplacing(tmp, abs);
+    } catch (err) {
+      await rm(tmp, { force: true });
+      throw err;
+    }
   }
 
   async writeJson(key: string, value: unknown): Promise<void> {
@@ -98,7 +140,7 @@ export class LocalStorage implements Storage {
       for (const e of entries) {
         const child = `${rel}/${e.name}`;
         if (e.isDirectory()) await walk(child);
-        else if (e.isFile()) out.push(child);
+        else if (e.isFile() && !TMP_FILE.test(e.name)) out.push(child);
       }
     };
     await walk(base);

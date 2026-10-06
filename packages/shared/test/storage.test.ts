@@ -40,6 +40,28 @@ describe("LocalStorage", () => {
     await expect(s.read("projects/p1/missing.json")).rejects.toBeInstanceOf(NotFoundInStorageError);
   });
 
+  it("запис атомарний: паралельний читач ніколи не бачить напівзаписаний JSON", async () => {
+    const s = tmpStorage();
+    const key = projectPaths("p1").project;
+    const big = { pad: "x".repeat(200_000) };
+    await s.writeJson(key, { v: 0, ...big });
+    let stop = false;
+    const reader = (async () => {
+      let reads = 0;
+      while (!stop) {
+        const v = await s.readJson<{ v: number }>(key); // кидає SyntaxError на порожньому/обрізаному файлі
+        expect(typeof v.v).toBe("number");
+        reads++;
+      }
+      return reads;
+    })();
+    for (let i = 1; i <= 40; i++) await s.writeJson(key, { v: i, ...big });
+    stop = true;
+    expect(await reader).toBeGreaterThan(0);
+    expect(await s.readJson(key)).toMatchObject({ v: 40 });
+    expect((await s.list("projects/p1")).filter((k) => k.includes(".tmp"))).toEqual([]);
+  });
+
   it("blocks keys outside the root", async () => {
     const s = tmpStorage();
     for (const bad of ["../x", "a/../../x", "/etc/passwd", "C:/Windows", "..\\x", ""]) {
