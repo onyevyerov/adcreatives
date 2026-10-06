@@ -2,5 +2,30 @@
   "name": "@adc/worker",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./queue": "./src/queue.ts",
+    "./stages": "./src/stages.ts",
+    "./render": "./src/render.ts"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "dev": "tsx watch src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@adc/audio": "workspace:*",
+    "@adc/brandkit": "workspace:*",
+    "@adc/crawler": "workspace:*",
+    "@adc/render": "workspace:*",
+    "@adc/shared": "workspace:*",
+    "bullmq": "^6.3.11",
+    "ioredis": "^5.11.1"
+  },
+  "devDependencies": {
+    "@types/ioredis-mock": "^8.2.8",
+    "ioredis-mock": "^8.13.1"
+  }
 }
