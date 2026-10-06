@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Зерно — кав'ярня у Львові</title>
+  <meta name="description" content="Спешелті кава і випічка щодня з 8:00">
+  <meta property="og:title" content="Зерно">
+  <meta property="og:image" content="/img/og.jpg">
+  <link rel="apple-touch-icon" href="/img/touch-icon.png">
+  <link rel="alternate" hreflang="uk" href="/">
+  <link rel="alternate" hreflang="en" href="/en/">
+  <link rel="alternate" hreflang="x-default" href="/">
+  <style>
+    :root { --brand: #6b3e26; --accent: #e85d2a; }
+    body { margin: 0; font-family: Georgia, serif; background: #fff8f0; color: #1e1410; }
+    h1, h2 { font-family: Arial, sans-serif; color: #6b3e26; font-weight: 700; }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 16px 32px; background: #fff8f0; }
+    a { color: #e85d2a; }
+    nav a { margin-left: 16px; }
+    .btn { background: #6b3e26; color: #ffffff; border-radius: 999px; padding: 12px 24px; display: inline-block; text-decoration: none; }
+    .hero { width: 100%; height: 700px; background: url(/img/bg.jpg) center / cover; padding: 80px 32px; box-sizing: border-box; }
+    .hero h1 { color: #ffffff; }
+    section { padding: 32px; }
+    .spacer { height: 2400px; }
+    #cookie { position: fixed; left: 0; right: 0; bottom: 0; height: 320px; background: #ff0000; color: #ffffff; z-index: 999; padding: 24px; }
+  </style>
+  <script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"CafeOrCoffeeShop","name":"Зерно","telephone":"+380671234567",
+     "address":{"@type":"PostalAddress","streetAddress":"вул. Руська, 1","addressLocality":"Львів"}}
+  </script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"Зерно"}</script>
+</head>
+<body>
+  <header>
+    <a href="/" class="logo"><img src="/img/logo.svg" alt="Зерно" width="160" height="60"></a>
+    <nav>
+      <a href="/about">Про нас</a>
+      <a href="/menu">Меню</a>
+      <a href="/services">Послуги</a>
+      <a href="/contacts">Контакти</a>
+      <a href="/en/">EN</a>
+    </nav>
+  </header>
+  <main>
+    <section class="hero">
+      <h1>Кава, яку обсмажуємо самі</h1>
+      <a class="btn" href="/menu">Забронювати столик</a>
+    </section>
+    <section>
+      <h2>Сніданки до 12:00</h2>
+      <p>Обсмажуємо зерно щотижня. Капучино — 75 грн. Знижка 10% на каву з собою до 10:00.</p>
+      <img src="/img/hero-800.jpg" srcset="/img/hero-800.jpg 800w, /img/hero-1600.jpg 1600w" sizes="800px"
+           alt="Бариста готує капучино" width="800" height="450">
+      <img src="/img/hero-copy.jpg" alt="" width="640" height="360">
+    </section>
+    <div class="spacer"></div>
+    <section>
+      <h2>Свіжа випічка</h2>
+      <p>Круасани і сирники щоранку.</p>
+      <!-- Lazy-load: справжня адреса підставляється скриптом лише після прокрутки. -->
+      <img class="lazy" data-image="/img/lazy-photo.jpg" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Круасани" width="800" height="600">
+    </section>
+    <p>
+      <a href="/blog/page/2">Блог, сторінка 2</a>
+      <a href="/catalog?sort=price&amp;color=red">Каталог</a>
+      <a href="/files/price.pdf">Прайс PDF</a>
+      <a href="http://blog.site.test:{{PORT}}/">Блог</a>
+      <a href="http://www.site.test:{{PORT}}/team">Наша команда</a>
+      <a href="/events/calendar">Календар подій</a>
+    </p>
+    <img src="{{INTERNAL}}/tracker.png" width="1" height="1" alt="">
+  </main>
+  <footer>
+    <p>© Зерно, 2026</p>
+    <a href="tel:+380671234567">+380 67 123 45 67</a>
+    <a href="mailto:hello@zerno.test">hello@zerno.test</a>
+    <a href="https://instagram.com/zerno">Instagram</a>
+  </footer>
+  <div id="cookie" class="cookie-banner">
+    <p>Ми використовуємо cookie, щоб сайт працював краще.</p>
+    <button id="accept" type="button">Прийняти</button>
+  </div>
+  <script>
+    document.getElementById("accept").addEventListener("click", () => {
+      fetch("/consent-accepted");
+      document.getElementById("cookie").remove();
+    });
+    function lazy() {
+      for (const img of document.querySelectorAll("img.lazy")) {
+        if (img.getBoundingClientRect().top < innerHeight + 100) {
+          img.src = img.dataset.image;
+          img.removeAttribute("data-image");
+          img.classList.remove("lazy");
+        }
+      }
+    }
+    addEventListener("scroll", lazy);
+    lazy();
+  </script>
+</body>
+</html>

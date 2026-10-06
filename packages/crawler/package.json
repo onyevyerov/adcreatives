@@ -2,5 +2,22 @@
   "name": "@adc/crawler",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@adc/shared": "workspace:*",
+    "@mozilla/readability": "^0.6.0",
+    "heic-convert": "^2.1.0",
+    "playwright": "^1.63.0",
+    "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "@types/heic-convert": "^2.1.1"
+  }
 }
