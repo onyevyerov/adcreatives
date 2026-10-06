@@ -161,7 +161,8 @@ describe("еталонні сцени (examples/*.tsx)", () => {
       return `${where} ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`;
     });
     expect(diagnostics).toEqual([]);
-  });
+    // Повна перевірка типів через compiler API під паралельним навантаженням триває понад 5 с.
+  }, 60_000);
 
   it.each(sceneFiles.map((f) => [path.basename(f), f]))("%s дотримується контракту сцени", (_name, file) => {
     expect(guard(file)).toEqual([]);
