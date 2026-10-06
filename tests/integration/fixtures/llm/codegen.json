@@ -1,0 +1,9 @@
+{
+  "usage": {
+    "input_tokens": 31200,
+    "output_tokens": 5400,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "textFile": "codegen.txt"
+}

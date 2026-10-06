@@ -1,0 +1,76 @@
+<file name="s1.tsx">
+/** Hook: наїзд на фото чашки, ціна піднімається знизу safe-зони, підзаголовок — після неї. */
+import type { SceneProps } from "@adc/motion-kit";
+import { Backdrop, Body, BrandImage, Headline, SafeArea, useFormat } from "@adc/motion-kit";
+import { AbsoluteFill } from "remotion";
+
+export default function Scene(props: SceneProps) {
+  const { unit, isLandscape } = useFormat();
+  const { headline, sub, emphasis } = props.scene.text;
+  const assetId = props.scene.assetIds[0];
+  const align = isLandscape ? "left" : "center";
+
+  return (
+    <AbsoluteFill>
+      {assetId ? (
+        <BrandImage
+          assetId={assetId}
+          kenBurns={{ from: 1, to: 1.12, direction: "in" }}
+          overlay={{ color: "#000000", opacity: 0.5 }}
+        />
+      ) : (
+        <Backdrop variant="gradient" animate />
+      )}
+      <SafeArea style={{ justifyContent: "flex-end", gap: 24 * unit }}>
+        <Headline
+          text={headline}
+          emphasis={emphasis}
+          preset="rise"
+          startFrame={4}
+          size={isLandscape ? "l" : "xl"}
+          color="#FFFFFF"
+          align={align}
+        />
+        {sub ? <Body text={sub} preset="fade" startFrame={14} color="#FFFFFF" align={align} /> : null}
+      </SafeArea>
+    </AbsoluteFill>
+  );
+}
+</file>
+<file name="s2.tsx">
+/** CTA: лого м'якою пружиною, заклик масштабом, кнопка пульсує на градієнті бренду. */
+import type { SceneProps } from "@adc/motion-kit";
+import {
+  Backdrop,
+  Body,
+  CTAButton,
+  Headline,
+  Logo,
+  mix,
+  readableOn,
+  SafeArea,
+  useFormat,
+  useTheme,
+} from "@adc/motion-kit";
+import { AbsoluteFill } from "remotion";
+
+export default function Scene(props: SceneProps) {
+  const theme = useTheme();
+  const { unit } = useFormat();
+  const { headline, sub, emphasis } = props.scene.text;
+  const dark = mix(theme.palette.primary, "#000000", 0.35);
+  const color = readableOn(dark, theme.palette);
+
+  return (
+    <AbsoluteFill>
+      <Backdrop variant="gradient" colors={[theme.palette.primary, dark]} angle={150} animate />
+      <SafeArea style={{ justifyContent: "center", alignItems: "center", gap: 40 * unit }}>
+        <Logo variant="onDark" startFrame={0} />
+        <Headline text={headline} emphasis={emphasis} preset="scale" startFrame={6} size="l" color={color} />
+        {sub ? <Body text={sub} preset="fade" startFrame={12} size="s" color={color} /> : null}
+        <CTAButton text={props.brand.cta.text} startFrame={16} variant="accent" />
+      </SafeArea>
+    </AbsoluteFill>
+  );
+}
+</file>

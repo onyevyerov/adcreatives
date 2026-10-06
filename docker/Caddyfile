@@ -1,0 +1,21 @@
+# HTTPS для демо: Caddy сам отримує й поновлює сертифікат Let's Encrypt для APP_DOMAIN
+# (DNS домену має вказувати на сервер, порти 80 і 443 відкриті).
+{$APP_DOMAIN} {
+	# Чат читає події через SSE — без буферизації відповіді.
+	reverse_proxy api:3000 {
+		flush_interval -1
+	}
+	# MP4 і PNG вже стиснуті; стискаємо лише текст (HTML, JSON, CSV), але не потік подій.
+	@compressible {
+		not path /api/projects/*/events
+		not path /files/*
+	}
+	encode @compressible zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	log
+}

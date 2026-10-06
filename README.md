@@ -89,3 +89,77 @@ import { createMockAnthropic } from "@adc/shared/llm";     // мок Anthropic �
   SDK `zodOutputFormat` переносить `enum` в опис і API їх не форсує.
 - **`readEvents` / SSE**: старт XRANGE за мілісекундною частиною `Last-Event-ID` з відсіканням
   попередніх записів у коді (однаково в Redis і `ioredis-mock`).
+
+## Запуск у Docker (локально)
+
+Один образ (`docker/Dockerfile`) для API і воркера; Redis з AOF; томи для Redis і `DATA_DIR`.
+
+```bash
+cp .env.example .env          # ANTHROPIC_API_KEY, ELEVENLABS_API_KEY, APP_PASSWORD
+docker compose up --build     # перша збірка ~5–10 хв: браузери + перевірочний 2-с рендер
+```
+
+Відкрити `http://localhost:3000` (порт — `PORT` з `.env`), ввести пароль (`APP_PASSWORD`, логін будь-який),
+вставити URL сайту. Статистика — `http://localhost:3000/stats`.
+
+- `api` — `apps/api` (HTTP, SSE, чат-сторінка); `worker` — `apps/worker` (усі черги BullMQ + оркестратор);
+  `redis` — `redis:7` з `appendonly yes`.
+- Том `data` → `/data` (`DATA_DIR`): проєкти, артефакти, `costs.jsonl`, кеш SFX. Том `redis-data` — черги й події чату.
+- Збірка без перевірочного рендера: `docker compose build --build-arg SMOKE=0`.
+- Кеш стандартних SFX (раз на деплой, платно):
+  `docker compose run --rm -e LIVE=1 worker /app/node_modules/.bin/tsx scripts/sfx-cache.ts`.
+- Кілька воркерів за чергами: `WORKER_QUEUES=render,cpu` в окремому сервісі (дефолт — усі черги в одному процесі).
+- Логи: `docker compose logs -f worker`. Зупинка: `docker compose down` (томи лишаються; `-v` — видалити дані).
+
+## Деплой на сервер (HTTPS)
+
+Потрібен Linux-сервер з Docker (орієнтовно 4 ядра, 8 ГБ), домен з A-записом на сервер, відкриті порти 80 і 443.
+
+```bash
+git clone <repo> adcreative && cd adcreative
+cp .env.example .env
+# у .env: ключі API, APP_PASSWORD (обов'язково не порожній), APP_DOMAIN=demo.example.com,
+#         REMOTION_LICENSE_KEY (якщо є Company License)
+docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+```
+
+`docker-compose.server.yml` додає Caddy (`docker/Caddyfile`): сертифікат Let's Encrypt для `APP_DOMAIN`
+отримується автоматично, SSE проксується без буферизації, порт API назовні не відкривається.
+Без `APP_DOMAIN` або з порожнім `APP_PASSWORD` compose відмовиться стартувати.
+Оновлення: `git pull && docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build`.
+Резервна копія даних: том `adcreative_data` (і `adcreative_redis-data` для історії чатів).
+
+## Eval
+
+`pnpm eval` проганяє пайплайн без чату по `eval/sites.json` (чекпоінти затверджуються автоматично,
+витрати пишуться з `source: "eval"`). Redis не потрібен — черги в пам'яті процесу, але стадії ті самі,
+що у воркері. Платно: потрібні ключі в `.env`. Формат списку — [eval/README.md](eval/README.md).
+
+```bash
+pnpm eval                                        # → eval/runs/<дата-час>/report.md
+pnpm eval --from codegen --run 2026-10-06-1530   # перезапуск етапу і всього після нього на збережених даних
+pnpm eval --from qa --run 2026-10-06-1530 --only # лише один етап
+```
+
+Порожній список — повідомлення «список порожній» без помилки. Звіт: вартість і час на сайт (настінний
+і машинний), частка сцен, що скомпілювались з першої спроби, частка QA pass, частка сцен-шаблонів,
+витрати за етапами; відео, постер, стіли й аркуші — у `eval/runs/<прогін>/sites/<сайт>/`.
+
+## CLI
+
+```bash
+pnpm tsx scripts/cli.ts run https://example.com --formats 9:16,1:1   # діалог у терміналі
+pnpm tsx scripts/cli.ts run --text "Шиномонтаж на Сихові…" --photo a.jpg --auto
+pnpm tsx scripts/cli.ts stats [--csv]                                 # статистика витрат DATA_DIR
+```
+
+`run` працює в тому ж `DATA_DIR`, що й API (проєкти видно на `/stats`), без Redis і браузера;
+витрати — з `source: "test"` (або `--source chat`).
+
+## Інтеграційний тест
+
+`pnpm --filter @adc/integration test` — пайплайн від URL локального сайту-фікстури через три чекпоінти до
+5-секундних mp4 у двох форматах: справжні краулер, бандл і рендер Remotion, оркестратор і стадії;
+відповіді LLM і ElevenLabs — записані (`tests/integration/fixtures/llm/`). Перевіряє і `costs.jsonl`
+(Anthropic з хешами промптів, ElevenLabs, Remotion), і `pnpm eval` (зокрема `--from`). Потрібні браузери:
+`pnpm exec playwright install chromium` і `pnpm --filter @adc/render exec remotion browser ensure`. ~2 хв.

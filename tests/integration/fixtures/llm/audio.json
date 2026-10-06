@@ -1,0 +1,28 @@
+{
+  "usage": {
+    "input_tokens": 3100,
+    "output_tokens": 640,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "json": {
+    "compositionPlan": {
+      "positiveGlobalStyles": ["lo-fi hip hop", "warm", "morning", "rhodes", "soft drums", "instrumental"],
+      "negativeGlobalStyles": ["vocals", "lyrics"],
+      "chunks": [
+        {
+          "label": "main",
+          "sceneIds": ["s1", "s2"],
+          "durationMs": 6000,
+          "positiveStyles": ["mellow groove", "gentle build"],
+          "negativeStyles": ["vocals"],
+          "contextAdherence": "high"
+        }
+      ]
+    },
+    "promptFallback": "Warm instrumental lo-fi hip hop with rhodes and soft drums, 85 bpm, no vocals.",
+    "sfx": [
+      { "cue": "whoosh", "text": "Soft airy whoosh transition", "durationSeconds": 0.6, "custom": false }
+    ]
+  }
+}

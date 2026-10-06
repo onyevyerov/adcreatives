@@ -1,0 +1,101 @@
+{
+  "usage": {
+    "input_tokens": 18450,
+    "output_tokens": 3120,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "json": {
+    "identity": {
+      "name": "Зерно",
+      "tagline": "Кава, яку обсмажуємо самі",
+      "category": "кав'ярня",
+      "language": "uk",
+      "city": "Львів",
+      "serviceArea": null
+    },
+    "languageVersions": [],
+    "palette": {
+      "primary": "#6B3E26",
+      "secondary": "#C89F7A",
+      "accent": "#E85D2A",
+      "background": "#FFF8F0",
+      "surface": "#F3E6D8",
+      "textOnDark": "#FFFFFF",
+      "textOnLight": "#1E1410"
+    },
+    "typography": {
+      "heading": { "family": "Montserrat", "weights": [700, 800], "origin": "substitute" },
+      "body": { "family": "Inter", "weights": [400, 600], "origin": "substitute" },
+      "detected": ["Georgia"]
+    },
+    "logo": { "assetId": "a01", "type": "svg", "needsBackground": false, "textFallback": "Зерно" },
+    "logoCandidates": ["a01"],
+    "voice": {
+      "tone": ["теплий", "дружній"],
+      "formality": "casual",
+      "description": "Говоримо як бариста з постійним гостем."
+    },
+    "audience": "Мешканці й гості центру Львова, які люблять спешелті каву",
+    "offerings": [
+      { "name": "Капучино", "description": "Спешелті еспресо з молоком", "price": "75 грн" },
+      { "name": "Сніданки", "description": "До 12:00", "price": null }
+    ],
+    "usps": ["Обсмажуємо зерно щотижня"],
+    "socialProof": { "rating": null, "reviewsCount": null, "quotes": [] },
+    "location": { "address": "Львів, вул. Руська, 1", "city": "Львів", "hours": "щодня 8:00–21:00" },
+    "contacts": {
+      "phones": ["+380 67 123 45 67"],
+      "emails": [],
+      "website": "http://zerno.test/",
+      "socials": []
+    },
+    "cta": { "text": "Забронюйте столик", "target": "http://zerno.test/menu.html" },
+    "facts": [
+      {
+        "id": "f1",
+        "kind": "price",
+        "text": "Капучино — 75 грн",
+        "source": "site",
+        "sourceUrl": "http://zerno.test/",
+        "quote": "Капучино — 75 грн."
+      }
+    ],
+    "visualStyle": {
+      "mood": ["затишний", "крафтовий"],
+      "motionPersonality": "calm",
+      "density": "balanced",
+      "shapes": "rounded",
+      "musicHints": ["lo-fi", "acoustic"]
+    },
+    "assets": [
+      {
+        "assetId": "a02",
+        "role": "hero",
+        "quality": 4,
+        "cropFocus": { "x": 0.4, "y": 0.5 },
+        "hasBakedText": false,
+        "description": "Чашка капучино на темному фоні"
+      },
+      {
+        "assetId": "a03",
+        "role": "interior",
+        "quality": 3,
+        "cropFocus": { "x": 0.5, "y": 0.4 },
+        "hasBakedText": false,
+        "description": "Зал кав'ярні"
+      }
+    ],
+    "gaps": [],
+    "confidence": 0.85,
+    "questions": [
+      {
+        "id": "q1",
+        "topic": "goal",
+        "text": "Яка головна мета ролика?",
+        "default": "Привести нових гостей",
+        "options": ["Привести нових гостей", "Анонс сніданків"]
+      }
+    ]
+  }
+}

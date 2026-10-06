@@ -2,5 +2,29 @@
   "name": "@adc/integration",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./harness": "./src/harness.ts",
+    "./eval": "./src/eval.ts",
+    "./cli": "./src/cli.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@adc/audio": "workspace:*",
+    "@adc/crawler": "workspace:*",
+    "@adc/pipeline": "workspace:*",
+    "@adc/shared": "workspace:*",
+    "@adc/worker": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@remotion/media-parser": "4.0.533",
+    "sharp": "^0.35.5",
+    "yaml": "^2.9.1"
+  }
 }

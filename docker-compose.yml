@@ -1,0 +1,58 @@
+# Локальний запуск усього демо: `docker compose up --build` → http://localhost:3000
+# Ключі й пароль — у кореневому .env (cp .env.example .env). Сервер з HTTPS — docker-compose.server.yml.
+name: adcreative
+
+x-app: &app
+  image: adcreative-app:latest
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  env_file:
+    - path: .env
+      required: false
+  environment: &app-env
+    REDIS_URL: redis://redis:6379/0
+    DATA_DIR: /data
+  volumes:
+    - data:/data
+  depends_on:
+    redis:
+      condition: service_healthy
+  init: true
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    <<: *app
+    environment:
+      <<: *app-env
+      PORT: "3000"
+    ports:
+      - "${PORT:-3000}:3000"
+    command: ["/app/node_modules/.bin/tsx", "apps/api/src/server.ts"]
+
+  worker:
+    <<: *app
+    command: ["/app/node_modules/.bin/tsx", "apps/worker/src/main.ts"]
+    # Chromium (краулер і рендер) потребує більше спільної пам'яті, ніж 64 МБ за замовчуванням.
+    shm_size: "1gb"
+    # Активні job при зупинці: воркер чекає їх до WORKER_SHUTDOWN_GRACE_MS (30 с), потім скасовує.
+    stop_grace_period: 45s
+
+volumes:
+  # DATA_DIR: проєкти, артефакти, журнали витрат, кеш SFX — спільний для api і worker.
+  data:
+  # Redis з AOF: черги BullMQ і події чату (Redis Streams) переживають перезапуск.
+  redis-data:

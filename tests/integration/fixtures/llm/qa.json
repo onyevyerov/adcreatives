@@ -1,0 +1,13 @@
+{
+  "usage": {
+    "input_tokens": 7400,
+    "output_tokens": 820,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "json": {
+    "verdict": "pass",
+    "issues": [],
+    "summary": "Тексти в safe-зоні, контраст достатній, фото не розтягнуте."
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "usage": {
+    "input_tokens": 9800,
+    "output_tokens": 2650,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "json": {
+    "concept": "Від чашки до столика: тепла кава в центрі Львова",
+    "hook": "Кава, яку обсмажуємо самі",
+    "fps": 30,
+    "scenes": [
+      {
+        "id": "s1",
+        "purpose": "hook",
+        "durationFrames": 75,
+        "transitionFrames": 0,
+        "text": { "headline": "Капучино — 75 грн", "sub": "-10% до 10:00", "emphasis": ["75 грн"] },
+        "factIds": ["f1"],
+        "assetIds": ["a02"],
+        "layoutIntent": "hero_image",
+        "motionIntent": "повільний наїзд на фото, заголовок знизу",
+        "transitionIn": "cut",
+        "sfxCue": null,
+        "musicEnergy": 0.5
+      },
+      {
+        "id": "s2",
+        "purpose": "cta",
+        "durationFrames": 90,
+        "transitionFrames": 15,
+        "text": { "headline": "Чекаємо на каву", "sub": "Львів, вул. Руська, 1", "emphasis": [] },
+        "factIds": [],
+        "assetIds": [],
+        "layoutIntent": "logo_lockup",
+        "motionIntent": "лого м'якою пружиною, кнопка пульсує",
+        "transitionIn": "fade",
+        "sfxCue": "whoosh",
+        "musicEnergy": 0.7
+      }
+    ],
+    "musicBrief": {
+      "genre": "lo-fi hip hop",
+      "mood": ["теплий", "ранковий"],
+      "bpm": 85,
+      "instrumentation": ["rhodes", "soft drums"],
+      "structure": [{ "label": "main", "sceneIds": ["s1", "s2"], "energy": 0.6 }]
+    },
+    "copyRules": {
+      "maxCharsPerLine": { "vertical": 18, "square": 22, "landscape": 32 },
+      "maxLines": { "headline": 3, "sub": 2 }
+    }
+  }
+}

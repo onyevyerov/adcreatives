@@ -1,0 +1,24 @@
+# Ігнор-файл для docker/Dockerfile (BuildKit бере <Dockerfile>.dockerignore замість кореневого).
+# node_modules з Windows не потрапляють в образ: залежності ставляться всередині Linux.
+**/node_modules
+.pnpm-store
+.git
+.claude
+.idea
+.vscode
+
+# Секрети й дані — лише через env і томи
+.env
+.env.*
+!.env.example
+.data
+**/.data
+eval/runs
+
+# Результати збірок і рендерів
+**/out
+**/bundle
+**/dist
+**/coverage
+**/*.log
+**/*.tsbuildinfo
