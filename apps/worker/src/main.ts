@@ -1,3 +1,4 @@
+import { createChatLlmFactory, createPipelineDriver, createRedisLock } from "@adc/pipeline";
 import {
   createAnthropicClient,
   createConsoleLogger,
@@ -38,9 +39,20 @@ async function main(): Promise<void> {
     //   prepareRenderJob,
   });
 
-  // TODO(integration): wire @adc/pipeline —
-  //   const driver = createPipelineDriver({ storage, queue, redis, prompts, prices, logger, ... });
-  const driver: PipelineDriver | null = null;
+  // Оркестратор (B7). Клієнт Anthropic створюється ліниво: без ключа воркер стартує,
+  // а chat-intent/chat-reply впадуть лише при реальному виклику.
+  let chatLlm: ReturnType<typeof createChatLlmFactory> | null = null;
+  const driver: PipelineDriver = createPipelineDriver({
+    storage,
+    queue,
+    lock: createRedisLock(redis),
+    emitter: (projectId) => createEmitter(redis, projectId),
+    llm: (ctx) => {
+      chatLlm ??= createChatLlmFactory({ client: createAnthropicClient(), prompts, storage, prices, logger });
+      return chatLlm(ctx);
+    },
+    logger,
+  });
 
   const running = startWorkers({
     connection,

@@ -19,6 +19,7 @@
     "@adc/audio": "workspace:*",
     "@adc/brandkit": "workspace:*",
     "@adc/crawler": "workspace:*",
+    "@adc/pipeline": "workspace:*",
     "@adc/render": "workspace:*",
     "@adc/shared": "workspace:*",
     "bullmq": "^6.3.11",
