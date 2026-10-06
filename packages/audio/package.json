@@ -2,5 +2,18 @@
   "name": "@adc/audio",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
+    "live": "tsx live/live.ts"
+  },
+  "dependencies": {
+    "@adc/shared": "workspace:*",
+    "@elevenlabs/elevenlabs-js": "^2.71.0",
+    "zod": "^4.6.5"
+  }
 }
