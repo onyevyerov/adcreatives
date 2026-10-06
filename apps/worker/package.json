@@ -19,6 +19,7 @@
     "@adc/audio": "workspace:*",
     "@adc/brandkit": "workspace:*",
     "@adc/crawler": "workspace:*",
+    "@adc/director": "workspace:*",
     "@adc/pipeline": "workspace:*",
     "@adc/render": "workspace:*",
     "@adc/shared": "workspace:*",

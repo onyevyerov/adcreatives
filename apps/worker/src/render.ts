@@ -156,16 +156,3 @@ export function createRenderStage(deps: RenderStageDeps): Stage<"render"> {
     }
   };
 }
-
-/**
- * Заглушка до інтеграції з B4.
- * TODO(integration): wire @adc/director — `import { prepareRenderJob } from "@adc/director"`.
- */
-export const stubPrepareRenderJob: PrepareRenderJob = async () => {
-  throw new StageError(
-    "prepareRenderJob ще не підключено (@adc/director)",
-    "not_implemented",
-    "Рендер ще не підключено.",
-    false,
-  );
-};

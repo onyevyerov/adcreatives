@@ -1,14 +1,14 @@
 import { audioStage } from "@adc/audio";
 import { brandkitPatchStage, brandkitStage } from "@adc/brandkit";
 import { crawlStage, ingestStage } from "@adc/crawler";
-import { QUEUE_NAMES, STAGE_NAMES, STAGE_QUEUE, StageError } from "@adc/shared";
+import { QUEUE_NAMES, STAGE_NAMES, STAGE_QUEUE } from "@adc/shared";
 import { describe, expect, it } from "vitest";
 import {
   createStageRegistry,
+  defaultDirectorStages,
   queueOf,
   resolveStage,
   stagesForQueue,
-  stubDirectorStages,
 } from "../src/stages.ts";
 
 describe("stage registry", () => {
@@ -56,19 +56,14 @@ describe("stage registry", () => {
     expect(resolveStage(registry, "pipeline", "render")).toBeNull();
   });
 
-  it("director stubs throw StageError not_implemented (non-retryable)", async () => {
-    const stubs = stubDirectorStages();
-    for (const stage of Object.values(stubs)) {
-      const err = await (stage as (ctx: never) => Promise<unknown>)({} as never).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(StageError);
-      expect((err as StageError).code).toBe("not_implemented");
-      expect((err as StageError).retryable).toBe(false);
-    }
-  });
-
   it("director stages and overrides are injectable", () => {
     const storyboard = async () => ({ artifacts: [], outputs: { unverifiedClaims: 0, totalFrames: 450 } });
-    const director = { ...stubDirectorStages(), storyboard };
+    const director = {
+      ...defaultDirectorStages(() => {
+        throw new Error("engine is not used here");
+      }),
+      storyboard,
+    };
     const crawl = async () => ({
       artifacts: [],
       outputs: { mode: "site" as const, partial: false, pages: 1, photos: 0 },

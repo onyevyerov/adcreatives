@@ -31,13 +31,7 @@ async function main(): Promise<void> {
   const prompts = createPromptLoader();
   const queue = createBullQueue({ connection });
 
-  const registry = createStageRegistry({
-    // TODO(integration): wire @adc/director —
-    //   director: { storyboard: storyboardStage, codegen: codegenStage,
-    //               check: createCheckStage({ engine: createRenderEngine() }),
-    //               fix: fixStage, qa: qaStage, revise: reviseStage },
-    //   prepareRenderJob,
-  });
+  const registry = createStageRegistry();
 
   // Оркестратор (B7). Клієнт Anthropic створюється ліниво: без ключа воркер стартує,
   // а chat-intent/chat-reply впадуть лише при реальному виклику.

@@ -9,17 +9,11 @@ import {
   type RenderMediaOptions,
   type RenderStillOptions,
   readCosts,
-  StageError,
 } from "@adc/shared";
 import { fixtureAudioManifest, fixtureBrandKit } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { buildStageContext } from "../src/context.ts";
-import {
-  createRenderStage,
-  type PrepareRenderJobArgs,
-  posterFrame,
-  stubPrepareRenderJob,
-} from "../src/render.ts";
+import { createRenderStage, type PrepareRenderJobArgs, posterFrame } from "../src/render.ts";
 import { makeDeps, stageJob, tempStorage, writeProject } from "./helpers.ts";
 
 const storyboard = shortStoryboard([
@@ -178,11 +172,5 @@ describe("renderStage", () => {
     await expect(stage(ctx as never)).rejects.toThrow("ffmpeg впав");
     expect(calls.closed).toBe(1);
     expect(await readCosts(storage, "p1")).toEqual([]);
-  });
-
-  it("stub prepareRenderJob → StageError not_implemented", async () => {
-    const err = await stubPrepareRenderJob({} as never).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(StageError);
-    expect((err as StageError).code).toBe("not_implemented");
   });
 });

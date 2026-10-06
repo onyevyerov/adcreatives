@@ -109,6 +109,9 @@ importers:
       '@adc/crawler':
         specifier: workspace:*
         version: link:../../packages/crawler
+      '@adc/director':
+        specifier: workspace:*
+        version: link:../../packages/director
       '@adc/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline

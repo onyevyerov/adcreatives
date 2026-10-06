@@ -1,6 +1,15 @@
 import { audioStage } from "@adc/audio";
 import { brandkitPatchStage, brandkitStage } from "@adc/brandkit";
 import { crawlStage, ingestStage } from "@adc/crawler";
+import {
+  codegenStage,
+  createCheckStage,
+  fixStage,
+  prepareRenderJob,
+  qaStage,
+  reviseStage,
+  storyboardStage,
+} from "@adc/director";
 import { createRenderEngine } from "@adc/render";
 import {
   type QueueName,
@@ -8,10 +17,9 @@ import {
   STAGE_NAMES,
   STAGE_QUEUE,
   type Stage,
-  StageError,
   type StageName,
 } from "@adc/shared";
-import { createRenderStage, type PrepareRenderJob, stubPrepareRenderJob } from "./render.ts";
+import { createRenderStage, type PrepareRenderJob } from "./render.ts";
 
 /** Реєстр: назва стадії → функція `Stage` відповідного типу. */
 export type StageRegistry = { [S in StageName]: Stage<S> };
@@ -20,38 +28,22 @@ export type StageRegistry = { [S in StageName]: Stage<S> };
 export type DirectorStageName = "storyboard" | "codegen" | "check" | "fix" | "qa" | "revise";
 export type DirectorStages = { [S in DirectorStageName]: Stage<S> };
 
-function notImplemented<S extends StageName>(stage: S): Stage<S> {
-  return async () => {
-    throw new StageError(
-      `стадія ${stage} ще не підключена (@adc/director)`,
-      "not_implemented",
-      "Цей етап ще не підключено.",
-      false,
-    );
-  };
-}
-
-/**
- * Заглушки стадій режисера до злиття B4.
- * TODO(integration): wire @adc/director — замінити на
- *   `{ storyboard: storyboardStage, codegen: codegenStage, check: createCheckStage({ engine }),
- *      fix: fixStage, qa: qaStage, revise: reviseStage }` з `@adc/director`.
- */
-export function stubDirectorStages(): DirectorStages {
+/** Стадії режисера з `@adc/director`; check отримує новий рушій рендеру на кожен запуск. */
+export function defaultDirectorStages(createEngine: () => RenderEngine): DirectorStages {
   return {
-    storyboard: notImplemented("storyboard"),
-    codegen: notImplemented("codegen"),
-    check: notImplemented("check"),
-    fix: notImplemented("fix"),
-    qa: notImplemented("qa"),
-    revise: notImplemented("revise"),
+    storyboard: storyboardStage,
+    codegen: codegenStage,
+    check: createCheckStage({ engine: createEngine }),
+    fix: fixStage,
+    qa: qaStage,
+    revise: reviseStage,
   };
 }
 
 export interface StageRegistryDeps {
-  /** Стадії режисера; дефолт — заглушки `not_implemented`. */
+  /** Стадії режисера; дефолт — `@adc/director`. */
   director?: DirectorStages;
-  /** Підготовка теки рендеру; дефолт — заглушка `not_implemented`. */
+  /** Підготовка теки рендеру; дефолт — `prepareRenderJob` з `@adc/director`. */
   prepareRenderJob?: PrepareRenderJob;
   /** Фабрика рушія рендеру (новий на кожну задачу); дефолт — Remotion з `@adc/render`. */
   createEngine?: () => RenderEngine;
@@ -60,7 +52,8 @@ export interface StageRegistryDeps {
 }
 
 export function createStageRegistry(deps: StageRegistryDeps = {}): StageRegistry {
-  const director = deps.director ?? stubDirectorStages();
+  const createEngine = deps.createEngine ?? (() => createRenderEngine());
+  const director = deps.director ?? defaultDirectorStages(createEngine);
   const registry: StageRegistry = {
     crawl: crawlStage,
     ingest: ingestStage,
@@ -69,8 +62,8 @@ export function createStageRegistry(deps: StageRegistryDeps = {}): StageRegistry
     ...director,
     audio: audioStage,
     render: createRenderStage({
-      prepareRenderJob: deps.prepareRenderJob ?? stubPrepareRenderJob,
-      createEngine: deps.createEngine ?? (() => createRenderEngine()),
+      prepareRenderJob: deps.prepareRenderJob ?? prepareRenderJob,
+      createEngine,
     }),
   };
   return { ...registry, ...deps.overrides } as StageRegistry;

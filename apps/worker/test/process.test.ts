@@ -120,17 +120,6 @@ describe("runStageJob", () => {
     expect(deps.queue.pipeline[0]).toEqual({ kind: "stage_event", event });
   });
 
-  it("director stub → stage_failed not_implemented", async () => {
-    const storage = await tempStorage();
-    await writeProject(storage);
-    const deps = makeDeps(storage);
-    const event = await runStageJob("llm", stageJob("storyboard", { durationSeconds: null }), deps);
-    expect(event).toMatchObject({
-      type: "stage_failed",
-      error: { code: "not_implemented", retryable: false },
-    });
-  });
-
   it("a stage that doesn't belong to the queue → stage_failed unknown_stage", async () => {
     const storage = await tempStorage();
     const deps = makeDeps(storage, { crawl: crawlOk });
