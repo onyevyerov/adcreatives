@@ -126,7 +126,7 @@ function CTAButton(props: { text: string; startFrame?: number; variant?: "accent
 interface Mask { type: "rounded" | "circle" | "blob" | "diagonal"; }
 
 function BrandImage(props: {
-  assetId: string;              // ключ з props.assets; невідомий id → нейтральний фон + QA-лог stretched_image
+  assetId: string;              // ключ з props.assets; невідомий id → нейтральний фон + QA-лог missing_asset
   fit?: "cover" | "contain";    // дефолт "cover"
   focal?: { x: number; y: number }; // дефолт — AssetRef.focal
   kenBurns?: { from: number; to: number; direction?: "in" | "out" | "left" | "right" | "up" | "down" }; // масштаб 1.0–1.25
@@ -136,7 +136,7 @@ function BrandImage(props: {
   overlay?: { color: string; opacity: number }; // затемнення під текст
   startFrame?: number;
   style?: React.CSSProperties;  // розмір і позиція контейнера
-}): JSX.Element;                // QA-логи stretched_image / upscaled_image
+}): JSX.Element;                // QA-логи stretched_image / upscaled_image / missing_asset
 
 function Logo(props: {
   size?: number;                // висота, px
@@ -203,9 +203,8 @@ export default { s1: S1, s2: S2 };   // Record<sceneId, ComponentType<SceneProps
 QA-режим: кожен компонент, що виявив проблему, пише в консоль браузера
 `ADC_QA {"kind":"text_overflow","component":"FitText","detail":"…","value":12,"frame":75}`.
 Види (`AutoIssueKind`): `text_overflow`, `text_min_size`, `outside_safe_area`, `stretched_image`,
-`upscaled_image`, `low_contrast`. Стадія `check` збирає їх через `onBrowserLog`.
-Невідомий `assetId` у `BrandImage` логується як `stretched_image` з detail «невідомий assetId …»
-(окремого виду в `AutoIssueKind` немає). Однаковий запис логується раз на монтування компонента.
+`upscaled_image`, `low_contrast`, `missing_asset` (невідомий `assetId` у `BrandImage`).
+Стадія `check` збирає їх через `onBrowserLog`. Однаковий запис логується раз на монтування компонента.
 
 ## Типи (реекспорт із `@adc/shared`)
 

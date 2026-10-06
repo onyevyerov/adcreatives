@@ -46,6 +46,7 @@ export interface RenderMediaOptions {
 export interface RenderEngine {
   bundleJob(opts: BundleJobOptions): Promise<{ serveUrl: string }>;
   renderStill(opts: RenderStillOptions): Promise<{ logs: BrowserLog[] }>;
+  /** `durationMs` — машинний час рендеру (wall clock), не тривалість відео. */
   renderMedia(opts: RenderMediaOptions): Promise<{ durationMs: number }>;
   close(): Promise<void>;
 }

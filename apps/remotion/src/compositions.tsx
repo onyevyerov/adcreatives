@@ -1,6 +1,6 @@
 import { AssetsProvider, MusicTrack, QaProvider, Sfx, ThemeProvider } from "@adc/motion-kit";
 import { FORMAT_SIZE } from "@adc/shared/schemas/common";
-import { computeTimeline } from "@adc/shared/timeline";
+import { computeSfxPlacements, computeTimeline } from "@adc/shared/timeline";
 import { TransitionSeries } from "@remotion/transitions";
 import { type ReactNode, useMemo } from "react";
 import { AbsoluteFill, type CalculateMetadataFunction } from "remotion";
@@ -60,12 +60,9 @@ export function Main(props: MainInput) {
             <TransitionSeries>{series}</TransitionSeries>
           </AbsoluteFill>
           <MusicTrack audio={props.audio} totalFrames={timeline.totalFrames} />
-          {props.storyboard.scenes.map((scene, i) => {
-            const t = timeline.scenes[i];
-            return scene.sfxCue && t ? (
-              <Sfx key={`sfx-${scene.id}`} cue={scene.sfxCue} audio={props.audio} from={t.from} />
-            ) : null;
-          })}
+          {computeSfxPlacements(props.storyboard, props.audio.sfx).map((p) => (
+            <Sfx key={`sfx-${p.sceneId}`} cue={p.cue} audio={props.audio} from={p.from} />
+          ))}
         </QaProvider>
       </AssetsProvider>
     </ThemeProvider>

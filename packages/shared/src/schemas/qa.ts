@@ -11,6 +11,8 @@ export const AutoIssueKind = z.enum([
   "stretched_image",
   "upscaled_image",
   "low_contrast",
+  /** `BrandImage`/`Logo` з assetId, якого немає в `assets`. */
+  "missing_asset",
 ]);
 export type AutoIssueKind = z.infer<typeof AutoIssueKind>;
 

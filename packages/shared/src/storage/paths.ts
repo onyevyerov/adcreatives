@@ -61,6 +61,8 @@ export function projectPaths(projectId: string) {
     screenshot: (fileName: string) => join(root, "crawl", "screenshots", fileName),
     brandkitDir: join(root, "brandkit"),
     brandkit: (version: number) => join(root, "brandkit", `v${version}.json`),
+    /** Контакт-лист асетів (монтаж мініатюр з номерами), вхід бренд-кіта. */
+    contactSheet: join(root, "brandkit", "contact-sheet.png"),
     audioDir: join(root, "audio"),
     music: (planHash: string) => join(root, "audio", planHash, "music.mp3"),
     musicMeta: (planHash: string) => join(root, "audio", planHash, "music.json"),
