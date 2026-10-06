@@ -2,5 +2,29 @@
   "name": "@adc/render",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
+    "smoke": "tsx scripts/smoke.ts",
+    "browser": "remotion browser ensure"
+  },
+  "dependencies": {
+    "@adc/motion-kit": "workspace:*",
+    "@adc/remotion": "workspace:*",
+    "@adc/shared": "workspace:*",
+    "@remotion/bundler": "4.0.533",
+    "@remotion/google-fonts": "4.0.533",
+    "@remotion/renderer": "4.0.533",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@remotion/cli": "4.0.533",
+    "@remotion/media-parser": "4.0.533"
+  }
 }

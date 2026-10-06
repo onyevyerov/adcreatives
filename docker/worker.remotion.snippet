@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# B3: Remotion для воркера — сніпет для Dockerfile воркера (власник Dockerfile — B9).
+#
+# Як вставляти:
+#   1) блок «БАЗА» — замість звичайного FROM node:22-…: системні залежності
+#      Chrome Headless Shell (Debian bookworm) + шрифти з кирилицею для резервного стеку;
+#   2) блок «ПІСЛЯ pnpm install» — у робочому образі, коли монорепо вже в /app
+#      і залежності встановлені ВСЕРЕДИНІ Linux (pnpm install --frozen-lockfile;
+#      node_modules з Windows не копіювати — потрібні linux-бінарники
+#      @remotion/compositor-linux-x64-gnu і @rspack/binding-linux-x64-gnu).
+#
+# Перевірено локально: docker build зі сніпета + `pnpm smoke` усередині контейнера (див. звіт B3).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── БАЗА ─────────────────────────────────────────────────────────────────────
+FROM node:22-bookworm-slim AS remotion-base
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+       ca-certificates \
+       libnss3 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 \
+       libasound2 libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 \
+       libpango-1.0-0 libcairo2 libexpat1 \
+       fonts-noto-core fonts-dejavu-core \
+  && rm -rf /var/lib/apt/lists/*
+RUN corepack enable
+WORKDIR /app
+
+# ── ПІСЛЯ pnpm install (монорепо в /app) ─────────────────────────────────────
+# Chrome Headless Shell у фіксованому місці; рендер бере шлях з env
+# (інакше Remotion шукає браузер біля package.json, найближчого до cwd процесу).
+RUN pnpm --filter @adc/render exec remotion browser ensure
+ENV REMOTION_BROWSER_EXECUTABLE=/app/packages/render/node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell
+# Прогрів і перевірка образу: бандл (rspack) + 2-секундний рендер h264/aac.
+# Rspack у Remotion 4.0.533 не пише персистентний кеш (enableCaching діє лише для webpack),
+# тож прогрів — це перевірка браузера/ffmpeg/rspack-бінарника; холодний бандл задачі ~1.5–3 с.
+# Шрифти Google Fonts вантажаться з мережі під час рендеру (без мережі — резервний стек Noto).
+RUN pnpm smoke && rm -rf packages/render/out
+# Опційно: REMOTION_LICENSE_KEY (Company License) передавати як env контейнера, не в образ.
