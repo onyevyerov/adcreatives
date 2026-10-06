@@ -152,6 +152,45 @@ describe("llm wrapper", () => {
     expect(client.remaining()).toBe(1);
   });
 
+  it("схема, завелика для граматики API: повтор без output_config.format, схема — у промпті", async () => {
+    const Big = z.object({ color: z.enum(["red", "green"]), note: z.string() });
+    const tooLarge = () =>
+      new Anthropic.BadRequestError(
+        400,
+        {
+          type: "error",
+          error: {
+            type: "invalid_request_error",
+            message:
+              "The compiled grammar is too large, which would cause performance issues. Simplify your tool schemas or reduce the number of strict tools.",
+          },
+        },
+        "400 The compiled grammar is too large, which would cause performance issues.",
+        new Headers(),
+      );
+    const { llm, client, storage } = setup([
+      { error: tooLarge() },
+      { text: 'Ось відповідь:\n```json\n{"color":"green","note":"ok"}\n```', usage },
+      { text: '{"color":"red","note":"знову"}', usage },
+    ]);
+    const res = await llm.structured("pick", { brand: "Зерно" }, Big);
+    expect(res.data).toEqual({ color: "green", note: "ok" });
+    const [first, second] = client.calls.map((c) => c.params as Anthropic.MessageCreateParamsNonStreaming);
+    expect(first?.output_config?.format).toBeDefined();
+    expect(second?.output_config?.format).toBeUndefined();
+    const userText = JSON.stringify(second?.messages);
+    expect(userText).toContain("JSON Schema");
+    expect(userText).toContain('\\"note\\"'); // поле схеми є в тексті промпта
+    // Та сама схема далі йде одразу без граматики — без зайвого 400.
+    const again = await llm.structured("pick", { brand: "Зерно" }, Big);
+    expect(again.data).toEqual({ color: "red", note: "знову" });
+    expect(client.calls).toHaveLength(3);
+    const third = client.calls[2]?.params as Anthropic.MessageCreateParamsNonStreaming | undefined;
+    expect(third?.output_config?.format).toBeUndefined();
+    // 400 не тарифікується: витрати лише за дві успішні відповіді.
+    expect(await readCosts(storage, "p1")).toHaveLength(2);
+  });
+
   it("broken stream records partial usage as inexact", async () => {
     const { llm, storage } = setup([
       {

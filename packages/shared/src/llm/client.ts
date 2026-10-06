@@ -152,6 +152,41 @@ function textOf(message: Message): string {
     .join("");
 }
 
+/**
+ * API відмовляє в structured output, якщо граматика схеми завелика (BrandKit: ~95 полів).
+ * Ліміт сумарний і точно не задокументований, тож такі схеми передаємо в промпті, а відповідь
+ * перевіряє Zod (з тим самим одним повтором). Схеми, що вже не скомпілювались, пам'ятаємо.
+ */
+const GRAMMAR_TOO_LARGE = /compiled grammar is too large|schema is too complex/i;
+const promptOnlySchemas = new Set<string>();
+
+function isGrammarTooLarge(err: unknown): boolean {
+  return err instanceof Anthropic.APIError && err.status === 400 && GRAMMAR_TOO_LARGE.test(err.message);
+}
+
+function schemaInPromptNote(jsonSchema: unknown): string {
+  return [
+    "Формат відповіді: лише один JSON-об'єкт без markdown-огорож і без тексту до чи після нього.",
+    "Він має точно відповідати цій JSON Schema (усі поля обов'язкові; null — лише там, де схема його",
+    "дозволяє; значення enum — дослівно):",
+    "<json_schema>",
+    JSON.stringify(jsonSchema),
+    "</json_schema>",
+  ].join("\n");
+}
+
+/** JSON з відповіді: як є, або перший об'єкт у тексті (модель могла додати огорожу чи фразу). */
+function extractJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
+    throw err;
+  }
+}
+
 function formatZodIssues(error: z.ZodError): string {
   return error.issues
     .slice(0, 12)
@@ -185,7 +220,10 @@ export function createLlm(options: CreateLlmOptions): Llm {
     const baseUser = [prompt.user, opts.userText].filter((s): s is string => Boolean(s?.trim())).join("\n\n");
     if (!baseUser) throw new LlmError(`промпт ${name}: немає user-частини`, "prompt");
 
-    const format = schema ? { type: "json_schema" as const, schema: toStrictJsonSchema(schema) } : undefined;
+    const jsonSchema = schema ? toStrictJsonSchema(schema) : null;
+    const schemaKey = jsonSchema ? JSON.stringify(jsonSchema) : "";
+    // Схема в промпті замість граматики API (див. GRAMMAR_TOO_LARGE).
+    let schemaInPrompt = jsonSchema !== null && promptOnlySchemas.has(schemaKey);
     const costs: CostEvent[] = [];
     let attempt = 0;
     let refusalRetried = false;
@@ -211,9 +249,15 @@ export function createLlm(options: CreateLlmOptions): Llm {
     };
 
     const buildParams = (): CreateParams => {
-      const extra = [refusalRetried ? REFUSAL_RETRY_NOTE : null, validationFeedback]
+      const extra = [
+        refusalRetried ? REFUSAL_RETRY_NOTE : null,
+        schemaInPrompt ? schemaInPromptNote(jsonSchema) : null,
+        validationFeedback,
+      ]
         .filter(Boolean)
         .join("\n\n");
+      const format =
+        jsonSchema && !schemaInPrompt ? { type: "json_schema" as const, schema: jsonSchema } : null;
       const content: ContentBlockParam[] = [
         ...(opts.images ?? []).map(imageBlock),
         { type: "text", text: extra ? `${baseUser}\n\n${extra}` : baseUser },
@@ -279,7 +323,18 @@ export function createLlm(options: CreateLlmOptions): Llm {
     };
 
     for (;;) {
-      const message = await callWithTransportRetries();
+      let message: Message;
+      try {
+        message = await callWithTransportRetries();
+      } catch (err) {
+        if (jsonSchema && !schemaInPrompt && err instanceof LlmError && isGrammarTooLarge(err.cause)) {
+          schemaInPrompt = true;
+          promptOnlySchemas.add(schemaKey);
+          logger.warn("схема завелика для граматики API — передаю її в промпті", { prompt: name });
+          continue;
+        }
+        throw err;
+      }
 
       if (message.stop_reason === "refusal") {
         if (!refusalRetried) {
@@ -306,7 +361,7 @@ export function createLlm(options: CreateLlmOptions): Llm {
 
       let problem: string;
       try {
-        const parsed = schema.safeParse(JSON.parse(text));
+        const parsed = schema.safeParse(schemaInPrompt ? extractJson(text) : JSON.parse(text));
         if (parsed.success) return { data: parsed.data, text, message, prompt, costs, usd };
         problem = formatZodIssues(parsed.error);
       } catch (err) {
