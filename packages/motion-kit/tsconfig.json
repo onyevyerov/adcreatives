@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@adc/motion-kit": ["./src/index.ts"]
+    }
+  },
+  "include": ["src", "examples", "test", "scripts"]
+}

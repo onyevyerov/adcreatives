@@ -35,19 +35,21 @@ interface Theme {
   palette: BrandKit["palette"];          // primary, secondary, accent, background, surface, textOnDark, textOnLight
   fonts: { heading: string; body: string }; // CSS font-family, вже завантажені
   weights: { heading: number[]; body: number[] };
-  radius: { sm: number; md: number; lg: number; pill: number }; // px, з visualStyle.shapes
+  radius: { sm: number; md: number; lg: number; pill: number }; // px для unit = 1, з visualStyle.shapes
   motion: MotionPersonality;             // energetic | calm | premium | playful
   density: "airy" | "balanced" | "dense";
 }
 
-function ThemeProvider(props: { brand: BrandKit; children: React.ReactNode }): JSX.Element; // ставить хост
+function ThemeProvider(props: { brand: BrandKit; fonts?: FontInfo[]; children: React.ReactNode }): JSX.Element; // ставить хост
 function useTheme(): Theme;
-/** Колір тексту з достатнім контрастом для фону (textOnDark / textOnLight). */
-function readableOn(background: string): string;
+/** Колір тексту з достатнім контрастом для фону (textOnDark / textOnLight); передавайте theme.palette. */
+function readableOn(background: string, palette?: { textOnDark: string; textOnLight: string }): string;
 ```
 
 Шрифти — через `@remotion/google-fonts` з `subsets: ["latin", "cyrillic"]` і лише потрібними `weights`
-(з `brand.typography`); `ThemeProvider` чекає їх завантаження (`delayRender`).
+(з `brand.typography`); `ThemeProvider` чекає їх завантаження (`delayRender`) і не малює дітей до того.
+Метадані шрифтів (`fonts`, `FontInfo` з `@remotion/google-fonts`) резолвить `@adc/render` у Node і передає
+в inputProps — у бандл не потрапляють ~1800 модулів шрифтів.
 
 ### Формат і safe-зона
 
@@ -97,22 +99,25 @@ function KineticText(props: {
   startFrame?: number;          // дефолт 0
   stagger?: number;             // кадрів між елементами, дефолт залежить від theme.motion
   emphasis?: string[];          // слова з акцентом (колір accent)
-  maxLines?: number;
+  maxLines?: number;            // дефолт 3
   maxFontSize: number;
   minFontSize: number;
+  width?: number;               // px, дефолт — ширина safe-зони
   font?: "heading" | "body";
   color?: string;
   align?: "left" | "center" | "right";
+  style?: React.CSSProperties;
 }): JSX.Element;
 
-/** Заголовок сцени: FitText/KineticText з токенами теми (font heading, вага max). */
-function Headline(props: { text: string; emphasis?: string[]; preset?: TextPreset; startFrame?: number; maxLines?: number; size?: "m" | "l" | "xl"; color?: string; align?: "left" | "center" | "right" }): JSX.Element;
-/** Підзаголовок / основний текст (font body). */
-function Body(props: { text: string; preset?: TextPreset; startFrame?: number; maxLines?: number; size?: "s" | "m" | "l"; color?: string; align?: "left" | "center" | "right" }): JSX.Element;
+/** Заголовок сцени: FitText/KineticText з токенами теми (font heading, вага max). Без preset — статичний.
+ *  Дефолти: size "l" (max/min px: m 76/44, l 100/52, xl 128/60 × unit), maxLines 3, align "center". */
+function Headline(props: { text: string; emphasis?: string[]; preset?: TextPreset; startFrame?: number; maxLines?: number; size?: "m" | "l" | "xl"; color?: string; align?: "left" | "center" | "right"; width?: number; style?: React.CSSProperties }): JSX.Element;
+/** Підзаголовок / основний текст (font body). Дефолти: size "m" (s 34/26, m 42/30, l 54/34 × unit), maxLines 3. */
+function Body(props: { text: string; preset?: TextPreset; startFrame?: number; maxLines?: number; size?: "s" | "m" | "l"; color?: string; align?: "left" | "center" | "right"; width?: number; emphasis?: string[]; style?: React.CSSProperties }): JSX.Element;
 /** Плашка: ціна, знижка, бейдж. */
-function Pill(props: { text: string; startFrame?: number; variant?: "accent" | "primary" | "surface"; size?: "s" | "m" | "l" }): JSX.Element;
+function Pill(props: { text: string; startFrame?: number; variant?: "accent" | "primary" | "surface"; size?: "s" | "m" | "l"; style?: React.CSSProperties }): JSX.Element;
 /** Кнопка CTA з м'якою пульсацією. */
-function CTAButton(props: { text: string; startFrame?: number; variant?: "accent" | "primary"; size?: "m" | "l" }): JSX.Element;
+function CTAButton(props: { text: string; startFrame?: number; variant?: "accent" | "primary"; size?: "m" | "l"; style?: React.CSSProperties }): JSX.Element;
 ```
 
 ### Зображення і лого
@@ -121,7 +126,7 @@ function CTAButton(props: { text: string; startFrame?: number; variant?: "accent
 interface Mask { type: "rounded" | "circle" | "blob" | "diagonal"; }
 
 function BrandImage(props: {
-  assetId: string;              // ключ з props.assets; невідомий id → нейтральний фон + QA-лог
+  assetId: string;              // ключ з props.assets; невідомий id → нейтральний фон + QA-лог stretched_image
   fit?: "cover" | "contain";    // дефолт "cover"
   focal?: { x: number; y: number }; // дефолт — AssetRef.focal
   kenBurns?: { from: number; to: number; direction?: "in" | "out" | "left" | "right" | "up" | "down" }; // масштаб 1.0–1.25
@@ -176,12 +181,31 @@ function templateVariantFor(purpose: ScenePurpose): "hero" | "text" | "image" | 
 function QaProvider(props: { enabled: boolean; children: React.ReactNode }): JSX.Element;
 /** Пише рядок `ADC_QA {json}` у console (JSON — QaLogEntry з @adc/shared/schemas). */
 function qaLog(entry: QaLogEntry): void;
+/** Розбирає рядок логу браузера; не QA-рядок → null (для стадії check). */
+function parseQaLog(text: string): QaLogEntry | null;
+/** Асети ревізії для BrandImage/Logo і тривалість поточної сцени (kenBurns/parallax) — ставить хост. */
+function AssetsProvider(props: { assets: Record<string, AssetRef>; children: React.ReactNode }): JSX.Element;
+function SceneDurationProvider(props: { durationInFrames: number; children: React.ReactNode }): JSX.Element;
 ```
+
+Реєстр сцен задачі (`rev/<n>/video/scenes/index.ts`, генерує codegen; хост імпортує його як `@job/scenes`):
+
+```ts
+import S1 from "./s1.tsx";
+import S2 from "./s2.tsx";
+export default { s1: S1, s2: S2 };   // Record<sceneId, ComponentType<SceneProps>>
+```
+
+Сцени, яких немає в реєстрі або які є в `templateScenes`, малює `TemplateScene`. У `Main` сцена, що впала
+в runtime, підміняється `TemplateScene` (лог `ADC_SCENE_ERROR {sceneId, message}`); у `ScenePreview` помилка
+доходить до `renderStill` (`RenderError` з логами браузера).
 
 QA-режим: кожен компонент, що виявив проблему, пише в консоль браузера
 `ADC_QA {"kind":"text_overflow","component":"FitText","detail":"…","value":12,"frame":75}`.
 Види (`AutoIssueKind`): `text_overflow`, `text_min_size`, `outside_safe_area`, `stretched_image`,
 `upscaled_image`, `low_contrast`. Стадія `check` збирає їх через `onBrowserLog`.
+Невідомий `assetId` у `BrandImage` логується як `stretched_image` з detail «невідомий assetId …»
+(окремого виду в `AutoIssueKind` немає). Однаковий запис логується раз на монтування компонента.
 
 ## Типи (реекспорт із `@adc/shared`)
 
@@ -196,3 +220,13 @@ interface AssetRef { src: string; width: number; height: number; focal: { x: num
 
 `packages/motion-kit/examples/*.tsx` — 4–5 сцен (hook з фото, оффер із ціною, типографічна сцена,
 proof, CTA з лого). Компілюються в тестах і підставляються в промпт `codegen` як зразки.
+
+## Зміни після Кроку 0 (B3, хвиля 1)
+
+Усі зміни сумісні (лише додано необов'язкове):
+- `readableOn(background, palette?)` — другий параметр, бо функція поза хуком не знає палітри бренду.
+- `ThemeProvider` — необов'язковий `fonts?: FontInfo[]` (метадані Google Fonts від рендера).
+- `Headline`/`Body`/`KineticText` — `width?`, `style?`; `Body` — `emphasis?`; `Pill`/`CTAButton` — `style?`.
+- Лише для хоста: `AssetsProvider`, `SceneDurationProvider`, `parseQaLog`; контракт `scenes/index.ts` (default export реєстру).
+- Додаткові чисті хелпери (не обов'язкові для сцен): `formatInfoFor`, `SAFE_MARGINS`, `mix`, `withAlpha`,
+  `contrastRatio`, `fitText`, `markEmphasis`, `headingWeight`, `bodyWeight` тощо — див. `API.generated.md`.
