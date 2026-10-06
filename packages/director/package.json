@@ -2,5 +2,30 @@
   "name": "@adc/director",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
+    "live:scenes": "tsx live/scenes.ts"
+  },
+  "dependencies": {
+    "@adc/brandkit": "workspace:*",
+    "@adc/motion-kit": "workspace:*",
+    "@adc/shared": "workspace:*",
+    "@remotion/layout-utils": "4.0.533",
+    "@remotion/paths": "4.0.533",
+    "@remotion/shapes": "4.0.533",
+    "@types/react": "19.3.0",
+    "react": "19.3.0",
+    "remotion": "4.0.533",
+    "sharp": "^0.35.5",
+    "typescript": "~6.0.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@adc/render": "workspace:*"
+  }
 }
