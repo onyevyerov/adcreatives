@@ -1,4 +1,10 @@
-import { type AudioManifest, computeTimeline, msToFrames, type Storyboard } from "@adc/shared";
+import {
+  type AudioManifest,
+  computeSfxPlacements,
+  computeTimeline,
+  msToFrames,
+  type Storyboard,
+} from "@adc/shared";
 import {
   MUSIC_FADE_OUT_MS,
   MUSIC_VOLUME,
@@ -54,8 +60,7 @@ export interface AudioPlacement {
 /**
  * Розміщення звуку на таймлайні (те, що робить хост за `scene.sfxCue`), як чиста функція:
  * музика з кадру 0 до кінця ролика з fade-out (трек довший і підрізається);
- * SFX — на початку послідовності сцени (тобто на початку переходу), `riser` — так, щоб
- * закінчитись на цій межі. Cue без файлу в маніфесті пропускаються.
+ * SFX — за спільним правилом `computeSfxPlacements` із `@adc/shared` (те саме, що в хості).
  */
 export function computeAudioPlacements(
   storyboard: Pick<Storyboard, "fps" | "scenes">,
@@ -80,21 +85,10 @@ export function computeAudioPlacements(
     });
   }
   const lib = new Map(manifest.sfx.map((s) => [s.cue, s]));
-  timeline.scenes.forEach((ts, i) => {
-    const cue = storyboard.scenes[i]?.sfxCue;
-    const sfx = cue ? lib.get(cue) : undefined;
-    if (!cue || !sfx) return;
-    const len = Math.max(1, Math.ceil((sfx.durationMs / 1000) * fps));
-    const from = cue === "riser" ? Math.max(0, ts.from - len) : ts.from;
-    out.push({
-      kind: "sfx",
-      cue,
-      sceneId: ts.id,
-      src: sfx.src,
-      from,
-      durationInFrames: Math.max(1, Math.min(len, timeline.totalFrames - from)),
-      volume: sfx.volume,
-    });
-  });
+  for (const p of computeSfxPlacements(storyboard, manifest.sfx)) {
+    const sfx = lib.get(p.cue);
+    if (!sfx) continue;
+    out.push({ kind: "sfx", ...p, src: sfx.src, volume: sfx.volume });
+  }
   return out;
 }

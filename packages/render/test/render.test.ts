@@ -250,7 +250,7 @@ describe("slow: RemotionRenderEngine", () => {
     expect(qa).toContainEqual(expect.objectContaining({ kind: "outside_safe_area", component: "Pill" }));
     expect(qa).toContainEqual(expect.objectContaining({ kind: "upscaled_image", component: "BrandImage" }));
     expect(qa).toContainEqual(
-      expect.objectContaining({ kind: "stretched_image", detail: expect.stringContaining("nope") }),
+      expect.objectContaining({ kind: "missing_asset", detail: expect.stringContaining("nope") }),
     );
   });
 

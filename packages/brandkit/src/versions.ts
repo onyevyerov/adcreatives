@@ -25,5 +25,5 @@ export async function readBrandkit(
 
 /** Ключ контакт-листа асетів (поруч із версіями бренд-кіта). */
 export function contactSheetKey(projectId: string): string {
-  return `${projectPaths(projectId).brandkitDir}/contact-sheet.png`;
+  return projectPaths(projectId).contactSheet;
 }

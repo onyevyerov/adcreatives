@@ -90,7 +90,7 @@ export function BrandImage(props: BrandImageProps) {
     component: "BrandImage",
     extra: (el, report) => {
       if (!asset) {
-        report("stretched_image", `невідомий assetId "${props.assetId}" — показано нейтральний фон`, null);
+        report("missing_asset", `невідомий assetId "${props.assetId}" — показано нейтральний фон`, null);
         return;
       }
       const box = { width: el.offsetWidth, height: el.offsetHeight };

@@ -1,9 +1,9 @@
-import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { findRepoRoot } from "../src/env.ts";
-import { buildPrompt, createPromptLoader, PromptError } from "../src/llm/prompts.ts";
+import { buildPrompt, createPromptLoader, PromptError, parsePromptFile } from "../src/llm/prompts.ts";
 
 const RAW = `---
 model: claude-sonnet-5-5
@@ -48,7 +48,6 @@ describe("prompts", () => {
 
   it("all repo prompts have valid frontmatter", () => {
     const dir = path.join(findRepoRoot(), "prompts");
-    const loader = createPromptLoader({ dir });
     const names = [
       ...readdirSync(dir)
         .filter((f) => f.endsWith(".md"))
@@ -70,6 +69,9 @@ describe("prompts", () => {
         "storyboard",
       ].sort(),
     );
-    for (const n of names) expect(() => loader.load(n)).not.toThrow();
+    // Лише frontmatter: наповнені промпти мають {{змінні}}, які передає стадія.
+    for (const n of names) {
+      expect(() => parsePromptFile(readFileSync(path.join(dir, `${n}.md`), "utf8"), n)).not.toThrow();
+    }
   });
 });
