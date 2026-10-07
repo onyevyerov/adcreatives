@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   approxMeasurer,
+  fitSingleLine,
   fitText,
   type Measurer,
   markEmphasis,
@@ -89,6 +90,48 @@ describe("fitText", () => {
       fitText({ text: "  ", maxLines: 2, width: 100, maxFontSize: 50, minFontSize: 10, measure: mono }),
     ).toMatchObject({
       lines: [],
+      overflow: false,
+    });
+  });
+});
+
+describe("fitSingleLine", () => {
+  // mono: символ 0.5 em; CTA l: номінал 56, мінімум 34 (60%), padding 2.8 em.
+  const cta = { maxFontSize: 56, minFontSize: 34, paddingEm: 2.8, measure: mono };
+
+  it("короткий текст лишається на номіналі", () => {
+    // "-30%" = 2 em + 2.8 em = 4.8 em → 269 px на 56 px.
+    expect(fitSingleLine({ ...cta, text: "-30%", width: 960 })).toEqual({
+      fontSize: 56,
+      shrunk: false,
+      overflow: false,
+    });
+  });
+
+  it("стискає до найбільшого цілого кегля, з яким бокс влазить", () => {
+    // 24 символи = 12 em + 2.8 em = 14.8 em; 960 / 14.8 = 64.9 → номінал 56 влазить.
+    // 32 символи = 16 em + 2.8 em = 18.8 em; 960 / 18.8 = 51.06 → 51.
+    const r = fitSingleLine({ ...cta, text: "a".repeat(32), width: 960 });
+    expect(r).toEqual({ fontSize: 51, shrunk: true, overflow: false });
+    expect(mono("a".repeat(32), r.fontSize) + 2.8 * r.fontSize).toBeLessThanOrEqual(960);
+  });
+
+  it("не влазить навіть на мінімумі → overflow, кегль = мінімум", () => {
+    // 60 символів = 32.8 em; 960 / 32.8 = 29.3 < 34.
+    expect(fitSingleLine({ ...cta, text: "a".repeat(60), width: 960 })).toEqual({
+      fontSize: 34,
+      shrunk: true,
+      overflow: true,
+    });
+  });
+
+  it("вужча ширина (maxWidth) стискає той самий текст", () => {
+    // 16 символів = 10.8 em: у 960 px — номінал, у 420 px — 420 / 10.8 = 38.9 → 38.
+    const text = "a".repeat(16);
+    expect(fitSingleLine({ ...cta, text, width: 960 }).fontSize).toBe(56);
+    expect(fitSingleLine({ ...cta, text, width: 420 })).toEqual({
+      fontSize: 38,
+      shrunk: true,
       overflow: false,
     });
   });

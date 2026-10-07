@@ -132,6 +132,40 @@ export function fitText(input: FitInput): FitResult {
   };
 }
 
+export interface SingleLineFitInput {
+  text: string;
+  /** Доступна ширина всього боксу, px. */
+  width: number;
+  maxFontSize: number;
+  minFontSize: number;
+  /** Сумарний горизонтальний padding боксу в em. */
+  paddingEm: number;
+  measure: Measurer;
+}
+
+export interface SingleLineFitResult {
+  fontSize: number;
+  /** Розмір менший за maxFontSize. */
+  shrunk: boolean;
+  /** Не влазить навіть на minFontSize (fontSize = minFontSize). */
+  overflow: boolean;
+}
+
+/**
+ * Найбільший розмір ≤ maxFontSize, з яким текст в один рядок разом із padding влазить у width:
+ * measure(text, f) + paddingEm × f ≤ width. Ширина лінійна по f, тож розмір рахується замкнуто.
+ */
+export function fitSingleLine(input: SingleLineFitInput): SingleLineFitResult {
+  const max = input.maxFontSize;
+  const min = Math.min(input.minFontSize, max);
+  const perPx = input.measure(input.text, 1) + input.paddingEm;
+  const fit = perPx > 0 ? Math.min(max, input.width / perPx) : max;
+  if (fit < min) return { fontSize: min, shrunk: true, overflow: true };
+  // Округлення вниз (з допуском на похибку float): округлений вгору розмір вже не влазить.
+  const fontSize = Math.max(min, Math.floor(fit + 1e-9));
+  return { fontSize, shrunk: fontSize < max, overflow: false };
+}
+
 /** Нормалізація слова для порівняння з emphasis: регістр і пунктуація по краях. */
 export function normalizeWord(word: string): string {
   return word.toLocaleLowerCase().replace(/^[^\p{L}\p{N}%+\-$€₴]+|[^\p{L}\p{N}%$€₴]+$/gu, "");
