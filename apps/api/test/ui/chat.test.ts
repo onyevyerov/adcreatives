@@ -91,7 +91,7 @@ describe("chat · елементи стрічки (C4, X1)", () => {
 
   it("system — мітка «Система»; текст клієнта не розбирається", () => {
     const base = fixture("awaitingBrand");
-    const feed = [
+    const feed: FeedItem[] = [
       ...base.feed,
       {
         kind: "message",
@@ -132,11 +132,11 @@ describe("chat · елементи стрічки (C4, X1)", () => {
 
   it("прогрес: лічильник done/total лише якщо мітка його не містить", () => {
     const base = fixture("directing");
-    const feed = [
+    const feed: FeedItem[] = [
       {
         kind: "progress",
         id: "p-1",
-        at: base.feed[0]?.at,
+        at: base.feed[0]?.at ?? "",
         stage: "crawl",
         label: "Сканую",
         done: 3,
@@ -146,7 +146,7 @@ describe("chat · елементи стрічки (C4, X1)", () => {
       {
         kind: "progress",
         id: "p-2",
-        at: base.feed[0]?.at,
+        at: base.feed[0]?.at ?? "",
         stage: "crawl",
         label: "Сканую 3/9",
         done: 3,
@@ -233,6 +233,7 @@ describe("chat · картки чекпоінтів", () => {
   it("cardState: активна лише при збігу ревізії, state open і статусу awaiting", () => {
     const s = fixture("awaitingBrand");
     const item = s.feed.find((i: Item) => i.kind === "checkpoint");
+    if (item?.kind !== "checkpoint") throw new Error("немає картки чекпоінта");
     expect(cardState(item, s)).toBe("active");
     expect(cardState(item, { ...s, status: "scripting" })).toBe("idle");
     const entry = s.checkpoints.brand;
@@ -274,7 +275,7 @@ describe("chat · кнопки повідомлень", () => {
 
   it("без картки approve/edit живуть в останньому повідомленні з ними", () => {
     const base = fixture("awaitingBrand");
-    const feed = [
+    const feed: FeedItem[] = [
       { kind: "message", id: "m-1", at, role: "assistant", text: "Старе", buttons: ["approve", "edit"] },
       { kind: "message", id: "m-2", at, role: "assistant", text: "Нове", buttons: ["approve", "edit"] },
     ];
@@ -288,7 +289,7 @@ describe("chat · кнопки повідомлень", () => {
 
   it("approve/edit поза awaiting_* сховані", () => {
     const base = fixture("awaitingBrand");
-    const feed = [
+    const feed: FeedItem[] = [
       { kind: "message", id: "m-1", at, role: "assistant", text: "x", buttons: ["approve", "edit"] },
     ];
     const { visible, $ } = setup({ ...base, status: "scripting", feed });
@@ -298,7 +299,7 @@ describe("chat · кнопки повідомлень", () => {
 
   it("restart_confirm → confirmRestart; ховається, коли з'явилось новіше повідомлення з кнопками", async () => {
     const base = fixture("delivered");
-    const restart = {
+    const restart: FeedItem = {
       kind: "message",
       id: "m-r",
       at,
