@@ -14,6 +14,10 @@
  *   застосовує `PATHS[jump]`; `?speed=2` — удвічі швидше.
  *
  * Пауза між подіями сегмента = min(Δ`at`, 2,5 с) / speed; перша подія сегмента — 0,4 с / speed.
+ *
+ * `at` фікстури переписується на реальний час: програна подія отримує «зараз», а `?jump=` зсуває
+ * весь шлях так, щоб остання подія була «зараз». Інакше машинний час (busySince → Date.now())
+ * рахувався б від дат фікстури.
  */
 import { reduce, reduceAll } from "./reduce.js";
 
@@ -71,13 +75,26 @@ export function createMockBackend(store, { params }) {
   }
 
   /**
+   * Подія з `at`, зсунутим на `shiftMs`.
+   * @param {StoredEvent} stored
+   * @param {number} shiftMs
+   * @returns {StoredEvent}
+   */
+  const shifted = ({ id, event }, shiftMs) => ({
+    id,
+    event: { ...event, at: new Date(Date.parse(event.at) + shiftMs).toISOString() },
+  });
+
+  /** «Зараз», але не раніше за останню програну подію (час у стрічці йде по порядку). */
+  const nowAfterLast = () => Math.max(Date.now(), lastAt ? Date.parse(lastAt) + 1 : 0);
+
+  /**
    * Синтетична подія (echo, відповідь): `at` — на секунду після останньої програної.
    * @param {ChatEventInput} draft
    * @returns {StoredEvent}
    */
   function synth(draft) {
-    const base = lastAt ? Date.parse(lastAt) : Date.now();
-    const at = new Date(base + 1000).toISOString();
+    const at = new Date(nowAfterLast()).toISOString();
     lastAt = at;
     return { id: `mock-${++seq}`, event: /** @type {ChatEvent} */ ({ ...draft, at }) };
   }
@@ -100,7 +117,7 @@ export function createMockBackend(store, { params }) {
       const at = Date.parse(stored.event.at);
       const delay = prevAt === null ? FIRST_DELAY_MS : Math.min(Math.max(0, at - prevAt), GAP_CAP_MS);
       prevAt = at;
-      queue.push({ delay, make: () => stored });
+      queue.push({ delay, make: () => shifted(stored, nowAfterLast() - Date.parse(stored.event.at)) });
     }
     pump();
   }
@@ -143,19 +160,17 @@ export function createMockBackend(store, { params }) {
       if (jump && !path) console.warn(`[mock] немає шляху «${jump}»: ${Object.keys(fx.PATHS).join(", ")}`);
       jump = null;
       if (path) {
-        const events = fx.eventsOf(path);
+        const raw = fx.eventsOf(path);
+        const lastRaw = raw.at(-1);
+        const shiftMs = lastRaw ? Date.now() - Date.parse(lastRaw.event.at) : 0;
+        const events = raw.map((e) => shifted(e, shiftMs));
         store.setState((s) => reduceAll(s, events));
         lastAt = events.at(-1)?.event.at ?? null;
         failedOnce = path.includes("failed");
         revised = path.includes("revisionAfterDelivery");
         return;
       }
-      const first = fx.segments.toBrand[0];
-      if (intakeText) {
-        // Echo адреси — за 2 с до першої події фікстури, щоб час у стрічці йшов по порядку.
-        if (first) lastAt = new Date(Date.parse(first.event.at) - 3000).toISOString();
-        echo(intakeText);
-      }
+      if (intakeText) echo(intakeText);
       play(fx.segments.toBrand);
     },
 

@@ -298,7 +298,10 @@ describe("mock (?mock=1)", () => {
       site: "zerno.example.com",
       conn: "online",
     });
-    expect(s.checkpoints).toEqual(fixtureStates.awaitingBrand?.checkpoints);
+    // `at` mock зсуває до реального часу — решта як у фікстурі.
+    const { at: _at, ...brand } = s.checkpoints.brand ?? { at: "" };
+    const { at: _fxAt, ...fxBrand } = fixtureStates.awaitingBrand?.checkpoints.brand ?? { at: "" };
+    expect(brand).toEqual(fxBrand);
 
     await actions.approve();
     await vi.runAllTimersAsync();
@@ -374,6 +377,27 @@ describe("mock (?mock=1)", () => {
     s = store.getState();
     expect(s).toMatchObject({ status: "delivered", rev: 2 });
     expect(s.artifacts.videos.filter((v) => v.rev === 2)).toHaveLength(2);
+  });
+
+  it("час подій — реальний: jump зсуває шлях до «зараз», програвання ставить поточний час", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-01-01T12:00:00.000Z"));
+    stubFetch();
+    const store = createStore<UiState>(initialState("start", null));
+    const actions = make(store, "mock=1&jump=brand");
+    await actions.ready;
+    let s = store.getState();
+    // Тривалості фікстури збережено, остання подія — «зараз».
+    expect(s.busyMs).toBe(fixtureStates.awaitingBrand?.busyMs);
+    expect(Date.parse(s.feed.at(-1)?.at ?? "")).toBe(Date.now());
+
+    await actions.approve();
+    await vi.advanceTimersByTimeAsync(1000);
+    s = store.getState();
+    expect(s.status).toBe("scripting");
+    const since = Date.parse(s.busySince ?? "");
+    expect(Date.now() - since).toBeGreaterThanOrEqual(0);
+    expect(Date.now() - since).toBeLessThan(5000);
   });
 
   it("?fail=1: approve на чекпоінті 2 один раз веде у failed", async () => {
