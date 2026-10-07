@@ -1,7 +1,7 @@
 # `@adc/motion-kit` — декларації API (згенеровано)
 
 > Не редагувати вручну. Згенеровано з `.d.ts` командою `pnpm --filter @adc/motion-kit docs`.
-> Контракт і правила для сцен — `API.md`; еталонні сцени — `examples/*.tsx`.
+> Контракт і правила для сцен — `CONTRACT.md`; еталонні сцени — `examples/*.tsx`.
 
 ## Вхід пакета (`@adc/motion-kit`)
 
@@ -614,6 +614,28 @@ export interface FitResult {
 }
 /** Найбільший розмір шрифту ≤ maxFontSize, з яким текст влазить у maxLines рядків ширини width. */
 export declare function fitText(input: FitInput): FitResult;
+export interface SingleLineFitInput {
+    text: string;
+    /** Доступна ширина всього боксу, px. */
+    width: number;
+    maxFontSize: number;
+    minFontSize: number;
+    /** Сумарний горизонтальний padding боксу в em. */
+    paddingEm: number;
+    measure: Measurer;
+}
+export interface SingleLineFitResult {
+    fontSize: number;
+    /** Розмір менший за maxFontSize. */
+    shrunk: boolean;
+    /** Не влазить навіть на minFontSize (fontSize = minFontSize). */
+    overflow: boolean;
+}
+/**
+ * Найбільший розмір ≤ maxFontSize, з яким текст в один рядок разом із padding влазить у width:
+ * measure(text, f) + paddingEm × f ≤ width. Ширина лінійна по f, тож розмір рахується замкнуто.
+ */
+export declare function fitSingleLine(input: SingleLineFitInput): SingleLineFitResult;
 /** Нормалізація слова для порівняння з emphasis: регістр і пунктуація по краях. */
 export declare function normalizeWord(word: string): string;
 /**
