@@ -1,10 +1,12 @@
-import { type CSSProperties, useRef } from "react";
+import { type CSSProperties, useMemo, useRef } from "react";
 import { spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { readableOn } from "../color.ts";
 import { useFormat } from "../format.tsx";
 import { springs } from "../motion.ts";
-import { BG_ATTR, useQaCheck } from "../qa.tsx";
-import { headingWeight, useTheme } from "../theme.tsx";
+import { BG_ATTR, type QaCheckOptions, useQaCheck } from "../qa.tsx";
+import { headingWeight, type Theme, useTheme } from "../theme.tsx";
+import { fitSingleLine, type SingleLineFitResult } from "./layout.ts";
+import { createMeasurer } from "./measure.ts";
 import { type TextAlign, TextBlock, type TextPreset } from "./TextBlock.tsx";
 
 export type { TextAlign, TextPreset };
@@ -117,6 +119,56 @@ export function Body(props: {
 
 const PILL_SIZE = { s: 30, m: 42, l: 60 } as const;
 
+/**
+ * Кегль для тексту в один рядок: від nominal до 60% nominal, щоб бокс (текст + padding)
+ * вліз у style.maxWidth (якщо число) або в ширину safe-зони.
+ */
+function useSingleLineFit(
+  theme: Theme,
+  text: string,
+  nominal: number,
+  paddingEm: number,
+  style: CSSProperties | undefined,
+): SingleLineFitResult & { width: number } {
+  const { safe } = useFormat();
+  const width = typeof style?.maxWidth === "number" ? style.maxWidth : safe.width;
+  const family = theme.fonts.heading;
+  const weight = headingWeight(theme);
+  return useMemo(
+    () => ({
+      width,
+      ...fitSingleLine({
+        text,
+        width,
+        maxFontSize: nominal,
+        minFontSize: Math.round(nominal * 0.6),
+        paddingEm,
+        measure: createMeasurer(family, weight),
+      }),
+    }),
+    [text, width, nominal, paddingEm, family, weight],
+  );
+}
+
+/** QA-лог підгонки в один рядок: text_overflow має пріоритет над text_min_size. */
+function singleLineReport(
+  text: string,
+  fit: SingleLineFitResult & { width: number },
+): QaCheckOptions["extra"] {
+  return (_el, report) => {
+    const short = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+    if (fit.overflow) {
+      report(
+        "text_overflow",
+        `«${short}» не влазить в один рядок ширини ${Math.round(fit.width)} px навіть на мінімумі ${fit.fontSize} px`,
+        fit.fontSize,
+      );
+    } else if (fit.shrunk) {
+      report("text_min_size", `«${short}» зменшено до ${fit.fontSize} px`, fit.fontSize);
+    }
+  };
+}
+
 function useEntrance(startFrame: number | undefined, config = springs.snappy): number {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -137,9 +189,17 @@ export function Pill(props: {
   const ref = useRef<HTMLDivElement>(null);
   const bg = theme.palette[props.variant ?? "accent"];
   const fg = readableOn(bg, theme.palette);
-  const fontSize = Math.round(PILL_SIZE[props.size ?? "m"] * unit);
+  const nominal = Math.round(PILL_SIZE[props.size ?? "m"] * unit);
+  // Padding 0.85em з кожного боку.
+  const fit = useSingleLineFit(theme, props.text, nominal, 1.7, props.style);
+  const fontSize = fit.fontSize;
   const p = useEntrance(props.startFrame);
-  useQaCheck(ref, { component: "Pill", safeArea: true, contrast: true });
+  useQaCheck(ref, {
+    component: "Pill",
+    safeArea: true,
+    contrast: true,
+    extra: singleLineReport(props.text, fit),
+  });
   return (
     <div
       {...{ [BG_ATTR]: bg }}
@@ -184,13 +244,21 @@ export function CTAButton(props: {
   const ref = useRef<HTMLDivElement>(null);
   const bg = theme.palette[props.variant ?? "accent"];
   const fg = readableOn(bg, theme.palette);
-  const fontSize = Math.round(CTA_SIZE[props.size ?? "l"] * unit);
+  const nominal = Math.round(CTA_SIZE[props.size ?? "l"] * unit);
+  // Padding 1.4em з кожного боку.
+  const fit = useSingleLineFit(theme, props.text, nominal, 2.8, props.style);
+  const fontSize = fit.fontSize;
   const start = props.startFrame ?? 0;
   const p = useEntrance(start);
   // Пульсація після появи: 0 → +4% → 0, період ~1.2 с.
   const t = Math.max(0, frame - start - 18) / fps;
   const pulse = 0.04 * ((1 - Math.cos(t * Math.PI * 2 * 0.8)) / 2);
-  useQaCheck(ref, { component: "CTAButton", safeArea: true, contrast: true });
+  useQaCheck(ref, {
+    component: "CTAButton",
+    safeArea: true,
+    contrast: true,
+    extra: singleLineReport(props.text, fit),
+  });
   return (
     <div
       {...{ [BG_ATTR]: bg }}
