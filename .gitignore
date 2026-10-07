@@ -21,3 +21,6 @@ out/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Тимчасові файли тестових прогонів
+_tmp_*
