@@ -1,1 +1,196 @@
-/* .tb- / .tl- · B3 · топбар і таймлайн (C2, C3). Заглушка Кроку 0 — блок замінює вміст. */
+/* .tb- / .tl- · B3 · топбар і таймлайн (C2, C3, T3, T4). */
+
+/* ───────────── Топбар (C2) · 56px · padding 0 24px ───────────── */
+
+.tb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  height: var(--topbar-h);
+  padding: 0 24px;
+}
+
+.tb-left {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.tb-wordmark {
+  flex: none;
+}
+
+.tb-wordmark:hover {
+  color: var(--ink);
+}
+
+.tb-sep {
+  flex: none;
+  color: var(--muted);
+  font: 400 13px / 1 var(--f-mono);
+}
+
+.tb-host {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tb-right {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 20px;
+}
+
+.tb-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font: 400 13px / 1 var(--f-ui);
+  white-space: nowrap;
+}
+
+.tb-status--failed {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.tb-dot--idle {
+  background: var(--muted);
+}
+
+.tb-cost {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tb-cost__sum {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.tb-new {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.tb-stats {
+  color: var(--ink-2);
+  font: 500 13px / 1 var(--f-ui);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tb-stats:hover {
+  color: var(--accent);
+}
+
+/* ───────────── Таймлайн (C3) · padding 14 24 30 · тіки 12px, крок 8px ───────────── */
+
+.tl {
+  padding: 14px 24px 30px;
+}
+
+.tl-labels {
+  display: flex;
+  padding-bottom: 10px;
+  font: 500 10.5px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tl-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--t-hover);
+}
+
+.tl-label--done,
+.tl-label--active {
+  color: var(--ink);
+}
+
+.tl-label--active .tl-label__num {
+  color: var(--accent);
+}
+
+.tl-scale {
+  position: relative;
+  height: 12px;
+  background: repeating-linear-gradient(90deg, var(--tick) 0 1px, transparent 1px 8px);
+}
+
+.tl-passed {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  background: repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 8px);
+  transition: width var(--t-playhead) var(--ease);
+}
+
+.tl-scale .tl-diamond {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+/* Майбутній ромб перекриває тіки фоном таймлайну. */
+.tl-scale .tl-diamond--idle {
+  background: var(--paper);
+}
+
+.tl-playhead {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  left: 0;
+  width: 0;
+  transition: left var(--t-playhead) var(--ease);
+}
+
+.tl-playhead__line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -0.75px;
+  width: 1.5px;
+  background: var(--accent);
+}
+
+.tl-chip {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  padding: 3px 6px;
+  border-radius: var(--r-4);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 10.5px / 1 var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+/* На 100% чип притиснутий до правого краю шкали. */
+.tl-playhead--end .tl-chip {
+  right: 0;
+  left: auto;
+  transform: none;
+}
