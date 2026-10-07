@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<title>AdCreative dev · sheet-square</title>
+<rect width="1080" height="1080" fill="#F3E6D8"/>
+<text x="540" y="200" font-family="Montserrat, Arial, sans-serif" font-size="48" font-weight="700" fill="#1E1410" text-anchor="middle">Аркуш · 1:1</text>
+<rect x="40" y="370" width="320" height="320" rx="12" fill="#6B3E26"/>
+<text x="200" y="520" font-family="Montserrat, Arial, sans-serif" font-size="34" font-weight="700" fill="#FFF8F0" text-anchor="middle">Кава, яку</text>
+<text x="200" y="660" font-family="Montserrat, Arial, sans-serif" font-size="22" font-weight="500" fill="#FFF8F0" text-anchor="middle">S1 · 1:1</text>
+<rect x="380" y="370" width="320" height="320" rx="12" fill="#C89F7A"/>
+<text x="540" y="520" font-family="Montserrat, Arial, sans-serif" font-size="34" font-weight="700" fill="#FFF8F0" text-anchor="middle">Капучино —</text>
+<text x="540" y="660" font-family="Montserrat, Arial, sans-serif" font-size="22" font-weight="500" fill="#FFF8F0" text-anchor="middle">S2 · 1:1</text>
+<rect x="720" y="370" width="320" height="320" rx="12" fill="#1E1410"/>
+<text x="880" y="520" font-family="Montserrat, Arial, sans-serif" font-size="34" font-weight="700" fill="#FFF8F0" text-anchor="middle">Забронюйте</text>
+<text x="880" y="660" font-family="Montserrat, Arial, sans-serif" font-size="22" font-weight="500" fill="#FFF8F0" text-anchor="middle">S3 · 1:1</text>
+</svg>

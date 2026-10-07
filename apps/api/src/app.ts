@@ -7,6 +7,7 @@ import { basicAuth, sameOriginGuard } from "./auth.ts";
 import type { ApiDeps } from "./deps.ts";
 import { filesHandler } from "./routes/files.ts";
 import { projectsRoutes } from "./routes/projects.ts";
+import { staticHandler } from "./routes/static.ts";
 import { statsRoutes } from "./routes/stats.ts";
 
 /**
@@ -33,6 +34,7 @@ export function createApp(deps: ApiDeps): Hono {
   app.route("/api/projects", projectsRoutes(deps));
   app.route("/", statsRoutes(deps));
   app.get("/files/*", filesHandler(deps));
+  app.get("/static/*", staticHandler(deps));
 
   const index = async () => readFile(path.join(deps.config.publicDir, "index.html"), "utf8");
   app.get("/", async (c) => c.html(await index()));
