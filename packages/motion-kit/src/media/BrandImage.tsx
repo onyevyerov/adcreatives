@@ -2,7 +2,8 @@ import type { AssetRef } from "@adc/shared/types/video";
 import { type CSSProperties, useRef } from "react";
 import { Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { mix } from "../color.ts";
-import { easings } from "../motion.ts";
+import { useFormat } from "../format.tsx";
+import { easings, progress } from "../motion.ts";
 import { BG_ATTR, qaLog, useQaCheck, useQaEnabled } from "../qa.tsx";
 import { useAssets, useSceneDuration, useTheme } from "../theme.tsx";
 
@@ -75,6 +76,7 @@ function maskStyle(
 export function BrandImage(props: BrandImageProps) {
   const assets = useAssets();
   const theme = useTheme();
+  const { unit } = useFormat();
   const frame = useCurrentFrame();
   const { durationInFrames: compDuration } = useVideoConfig();
   const duration = useSceneDuration(compDuration);
@@ -107,12 +109,13 @@ export function BrandImage(props: BrandImageProps) {
     },
   });
 
-  const shape = maskStyle(props.mask, props.radius, theme.radius.lg);
+  const shape = maskStyle(props.mask, props.radius, theme.radius.lg * unit);
   const container: CSSProperties = {
     position: "absolute",
     inset: 0,
     overflow: "hidden",
     ...shape,
+    opacity: props.startFrame !== undefined ? progress(frame, start, 10, easings.out) : 1,
     ...props.style,
   };
 
