@@ -52,6 +52,18 @@ const STAGE_FILES: Record<StageView, string> = {
 
 const stubs = () => [...document.querySelectorAll("[data-stub]")].map((n) => n.getAttribute("data-stub"));
 
+/** Області, куди app.js монтує view (заглушки поступово замінюються справжніми view). */
+const AREAS = ["start", "topbar", "timeline", "chat", "stage"] as const;
+const area = (id: (typeof AREAS)[number]) => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`немає #${id}`);
+  return el;
+};
+/** Непорожні області. */
+const mounted = () => AREAS.filter((id) => area(id).childNodes.length > 0);
+/** Заглушка екрана сцени, якщо блок ще не замінив її справжнім view. */
+const stageStub = () => area("stage").querySelector("[data-stub]")?.getAttribute("data-stub") ?? null;
+
 describe("fixture-events.js", () => {
   it("кожна подія проходить ChatEvent.parse", () => {
     expect(events.allEvents.length).toBeGreaterThan(50);
@@ -266,7 +278,7 @@ describe("app.js", () => {
   it("старт: монтує лише start, workspace прихований", async () => {
     mountIndexHtml();
     const app = await boot({ params: new URLSearchParams() });
-    expect(stubs()).toEqual(["start"]);
+    expect(mounted()).toEqual(["start"]);
     expect(document.getElementById("app")?.dataset.route).toBe("start");
     expect(document.getElementById("workspace")?.hidden).toBe(true);
     app.destroy();
@@ -281,9 +293,11 @@ describe("app.js", () => {
       const app = await boot({ params: new URLSearchParams(), state });
       expect(document.getElementById("start")?.hidden).toBe(true);
       expect(document.getElementById("workspace")?.hidden).toBe(false);
-      const expectedStage = STAGE_FILES[viewFor(state)];
-      expect(stubs().sort()).toEqual(["chat", "composer", expectedStage, "timeline", "topbar"].sort());
+      expect(mounted()).toEqual(["topbar", "timeline", "chat", "stage"]);
+      const stub = stageStub();
+      if (stub) expect(stub).toBe(STAGE_FILES[viewFor(state)]);
       app.destroy();
+      expect(mounted()).toEqual([]);
       expect(stubs()).toEqual([]);
       expect(errors).not.toHaveBeenCalled();
     },
@@ -293,7 +307,7 @@ describe("app.js", () => {
     mountIndexHtml();
     const app = await boot({ params: new URLSearchParams("fixture=awaitingBrand") });
     expect(app.store.getState().status).toBe("awaiting_brand");
-    expect(stubs()).toContain("cp-brand");
+    expect(mounted()).toContain("stage");
     app.actions.startEdit();
     expect(app.store.getState().ui.editing).toBe(true);
     app.destroy();
@@ -302,16 +316,17 @@ describe("app.js", () => {
   it("зміна статусу міняє екран сцени, решта view оновлюються на місці", async () => {
     mountIndexHtml();
     const app = await boot({ params: new URLSearchParams(), state: fixtureStates.awaitingBrand });
-    const topbar = document.querySelector('[data-stub="topbar"]');
+    const topbar = area("topbar").firstElementChild;
+    const brandStage = area("stage").firstElementChild;
     app.store.setState({ status: "scripting" });
-    expect(stubs()).toContain("stage-progress");
-    expect(stubs()).not.toContain("cp-brand");
-    expect(document.querySelector('[data-stub="topbar"]')).toBe(topbar);
-    expect(topbar?.textContent).toContain("scripting");
+    const progressStage = area("stage").firstElementChild;
+    expect(progressStage).not.toBe(brandStage);
+    expect(area("topbar").firstElementChild).toBe(topbar);
+    expect(topbar?.textContent).toContain(STATUS_LABELS.scripting);
     app.store.setState({ status: "delivered" });
-    expect(stubs()).toContain("done");
+    expect(area("stage").firstElementChild).not.toBe(progressStage);
     app.actions.newProject();
-    expect(stubs()).toEqual(["start"]);
+    expect(mounted()).toEqual(["start"]);
     expect(document.getElementById("app")?.dataset.route).toBe("start");
     app.destroy();
     expect(errors).not.toHaveBeenCalled();

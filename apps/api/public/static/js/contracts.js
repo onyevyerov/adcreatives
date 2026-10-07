@@ -53,12 +53,12 @@
 
 /**
  * Елемент стрічки; `id` = ID події SSE (дедуплікація).
- * @typedef {
+ * @typedef {(
  *   | { kind: "message", id: string, at: string, role: "user" | "assistant" | "system", text: string, buttons: Button[] }
  *   | { kind: "progress", id: string, at: string, stage: string, label: string, done: number | null, total: number | null, running: boolean }
  *   | { kind: "checkpoint", id: string, at: string, checkpoint: Checkpoint, rev: number }
  *   | { kind: "error", id: string, at: string, stage: string | null, message: string, retryable: boolean }
- * } FeedItem
+ * )} FeedItem
  */
 
 /** @typedef {{ rev: number, at: string, payload: CheckpointPayload, state: "open" | "approved" | "superseded" }} CheckpointEntry */
