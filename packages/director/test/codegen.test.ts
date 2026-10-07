@@ -38,7 +38,7 @@ describe("codegenStage", () => {
     expect(system).toContain("useFormat"); // декларації motion-kit
     expect(system).toContain("registerRoot"); // вендорний system prompt Remotion
     expect(system).toContain("examples/hook-photo.tsx");
-    expect(userText(ctx.anthropic.calls[0]?.params)).toContain("Згенеруй сцени: s1, s2, s3");
+    expect(userText(ctx.anthropic.calls[0]?.params)).toContain("Generate the scenes: s1, s2, s3");
 
     expect(await storage.readText(rp.scene("s1"))).toBe(`${ex["hook-photo"].trim()}\n`);
     expect(await storage.exists(rp.scene("s3"))).toBe(false);
@@ -64,7 +64,7 @@ describe("codegenStage", () => {
     const res = await codegenStage(ctx);
     expect(res.outputs).toEqual({ sceneIds: ["s3"], guardRejected: [] });
     const user = userText(ctx.anthropic.calls[0]?.params);
-    expect(user).toContain("Режим: subset");
+    expect(user).toContain("Mode: subset");
     expect(user).toContain("s3: Зроби кнопку більшою");
     expect(user).toContain('<file name="s1.tsx">');
     expect(user).not.toContain('<file name="s3.tsx">');

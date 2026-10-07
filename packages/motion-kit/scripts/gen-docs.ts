@@ -82,7 +82,7 @@ const parts = [
   "# `@adc/motion-kit` — декларації API (згенеровано)",
   "",
   "> Не редагувати вручну. Згенеровано з `.d.ts` командою `pnpm --filter @adc/motion-kit docs`.",
-  "> Контракт і правила для сцен — `API.md`; еталонні сцени — `examples/*.tsx`.",
+  "> Контракт і правила для сцен — `CONTRACT.md`; еталонні сцени — `examples/*.tsx`.",
   "",
 ];
 for (const [mod, title] of ordered) {
