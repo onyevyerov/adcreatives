@@ -26,7 +26,10 @@ describe("HTTP Basic (APP_PASSWORD)", () => {
     }
     const page = await env.app.request("/", { headers: { Authorization: basic("s3cret") } });
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain("Витрачено: $0.00");
+    expect(await page.text()).toContain('<div id="app"');
+    expect((await env.app.request("/static/js/app.js")).status).toBe(401);
+    const js = await env.app.request("/static/js/app.js", { headers: { Authorization: basic("s3cret") } });
+    expect(js.status).toBe(200);
   });
 
   it("POST без пароля не ставить команд", async () => {

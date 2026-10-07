@@ -1,0 +1,234 @@
+/* Reset, базова типографіка, фокус і анімації (T2, T4, C1). Власник — Крок 0. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 14.5px / 1.55 var(--f-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure,
+blockquote,
+ul,
+ol {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+img,
+video,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: атрибут hidden має перемагати display з id-селекторів каркаса */
+  display: none !important;
+}
+
+a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color var(--t-hover);
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+::selection {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+/* C1: фокус з клавіатури для всіх кнопок, полів і тайлів. */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Лише для скрінрідерів. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * Каркас (Крок 0): точки монтування з index.html. Вміст кожної області стилізує її блок.
+ * Робочий простір: топбар і таймлайн на всю ширину, нижче — діалог | сцена (T3).
+ */
+#app {
+  min-height: 100%;
+}
+
+#workspace {
+  display: grid;
+  grid-template-columns: var(--chat-col) minmax(0, 1fr);
+  grid-template-rows: var(--topbar-h) auto minmax(0, 1fr);
+  grid-template-areas:
+    "topbar topbar"
+    "timeline timeline"
+    "chat stage";
+  height: 100vh;
+  min-width: 1024px;
+  overflow: hidden;
+}
+
+#topbar {
+  grid-area: topbar;
+  min-width: 0;
+  background: var(--paper);
+}
+
+#timeline {
+  grid-area: timeline;
+  min-width: 0;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+
+#chat {
+  grid-area: chat;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--chat);
+  border-right: 1px solid var(--line);
+}
+
+#stage {
+  grid-area: stage;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--stage);
+}
+
+/* T4 · Рух */
+@keyframes adc-fade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes adc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes adc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes adc-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent-ring);
+  }
+  100% {
+    box-shadow: 0 0 0 9px var(--accent-ring-0);
+  }
+}
+
+/*
+ * T4: reduced-motion вимикає нескінченні анімації (busy, очікування, спінер) і зсув при появі
+ * (лишається opacity). Keyframes перевизначаються за назвою, тож правило діє для всіх блоків,
+ * які пишуть `animation: adc-… …` у своєму CSS.
+ */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes adc-fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes adc-pulse {
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes adc-spin {
+    to {
+      transform: none;
+    }
+  }
+
+  @keyframes adc-ring {
+    to {
+      box-shadow: none;
+    }
+  }
+
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion перекриває переходи всіх блоків */
+    transition-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: те саме для плавного скролу */
+    scroll-behavior: auto !important;
+  }
+}
