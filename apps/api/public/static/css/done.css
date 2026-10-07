@@ -1,1 +1,326 @@
-/* .dn- · B9 · готово (S5, C7). Заглушка Кроку 0 — блок замінює вміст. */
+/* .dn- · B9 · готово: плеєр, завантаження, витрати (S5, C1, C7). Значення — з T1–T4; примітиви — components.css. */
+
+/* Сцена: padding 36–44 · clamp(24px, 4vw, 56px) · 80–96, max-w 1000 (T3). */
+.dn {
+  /* Висота кадру 9:16 і ширина кадру 1:1 (S5); 16:9 — за шириною сцени, ≤ 500 px заввишки. */
+  --dn-h-vertical: clamp(380px, 100vh - 260px, 640px);
+  --dn-w-square: clamp(300px, 100vh - 260px, 500px);
+  --dn-max-h-landscape: 500px;
+
+  container-type: inline-size;
+  max-width: 1000px;
+  padding: 40px clamp(24px, 4vw, 56px) 88px;
+}
+
+.dn-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 40px 56px;
+  align-items: start;
+}
+
+.dn-media,
+.dn-info {
+  min-width: 0;
+}
+
+/* 16:9 — плеєр на всю ширину сцени, інформація під ним. */
+.dn[data-format="landscape"] .dn-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* ───────────── Плеєр (тінь — лише плеєр, C1) ───────────── */
+
+.dn-player {
+  --dn-ar: 9 / 16;
+  --dn-w: calc(var(--dn-h-vertical) * 9 / 16);
+
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: var(--dn-w);
+  max-width: 100%;
+  margin: 0;
+}
+
+.dn-player[data-format="square"] {
+  --dn-ar: 1 / 1;
+  --dn-w: var(--dn-w-square);
+}
+
+.dn-player[data-format="landscape"] {
+  --dn-ar: 16 / 9;
+  --dn-w: 100%;
+
+  max-width: min(100%, calc(var(--dn-max-h-landscape) * 16 / 9));
+}
+
+.dn-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--dn-ar);
+  overflow: hidden;
+  border-radius: var(--r-14);
+  box-shadow: var(--shadow-player);
+}
+
+.dn-frame:not(.stripes) {
+  background: var(--ink);
+}
+
+.dn-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  cursor: pointer;
+}
+
+.dn-empty {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  color: var(--ink-2);
+}
+
+/* ── Контроли: play/pause 40 · скраббер · тайм-код ── */
+
+.dn-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.dn-controls[hidden] {
+  display: none;
+}
+
+.dn-scrub {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  border-radius: var(--r-4);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.dn-scrub__track {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 4px;
+  transform: translateY(-50%);
+  transition: height var(--t-hover) var(--ease);
+}
+
+.dn-scrub:hover .dn-scrub__track,
+.dn-scrub:focus-visible .dn-scrub__track {
+  height: 6px;
+}
+
+/* Сегмент сцени; 1.5 px з кожного боку — шов між сусідніми сценами. */
+.dn-scrub__seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--l);
+  width: var(--w);
+}
+
+.dn-scrub__bar {
+  position: absolute;
+  top: 0;
+  right: 1.5px;
+  bottom: 0;
+  left: 1.5px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: var(--track-2);
+}
+
+.dn-scrub__seg:first-child .dn-scrub__bar {
+  left: 0;
+}
+
+.dn-scrub__seg:last-child .dn-scrub__bar {
+  right: 0;
+}
+
+/* Кадр оновлюється з requestAnimationFrame — без власного переходу. */
+.dn-scrub__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--fill, 0) * 100%);
+  background: var(--ink);
+}
+
+.dn-scrub__seg.is-current .dn-scrub__bar {
+  background: var(--track-3);
+}
+
+/* Плейхед — --accent (T1, REC). */
+.dn-scrub__head {
+  position: absolute;
+  top: 50%;
+  left: var(--pos, 0%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.dn-time {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───────────── Інформація ───────────── */
+
+.dn-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.dn-head {
+  display: flex;
+  flex-direction: column;
+}
+
+.dn-title {
+  margin-top: 18px;
+  text-wrap: balance;
+}
+
+.dn-lead {
+  margin-top: 18px;
+  max-width: 560px;
+}
+
+.dn-formats {
+  margin-top: 28px;
+}
+
+.dn-formats[hidden] {
+  display: none;
+}
+
+.dn-block {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 40px;
+}
+
+/* ── Завантаження (C7) ── */
+
+.dn-dl-list {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.dn-dl {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.dn-dl:hover {
+  color: var(--accent);
+}
+
+.dn-dl__text {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.dn-dl__name {
+  font: 500 15px / 1.2 var(--f-ui);
+}
+
+.dn-dl__meta {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.dn-dl:hover .dn-dl__icon {
+  border-color: currentColor;
+  color: inherit;
+}
+
+.dn-dl-none {
+  padding: 16px 0;
+  color: var(--muted);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+/* ── Витрати за етапами (C7) ── */
+
+.dn-cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--ink-2);
+  font: 400 12.5px / 1.2 var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.dn-cost__stage,
+.dn-cost__usd {
+  padding: 7px 0;
+  font: inherit;
+  text-align: left;
+  vertical-align: baseline;
+}
+
+.dn-cost__usd {
+  padding-left: 16px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.dn-cost--total .dn-cost__stage,
+.dn-cost--total .dn-cost__usd {
+  padding-top: 12px;
+  padding-bottom: 0;
+  border-top: 1px solid var(--ink);
+  color: var(--ink);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+/* Відступ 6 px над підсумком (C7). */
+.dn-cost-table tbody tr:last-child .dn-cost__stage,
+.dn-cost-table tbody tr:last-child .dn-cost__usd {
+  padding-bottom: 13px;
+}
+
+/* ───────────── Вузька сцена (≈ 640 px при 1024×768 з чатом): одна колонка ───────────── */
+
+@container (max-width: 720px) {
+  .dn-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dn-player {
+    margin-inline: auto;
+  }
+}
