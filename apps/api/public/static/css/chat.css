@@ -1,1 +1,274 @@
-/* .ch- · B4 · діалог і композер (C4, C5, X1). Заглушка Кроку 0 — блок замінює вміст. */
+/* .ch- · B4 · діалог і композер (C4, C5, X1). Колонка й фон #chat — у base.css. */
+
+.ch {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ───────────── Заголовок ───────────── */
+
+.ch-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 20px 14px;
+}
+
+.ch-title {
+  font-size: 20px;
+}
+
+/* З'єднання (C2): mono 11, --muted, крапка 6px. */
+.ch-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font: 400 11px / 1 var(--f-mono);
+  white-space: nowrap;
+}
+
+/* ───────────── Стрічка (C4) ───────────── */
+
+.ch-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 20px 20px;
+}
+
+.ch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ch-enter {
+  animation: adc-fade var(--t-msg) var(--ease) both;
+}
+
+.ch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Повідомлення асистента / системи: мітка «AdCreative · HH:MM» + текст. */
+.ch-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ch-msg .ch-actions {
+  margin-top: 4px;
+}
+
+.ch-msg__meta {
+  color: var(--muted);
+  font: 500 10px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ch-msg__text {
+  font: 400 14.5px / 1.55 var(--f-ui);
+  overflow-wrap: anywhere;
+}
+
+.ch-msg__text strong {
+  font-weight: 600;
+}
+
+.ch-msg--system .ch-msg__text {
+  color: var(--ink-2);
+}
+
+/* Клієнт: бульбашка --ink праворуч. */
+.ch-msg--user {
+  align-items: flex-end;
+}
+
+.ch-bubble {
+  max-width: 86%;
+  padding: 10px 14px;
+  border-radius: var(--r-16) var(--r-16) var(--r-4) var(--r-16);
+  background: var(--ink);
+  color: var(--on-ink);
+  font: 400 14.5px / 1.5 var(--f-ui);
+  overflow-wrap: anywhere;
+}
+
+/* Прогрес: спінер (триває) або ✓ (завершено). */
+.ch-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font: 400 12px / 1.4 var(--f-mono);
+}
+
+.ch-progress__mark {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 12px;
+  color: var(--ink);
+}
+
+.ch-progress__count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Картка чекпоінта: активна — рамка --ink. */
+.ch-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-14);
+  background: var(--card);
+}
+
+.ch-card--active {
+  border-color: var(--ink);
+}
+
+.ch-card__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 500 10.5px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ch-card__rev {
+  margin-left: -4px;
+  color: var(--muted);
+}
+
+.ch-card__hint {
+  color: var(--ink-2);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.ch-card__status {
+  font: 500 11px / 1 var(--f-mono);
+}
+
+.ch-card__status--stale {
+  color: var(--muted);
+}
+
+/* Помилка в чаті (X1). */
+.ch-error {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--danger-line);
+  border-radius: var(--r-14);
+  background: var(--card);
+}
+
+.ch-error__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--danger);
+  font: 500 10.5px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ch-error__text {
+  font: 400 14px / 1.5 var(--f-ui);
+  overflow-wrap: anywhere;
+}
+
+/* ───────────── Композер (C5) ───────────── */
+
+.ch-composer-slot {
+  flex: none;
+}
+
+.ch-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+.ch-notice {
+  padding: 0 4px;
+  color: var(--danger);
+  font: 400 12.5px / 1.4 var(--f-ui);
+}
+
+.ch-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 10px 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-16);
+  background: var(--card);
+  transition: border-color var(--t-hover);
+}
+
+.ch-composer--editing {
+  border-color: var(--ink);
+}
+
+.ch-composer__input {
+  display: block;
+  width: 100%;
+  min-height: 1.5em;
+  max-height: calc(1.5em * 5);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: 400 14.5px / 1.5 var(--f-ui);
+  resize: none;
+  overflow-y: auto;
+}
+
+.ch-composer__input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.ch-composer__input:focus-visible {
+  outline: none;
+}
+
+.ch-composer:focus-within {
+  border-color: var(--ink);
+}
+
+.ch-composer__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ch-composer__send {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ch-composer__hint {
+  color: var(--muted);
+  font: 400 10.5px / 1 var(--f-mono);
+}
