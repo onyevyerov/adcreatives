@@ -8,7 +8,7 @@ import { shortHash } from "@adc/shared";
  * Довідковий контекст для промптів `codegen` і `code-fix` (system-частина, кешується):
  * - вендорна копія https://www.remotion.dev/system-prompt.txt (`vendor/remotion-system-prompt.txt`,
  *   завантажено 2026-10-06; оновлювати вручну);
- * - `packages/motion-kit/API.md` (контракт і правила) + `API.generated.md` (декларації з .d.ts);
+ * - `packages/motion-kit/API.md` (поведінка компонентів) + `API.generated.md` (декларації з .d.ts);
  * - еталонні сцени `packages/motion-kit/examples/*.tsx`.
  */
 

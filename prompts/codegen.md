@@ -138,7 +138,7 @@ Only `<file name="sN.tsx">…</file>` blocks, one per scene listed in the messag
 {{remotionSystemPrompt}}
 </remotion_reference>
 
-# Reference: `@adc/motion-kit` contract and rules (API.md)
+# Reference: `@adc/motion-kit` behaviour notes (API.md)
 
 <motion_kit_api>
 {{motionKitApi}}
