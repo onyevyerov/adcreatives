@@ -154,7 +154,8 @@ export function BrandImage(props: BrandImageProps) {
     if (dir === "down") ty = -pan;
   }
   const parallax = props.parallax ?? 0;
-  const py = parallax ? parallax / 2 - parallax * t : 0;
+  // Від n/2 вище до n/2 нижче місця спокою.
+  const py = parallax ? parallax * t - parallax / 2 : 0;
 
   return (
     <div ref={ref} {...{ [BG_ATTR]: "image" }} style={container}>
