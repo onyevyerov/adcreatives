@@ -40,7 +40,7 @@ description: "B4: код сцени + помилки/зауваження → в
 {{remotionSystemPrompt}}
 </remotion_reference>
 
-# Довідка: `@adc/motion-kit` — контракт і правила (API.md)
+# Довідка: `@adc/motion-kit` — поведінка компонентів (API.md)
 
 <motion_kit_api>
 {{motionKitApi}}
