@@ -1,1 +1,352 @@
-/* .cs- · B7 · чекпоінт 2, тексти (S3, X3). Заглушка Кроку 0 — блок замінює вміст. */
+/* .cs- · B7 · чекпоінт 2, тексти (S3, X3). Значення — з T1–T4, C1, C7/X3; примітиви — components.css. */
+
+/* Сцена: padding 36–44 · clamp(24px, 4vw, 56px) · 80–96, max-w 1000 (T3). */
+.cs {
+  container-type: inline-size;
+  max-width: 1000px;
+  padding: 40px clamp(24px, 4vw, 56px) 88px;
+}
+
+/* ───────────── Шапка ───────────── */
+
+.cs-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+
+.cs-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ───────────── Концепт, хук, мета ───────────── */
+
+.cs-intro {
+  display: flex;
+  flex-direction: column;
+  margin-top: 28px;
+}
+
+.cs-concept {
+  max-width: 860px;
+  text-wrap: balance;
+}
+
+.cs-hook {
+  margin-top: 18px;
+  max-width: 720px;
+}
+
+.cs-meta {
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+/* ───────────── Трек сцен ───────────── */
+
+.cs-track-wrap {
+  margin-top: 40px;
+}
+
+.cs-track {
+  position: relative;
+  height: 64px;
+}
+
+/* Блок сцени: частина без перекриттів; 1 px з кожного боку — шов між сусідами. */
+.cs-block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--l) + 1px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: calc(var(--w) - 2px);
+  min-width: 0;
+  padding: 10px 12px;
+  overflow: hidden;
+  border-radius: var(--r-10);
+}
+
+.cs-block--ink {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+.cs-block--t2 {
+  background: var(--track-2);
+  color: var(--ink);
+}
+
+.cs-block--t3 {
+  background: var(--track-3);
+  color: var(--ink);
+}
+
+.cs-block__num {
+  font: 500 11px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+}
+
+.cs-block__purpose {
+  overflow: hidden;
+  font: 500 10.5px / 1.2 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0.72;
+}
+
+/* Перехід (transitionFrames > 0): смугаста зона --accent 55%. */
+.cs-transition {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--l);
+  width: var(--w);
+  border-radius: 2px;
+  background: repeating-linear-gradient(135deg, var(--accent) 0 2px, transparent 2px 6px);
+  opacity: 0.55;
+}
+
+/* Шкала секунд під треком. */
+.cs-scale {
+  position: relative;
+  height: 24px;
+  margin-top: 8px;
+}
+
+.cs-scale__mark {
+  position: absolute;
+  top: 0;
+  left: var(--l);
+  width: 1px;
+  height: 4px;
+  background: var(--line-strong);
+}
+
+.cs-scale__mark--major {
+  height: 7px;
+  background: var(--muted);
+}
+
+.cs-scale__mark--end {
+  transform: translateX(-1px);
+}
+
+.cs-scale__label {
+  position: absolute;
+  top: 11px;
+  left: 0;
+  color: var(--muted);
+  font: 400 11px / 1 var(--f-mono);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.cs-scale__mark--start .cs-scale__label {
+  transform: none;
+}
+
+.cs-scale__mark--end .cs-scale__label {
+  left: 1px;
+  transform: translateX(-100%);
+}
+
+/* ───────────── Твердження (X3) ───────────── */
+
+.cs-claims {
+  margin-top: 28px;
+}
+
+.cs-claims--ok {
+  color: var(--ink-2);
+  font: 400 12.5px / 1.5 var(--f-mono);
+}
+
+.cs-claims--warn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cs-note {
+  max-width: 640px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-12);
+  background: var(--card);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.cs-unverified-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cs-unverified {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--danger);
+  font: 400 12px / 1.4 var(--f-mono);
+}
+
+/* Підсвітка фрагмента: нижні 38% рядка — --accent 28%. */
+.cs-mark {
+  padding: 0;
+  background: linear-gradient(transparent 62%, var(--accent-mark) 62%);
+  color: inherit;
+}
+
+/* ───────────── Рядки сцен ───────────── */
+
+.cs-scenes {
+  margin-top: 12px;
+}
+
+.cs-scene__label {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cs-scene__num {
+  line-height: 1;
+}
+
+.cs-scene__main {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  min-width: 0;
+}
+
+.cs-scene__text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cs-scene__head,
+.cs-scene__sub {
+  overflow-wrap: anywhere;
+}
+
+.cs-scene__sub {
+  color: var(--ink-2);
+  font: 400 15px / 1.5 var(--f-ui);
+}
+
+.cs-scene__text .cs-unverified-list {
+  margin-top: 2px;
+}
+
+.cs-scene__meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 16px;
+  align-items: baseline;
+  margin: 14px 0 0;
+}
+
+.cs-scene__meta-item {
+  display: contents;
+}
+
+.cs-scene__meta dd {
+  margin: 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.cs-scene__thumbs {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cs-thumb {
+  width: 72px;
+  height: 96px;
+  border-radius: var(--r-12);
+  background: var(--placeholder-a);
+  object-fit: cover;
+}
+
+/* ───────────── Музика, фото ───────────── */
+
+.cs-music__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.cs-music__mood {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Настрій — лише показ: без hover-реакції інтерактивного чипа. */
+.cs-chip,
+.cs-chip:hover {
+  border-color: var(--line-strong);
+  cursor: default;
+}
+
+.cs-music__tech {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  color: var(--ink-2);
+}
+
+.cs-photos__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Фото-тайл C7: 150×112. */
+.cs-photos .cs-thumb {
+  width: 150px;
+  height: 112px;
+}
+
+.cs-empty {
+  margin-top: 28px;
+  color: var(--muted);
+}
+
+/* ───────────── Вузька сцена (1024×768: ~560 px контенту) ───────────── */
+
+@container (max-width: 640px) {
+  .cs .spec-row {
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .cs-scene__main {
+    gap: 16px;
+  }
+
+  .cs-scene__thumbs .cs-thumb {
+    width: 56px;
+    height: 76px;
+  }
+
+  .cs-block {
+    padding: 10px;
+  }
+}
