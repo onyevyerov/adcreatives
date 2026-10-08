@@ -6,7 +6,15 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/node_modules", "!**/.data", "!**/eval/runs", "!**/*.generated.md", "!**/bundle"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/.data",
+      "!**/eval/runs",
+      "!**/*.generated.md",
+      "!**/bundle",
+      "!docs/design"
+    ]
   },
   "formatter": {
     "enabled": true,
