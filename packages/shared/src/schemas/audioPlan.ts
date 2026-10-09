@@ -28,7 +28,7 @@ export const SfxSpec = z.object({
 });
 export type SfxSpec = z.infer<typeof SfxSpec>;
 
-/** AudioPlan — LLM-схема стадії `audio-plan` (Opus). */
+/** AudioPlan — план стадії `audio` (`audio-plan.json`); LLM-чернетка — `AudioPlanDraft` у `@adc/audio`. */
 export const AudioPlan = z.object({
   compositionPlan: z.object({
     /** Стилі з музичного брифу + "instrumental". Без назв брендів і артистів. */

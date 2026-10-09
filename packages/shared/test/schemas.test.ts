@@ -254,7 +254,8 @@ describe("formats & intent helpers", () => {
 });
 
 describe("toStrictJsonSchema", () => {
-  const llmSchemas = { BrandKit, BrandKitPatch, Storyboard, AudioPlan, QaReport, RevisionPlan, ChatIntent };
+  // AudioPlan — збережений план; LLM-схема стадії — AudioPlanDraft у @adc/audio.
+  const llmSchemas = { BrandKit, BrandKitPatch, Storyboard, QaReport, RevisionPlan, ChatIntent };
 
   for (const [name, schema] of Object.entries(llmSchemas)) {
     it(`${name}: strict, enums kept, no open objects`, () => {
