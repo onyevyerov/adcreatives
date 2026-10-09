@@ -1,4 +1,20 @@
-import { CheckReport, QaReport, revPaths, type Stage, type StageContext, StageError, t } from "@adc/shared";
+import {
+  CheckReport,
+  type Format,
+  type ImageInput,
+  type LlmCallOptions,
+  QaReport,
+  readTuning,
+  revPaths,
+  STILL_PLAN,
+  type Stage,
+  type StageContext,
+  StageError,
+  type Storage,
+  type Tuning,
+  t,
+} from "@adc/shared";
+import sharp from "sharp";
 import { type CodegenContext, contextVars, loadCodegenContext } from "../context.ts";
 import { parseSingleScene } from "../files.ts";
 import { formatViolations, guardScene } from "../guard.ts";
@@ -21,7 +37,9 @@ import {
   rejectedScenes,
   writeLedger,
 } from "../ledger.ts";
+import { QA_IMAGE_MAX_SIDE } from "../sheets.ts";
 import { brandForCode } from "./codegen.ts";
+import { qaSceneImages } from "./qa.ts";
 import { assetsForPrompt } from "./storyboard.ts";
 
 export const FIX_PROMPT = "code-fix";
@@ -29,6 +47,55 @@ export const FIX_PROMPT = "code-fix";
 export interface FixStageDeps {
   context?: () => CodegenContext;
   now?: () => Date;
+  /** Перемикачі генерації; дефолт — `readTuning()` з env на кожен запуск стадії. */
+  tuning?: () => Tuning;
+}
+
+const FRAMES_LEGEND = STILL_PLAN.map((p) => Math.round(p.fraction * 100)).join("/");
+
+/** Кадри сцени для fix (`reason: "qa"`): зображення на формат і легенда до них. */
+export interface FixSceneImages {
+  images: ImageInput[];
+  /** Рядок легенди на зображення, у порядку `images`. */
+  legend: string[];
+}
+
+/** PNG → JPEG для image block, довша сторона ≤ `QA_IMAGE_MAX_SIDE` (як у QA). */
+async function toJpeg(png: Buffer): Promise<ImageInput> {
+  const data = await sharp(png)
+    .resize(QA_IMAGE_MAX_SIDE, QA_IMAGE_MAX_SIDE, { fit: "inside", withoutEnlargement: true })
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
+    .jpeg({ quality: 85 })
+    .toBuffer();
+  return { mediaType: "image/jpeg", data };
+}
+
+/**
+ * Кадри сцени, які бачив QA: на кожен обраний формат, для якого в `check.json` є стіли, — одне
+ * зображення з кадрами 25/50/90% (той самий макет, що в QA). Формат без жодного стілу пропускається.
+ */
+export async function fixSceneImages(
+  storage: Storage,
+  check: CheckReport,
+  sceneId: string,
+  formats: readonly Format[],
+): Promise<FixSceneImages> {
+  const scene = await qaSceneImages(storage, check, [sceneId], formats);
+  return {
+    images: await Promise.all(scene.map((img) => toJpeg(img.png))),
+    legend: scene.map(
+      (img, i) => `Image ${i + 1}: scene ${img.sceneId}, format ${img.format}, frames ${FRAMES_LEGEND}%`,
+    ),
+  };
+}
+
+/** Легенда зображень для `<problems>`: що на якому зображенні і як їх читати. */
+export function imagesLegend(legend: readonly string[]): string {
+  return [
+    `Stills of the current code (images above; frames at ${FRAMES_LEGEND}% of the scene, left to right or top to bottom):`,
+    ...legend.map((l) => `- ${l}`),
+    "The stills show the actual state; the QA remarks below say what to change.",
+  ].join("\n");
 }
 
 /** Опис проблем сцени для промпта: помилки check (guard, типи, runtime) або зауваження QA + autoIssues. */
@@ -83,16 +150,23 @@ export function describeProblems(args: {
  * Стадія `fix`: окремий виклик моделі на кожну проблемну сцену (паралельно), на вході код сцени +
  * помилки або зауваження; новий код знову проходить AST-guard і стає новою версією сцени.
  * Ліміти кіл і заміну на TemplateScene вирішує оркестратор.
+ * - `reason: "qa"` — модель бачить і кадри сцени (25/50/90% в обраних форматах, що є в `check.json`):
+ *   зображення перед текстом, легенда — в `<problems>`. `reason: "check"` — без зображень.
+ * - Від двох викликів спершу один `llm.warm()` тими самими model / effort, потім паралельно: виклики
+ *   читають кеш (prefix, system, а без зображень — і спільну частину user), а не пишуть його кожен.
+ * - Effort: `check` — `Tuning.fixCheckEffort` (null → frontmatter), `qa` — frontmatter.
  * `outputs.sceneIds` — сцени, що отримали нову версію (зокрема відхилену guard'ом: її помилки
  * покаже наступний `check` як compileErrors).
  */
 export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
   const now = deps.now ?? (() => new Date());
   const getContext = deps.context ?? (() => loadCodegenContext());
+  const getTuning = deps.tuning ?? (() => readTuning());
   return async (ctx: StageContext<"fix">) => {
     const { storage, projectId, rev, params, logger } = ctx;
     const rp = revPaths(projectId, rev);
     const dp = directorPaths(projectId, rev);
+    const tuning = getTuning();
     const project = await readProject(storage, projectId);
     const brandFile = await readCurrentBrandKit(storage, projectId, project);
     const storyboard = await readStoryboard(storage, projectId, rev);
@@ -109,7 +183,12 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
     await progress(ctx, "fix", t("directingProgress", { done: 0, total: targets.length }), 0, targets.length);
     let done = 0;
 
-    const fixOne = async (sceneId: string) => {
+    // Ті самі model / effort у прогріві й паралельних викликах — інакше кеш не прочитається.
+    const effort = params.reason === "check" ? tuning.fixCheckEffort : null;
+    const modelOpts: Pick<LlmCallOptions, "effort"> = effort !== null ? { effort } : {};
+
+    /** Вхід виклику сцени: змінні промпта і (для `qa`) кадри. */
+    const prepare = async (sceneId: string) => {
       const scene = storyboard.scenes.find((s) => s.id === sceneId);
       const code = await readCurrentCode(storage, projectId, rev, ledger, sceneId);
       const ver = currentVersion(ledger, sceneId);
@@ -120,23 +199,61 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
         qa,
         guardViolations: ver && !ver.guardOk ? ver.violations : [],
       });
-      const res = await ctx.llm.text(
-        FIX_PROMPT,
-        {
-          ...contextVars(context),
-          sceneId,
-          reason: params.reason,
-          language: project?.language ?? brandFile.identity.language,
-          formats: formats.join(", "),
-          brand: brandForCode(brandFile),
-          scene: scene ?? null,
-          concept: storyboard.concept,
-          assets: assetsForPrompt(brandFile, manifest),
-          code: code ?? "(no code: the previous generation returned nothing — write the scene from scratch)",
-          problems,
-        },
-        ctx.signal ? { signal: ctx.signal } : {},
-      );
+      let shots: FixSceneImages = { images: [], legend: [] };
+      if (params.reason === "qa" && check) {
+        try {
+          shots = await fixSceneImages(storage, check, sceneId, formats);
+        } catch (err) {
+          if (ctx.signal?.aborted) throw err;
+          logger.warn("fix: не вдалося підготувати кадри сцени, фікс лише за текстом", {
+            sceneId,
+            err: String(err),
+          });
+        }
+      }
+      const vars = {
+        ...contextVars(context),
+        sceneId,
+        reason: params.reason,
+        language: project?.language ?? brandFile.identity.language,
+        formats: formats.join(", "),
+        brand: brandForCode(brandFile),
+        scene: scene ?? null,
+        concept: storyboard.concept,
+        assets: assetsForPrompt(brandFile, manifest),
+        code: code ?? "(no code: the previous generation returned nothing — write the scene from scratch)",
+        problems: shots.legend.length ? `${imagesLegend(shots.legend)}\n\n${problems}` : problems,
+      };
+      return { sceneId, vars, images: shots.images };
+    };
+    type Prepared = Awaited<ReturnType<typeof prepare>>;
+
+    const prepared = await Promise.allSettled(targets.map(prepare));
+    const ready = prepared.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+    const parallel = ready.length > 1;
+    const [first] = ready;
+    if (parallel && first) {
+      try {
+        await ctx.llm.warm(FIX_PROMPT, first.vars, {
+          ...modelOpts,
+          ...(ctx.signal ? { signal: ctx.signal } : {}),
+        });
+      } catch (err) {
+        if (ctx.signal?.aborted) throw err;
+        logger.warn("fix: прогрів кешу не вдався", { err: String(err) });
+      }
+    }
+
+    const fixOne = async ({ sceneId, vars, images }: Prepared) => {
+      const res = await ctx.llm.text(FIX_PROMPT, vars, {
+        ...modelOpts,
+        ...(images.length ? { images } : {}),
+        costDetail: `scene:${sceneId}`,
+        // Спільна частина user (бренд, асети, концепт) читається з прогріву лише без зображень:
+        // зображення йдуть перед нею, і префікс кожного виклику з кадрами унікальний.
+        cacheUserPrefix: parallel && images.length === 0,
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+      });
       done++;
       void progress(
         ctx,
@@ -148,7 +265,9 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
       return { sceneId, text: res.text };
     };
 
-    const settled = await Promise.allSettled(targets.map(fixOne));
+    const settled = await Promise.allSettled(
+      prepared.map((p) => (p.status === "fulfilled" ? fixOne(p.value) : Promise.reject(p.reason))),
+    );
     const fixed: string[] = [];
     const artifacts = new Set<string>();
     const failures: string[] = [];
