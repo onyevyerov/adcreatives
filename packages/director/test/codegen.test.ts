@@ -1,8 +1,8 @@
-import { revPaths } from "@adc/shared";
+import { readTuning, revPaths } from "@adc/shared";
 import { describe, expect, it } from "vitest";
 import { directorPaths } from "../src/io.ts";
 import { readLedger } from "../src/ledger.ts";
-import { ANCHOR_EFFORT, codegenStage } from "../src/stages/codegen.ts";
+import { CodegenReport, createCodegenStage } from "../src/stages/codegen.ts";
 import {
   exampleSources,
   fileBlocks,
@@ -17,6 +17,22 @@ import {
 const ex = exampleSources();
 const BAD = ex["cta-logo"].replace("const dark =", "const year = new Date().getFullYear();\n  const dark =");
 
+/** Послідовний режим із відкатом до WIP-поведінки (P0): anchor `xhigh`, решта `high`. */
+const codegenStage = createCodegenStage({
+  tuning: () =>
+    readTuning({
+      ADC_CODEGEN_MODE: "sequential",
+      ADC_CODEGEN_ANCHOR_EFFORT: "xhigh",
+      ADC_CODEGEN_REST_EFFORT: "high",
+    }),
+});
+
+type Params = {
+  output_config?: { effort?: string };
+  messages: Array<{ content: Array<{ type: string; text?: string; cache_control?: unknown }> }>;
+};
+const paramsOf = (p: unknown) => p as Params;
+
 async function firstGeneration() {
   const storage = tmpStorage();
   await seedProject(storage);
@@ -29,7 +45,7 @@ async function firstGeneration() {
   return { storage, ctx, res };
 }
 
-describe("codegenStage", () => {
+describe("codegenStage (sequential)", () => {
   it("перша генерація: сцена за стрім-виклик (anchor, далі continue), AST-guard, реєстр", async () => {
     const { storage, ctx, res } = await firstGeneration();
     const rp = revPaths(PROJECT_ID, 1);
@@ -50,11 +66,17 @@ describe("codegenStage", () => {
     expect(u2).toContain('<file name="s1.tsx">');
     expect(u3).toContain('<file name="s2.tsx">');
     expect(u3).toContain("Generate the scenes: s3.");
-    const effort = (i: number) =>
-      (ctx.anthropic.calls[i]?.params as { output_config?: { effort?: string } } | undefined)?.output_config
-        ?.effort;
-    expect(effort(0)).toBe(ANCHOR_EFFORT);
-    expect(effort(1)).toBe("high"); // frontmatter
+    const effort = (i: number) => paramsOf(ctx.anthropic.calls[i]?.params).output_config?.effort;
+    expect(effort(0)).toBe("xhigh"); // ADC_CODEGEN_ANCHOR_EFFORT
+    expect(effort(1)).toBe("high"); // ADC_CODEGEN_REST_EFFORT
+
+    // Спільна частина user-повідомлення в послідовному режимі унікальна — без cache_control.
+    for (const c of ctx.anthropic.calls) {
+      const [cached, tail] = paramsOf(c.params).messages[0]?.content ?? [];
+      expect(cached?.text).toContain("<storyboard>");
+      expect(cached?.cache_control).toBeUndefined();
+      expect(tail?.text).toMatch(/^Mode: \w+\.\nGenerate the scenes: s\d\.$/);
+    }
 
     expect(await storage.readText(rp.scene("s1"))).toBe(`${ex["hook-photo"].trim()}\n`);
     expect(await storage.exists(rp.scene("s3"))).toBe(false);
@@ -84,6 +106,7 @@ describe("codegenStage", () => {
     expect(user).toContain("s3: Зроби кнопку більшою");
     expect(user).toContain('<file name="s1.tsx">');
     expect(user).not.toContain('<file name="s3.tsx">');
+    expect(paramsOf(ctx.anthropic.calls[0]?.params).output_config?.effort).toBe("high");
     const index = await storage.readText(revPaths(PROJECT_ID, 1).scenesIndex);
     expect(index).toContain("s3: S3");
     const ledger = await readLedger(storage, PROJECT_ID, 1);
@@ -135,14 +158,43 @@ describe("codegenStage", () => {
     await expect(codegenStage(ctx)).rejects.toMatchObject({ code: "codegen_no_files" });
   });
 
-  it("збій посеред генерації: готові сцени записані, повтор продовжує з першої незгенерованої", async () => {
+  it("збій виклику однієї сцени: сцена в missing, наступні генеруються, стадія ok", async () => {
     const storage = tmpStorage();
     await seedProject(storage);
-    const failing = makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
+    const ctx = makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
       { text: fileBlocks({ s1: ex["hook-photo"] }) },
       { error: new Error("boom") },
+      { text: fileBlocks({ s3: ex["cta-logo"] }) },
     ]);
-    await expect(codegenStage(failing)).rejects.toMatchObject({ code: "llm_api" });
+    const res = await codegenStage(ctx);
+    expect(res.outputs).toEqual({ sceneIds: ["s1", "s2", "s3"], guardRejected: ["s2"] });
+    // s3 бачить лише s1: у s2 коду немає.
+    const u3 = userText(ctx.anthropic.calls[2]?.params);
+    expect(u3).toContain("Mode: continue");
+    expect(u3).toContain('<file name="s1.tsx">');
+    expect(u3).not.toContain('<file name="s2.tsx">');
+    const report = await storage.readJson(directorPaths(PROJECT_ID, 1).codegen, (v) =>
+      CodegenReport.parse(v),
+    );
+    expect(report.missing).toEqual(["s2"]);
+    expect(report.violations.s2?.[0]).toMatch(/boom/);
+    const ledger = await readLedger(storage, PROJECT_ID, 1);
+    expect(ledger.scenes.s2?.versions[0]).toMatchObject({ missing: true, guardOk: false });
+  });
+
+  it("скасування посеред генерації: готові сцени записані, повтор продовжує з першої незгенерованої", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    const abort = new AbortController();
+    const failing = makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
+      { text: fileBlocks({ s1: ex["hook-photo"] }) },
+      () => {
+        abort.abort();
+        return { error: new Error("aborted") };
+      },
+    ]);
+    failing.signal = abort.signal;
+    await expect(codegenStage(failing)).rejects.toThrow(/aborted/);
     expect(await storage.exists(revPaths(PROJECT_ID, 1).scene("s1"))).toBe(true);
 
     const ctx = makeCtx(
@@ -159,5 +211,16 @@ describe("codegenStage", () => {
     expect(userText(ctx.anthropic.calls[0]?.params)).toContain("Generate the scenes: s2.");
     const ledger = await readLedger(storage, PROJECT_ID, 1);
     expect(ledger.scenes.s1?.versions).toHaveLength(1);
+  });
+
+  it("усі виклики впали — помилка стадії з кодом LLM", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    const ctx = makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
+      { error: new Error("boom") },
+      { error: new Error("boom") },
+      { error: new Error("boom") },
+    ]);
+    await expect(codegenStage(ctx)).rejects.toMatchObject({ code: "llm_api" });
   });
 });
