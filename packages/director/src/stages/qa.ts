@@ -7,6 +7,7 @@ import {
   type QaIssue,
   QaReport,
   revPaths,
+  STILL_PLAN,
   type Stage,
   type StageContext,
   StageError,
@@ -29,21 +30,71 @@ import {
 } from "../io.ts";
 import { writeScenesIndex } from "../job.ts";
 import { readLedger, rejectedScenes, type SceneLedger, type SceneVersion, writeLedger } from "../ledger.ts";
+import { buildSceneImage, QA_IMAGE_MAX_SIDE, type SheetCell } from "../sheets.ts";
 import { rebuildSheets, replaceSceneData } from "./check.ts";
 
 export const QA_PROMPT = "qa";
 
 export const QaMeta = z.object({ inputsHash: z.string() });
 
-/** Аркуш для image block: JPEG, довша сторона ≤ 2400 px. */
-async function sheetImage(png: Buffer): Promise<ImageInput> {
+/** Зображення сцени для image block: JPEG, довша сторона ≤ `QA_IMAGE_MAX_SIDE`. */
+async function sceneImage(png: Buffer): Promise<ImageInput> {
   const data = await sharp(png)
-    .resize(2400, 2400, { fit: "inside", withoutEnlargement: true })
+    .resize(QA_IMAGE_MAX_SIDE, QA_IMAGE_MAX_SIDE, { fit: "inside", withoutEnlargement: true })
     .flatten({ background: { r: 255, g: 255, b: 255 } })
     .jpeg({ quality: 85 })
     .toBuffer();
   return { mediaType: "image/jpeg", data };
 }
+
+/** Кадри e/a/b сцени в одному форматі для QA (порядок — `STILL_PLAN`). */
+export interface QaSceneImage {
+  sceneId: string;
+  format: Format;
+  /** PNG з `buildSceneImage`. */
+  png: Buffer;
+  /** Хеші стілів у порядку `STILL_PLAN` (null — кадру немає) — для хешу входів. */
+  stills: Array<string | null>;
+}
+
+/**
+ * Зображення для QA: на кожну сцену зі scope і кожен формат — одне зображення з кадрами e/a/b.
+ * Сцена/формат без жодного стілу (помилка рендера) пропускається; відсутній окремий кадр (напр.,
+ * check.json без `e`) — сіра перекреслена клітинка.
+ */
+export async function qaSceneImages(
+  storage: Storage,
+  check: CheckReport,
+  scope: readonly string[],
+  formats: readonly Format[],
+): Promise<QaSceneImage[]> {
+  const out: QaSceneImage[] = [];
+  for (const sceneId of scope) {
+    for (const format of formats) {
+      const cells: SheetCell[] = [];
+      const stills: Array<string | null> = [];
+      for (const { variant, fraction } of STILL_PLAN) {
+        const still = check.stills.find(
+          (s) => s.sceneId === sceneId && s.format === format && s.variant === variant,
+        );
+        const png = still && (await storage.exists(still.path)) ? await storage.read(still.path) : null;
+        stills.push(png ? sha256(png) : null);
+        cells.push({
+          sceneId,
+          variant,
+          png,
+          label: `${sceneId} · ${Math.round(fraction * 100)}%${still ? ` · кадр ${still.frame}` : ""}`,
+          note: "немає кадру",
+        });
+      }
+      if (stills.every((h) => h === null)) continue;
+      out.push({ sceneId, format, png: await buildSceneImage(format, cells), stills });
+    }
+  }
+  return out;
+}
+
+const FRAMES_LEGEND = STILL_PLAN.map((p) => Math.round(p.fraction * 100)).join("/");
 
 export interface RollbackResult {
   /** sceneId → номер версії, до якої повернулись. */
@@ -114,7 +165,10 @@ export async function keepBestVersions(args: {
   return { restored, written, issues };
 }
 
-/** Стадія `qa`: зведені аркуші всіх обраних форматів + autoIssues → `qa.json`. */
+/**
+ * Стадія `qa`: зображення сцен зі scope (кадри 25/50/90% у кожному обраному форматі) + autoIssues →
+ * `qa.json`. Сцени поза scope моделі не показуються — повторний QA після fix дешевший.
+ */
 export function createQaStage(): Stage<"qa"> {
   return async (ctx: StageContext<"qa">) => {
     const { storage, projectId, rev, logger } = ctx;
@@ -145,14 +199,10 @@ export function createQaStage(): Stage<"qa"> {
         : null);
 
     await progress(ctx, "qa", "Перевіряю кадри…");
-    const sheets: Array<{ format: Format; png: Buffer }> = [];
-    for (const format of formats) {
-      const ref = check.sheets.find((s) => s.format === format);
-      if (ref && (await storage.exists(ref.path))) sheets.push({ format, png: await storage.read(ref.path) });
-    }
-    if (sheets.length === 0) {
+    const images = await qaSceneImages(storage, check, scope, formats);
+    if (scope.length > 0 && images.length === 0) {
       throw new StageError(
-        "qa: немає зведених аркушів",
+        "qa: немає стілів сцен для перевірки",
         "sheets_missing",
         "Немає кадрів для перевірки.",
         true,
@@ -161,18 +211,19 @@ export function createQaStage(): Stage<"qa"> {
     const autoIssues = check.autoIssues.filter((i) => scope.includes(i.sceneId));
     const vars = {
       language: project?.language ?? brandFile.identity.language,
-      formats: sheets.map((s) => s.format).join(", "),
+      formats: formats.filter((f) => images.some((img) => img.format === f)).join(", ") || "(немає)",
       scope: scope.join(", ") || "(немає)",
-      sheetsLegend: sheets
-        .map(
-          (s, i) =>
-            `Image ${i + 1}: format "${s.format}". One column per scene in storyboard order (${allIds.join(", ")}); ` +
-            "top cell = still at 50% of the scene, bottom cell = still at 90%. A grey crossed cell = no still (error).",
-        )
-        .join("\n"),
+      sheetsLegend:
+        images
+          .map(
+            (img, i) =>
+              `Image ${i + 1}: scene ${img.sceneId}, format ${img.format}, frames ${FRAMES_LEGEND}%`,
+          )
+          .join("\n") || "(немає зображень)",
       storyboard: storyboard.scenes.map((s) => ({
         id: s.id,
         purpose: s.purpose,
+        durationSec: Math.round((s.durationFrames / storyboard.fps) * 10) / 10,
         text: s.text,
         layoutIntent: s.layoutIntent,
         assetIds: s.assetIds,
@@ -185,14 +236,14 @@ export function createQaStage(): Stage<"qa"> {
     };
     const promptHash = ctx.prompts.load(QA_PROMPT, vars).hash;
     const hash = inputsHash({
-      sheets: sheets.map((s) => sha256(s.png)),
+      images: images.map((img) => [img.sceneId, img.format, img.stills]),
       autoIssues,
       scope,
       vars: { ...vars, autoIssues: null },
       prompt: promptHash,
     });
 
-    // Пропуск за хешем входів: ті самі аркуші в ревізії-основі.
+    // Пропуск за хешем входів: ті самі стіли в ревізії-основі.
     const base = baseRevOf(project, rev);
     if (base !== null) {
       const baseMeta = await readOptional(storage, directorPaths(projectId, base).qaMeta, (v) =>
@@ -217,7 +268,7 @@ export function createQaStage(): Stage<"qa"> {
     } else {
       try {
         const res = await ctx.llm.structured(QA_PROMPT, vars, QaReport, {
-          images: await Promise.all(sheets.map((s) => sheetImage(s.png))),
+          images: await Promise.all(images.map((img) => sceneImage(img.png))),
           ...(ctx.signal ? { signal: ctx.signal } : {}),
         });
         report = res.data;

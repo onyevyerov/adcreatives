@@ -1,6 +1,8 @@
-import { CheckReport, type QaIssue, QaReport, revPaths } from "@adc/shared";
+import { CheckReport, type LocalStorage, type QaIssue, QaReport, revPaths } from "@adc/shared";
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { readLedger } from "../src/ledger.ts";
+import { QA_IMAGE_MAX_SIDE, sceneImageLayout } from "../src/sheets.ts";
 import { createCheckStage } from "../src/stages/check.ts";
 import { codegenStage } from "../src/stages/codegen.ts";
 import { fixStage } from "../src/stages/fix.ts";
@@ -31,8 +33,41 @@ const issue = (
   fix: "зменшити заголовок",
 });
 
+/** Зображення з першого user-повідомлення запиту до моделі (локальний хелпер B3). */
+function callImages(params: unknown): Buffer[] {
+  const p = params as {
+    messages: Array<{ content: Array<{ type: string; source?: { data?: string } }> }>;
+  };
+  return (p.messages[0]?.content ?? [])
+    .filter((c) => c.type === "image")
+    .map((c) => Buffer.from(c.source?.data ?? "", "base64"));
+}
+
+async function imageSizes(params: unknown): Promise<Array<{ width: number; height: number }>> {
+  return Promise.all(
+    callImages(params).map(async (b) => {
+      const m = await sharp(b).metadata();
+      return { width: m.width ?? 0, height: m.height ?? 0 };
+    }),
+  );
+}
+
+async function checked(seed: Parameters<typeof seedProject>[1] = {}): Promise<LocalStorage> {
+  const storage = tmpStorage();
+  await seedProject(storage, seed);
+  await codegenStage(
+    makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
+      { text: fileBlocks({ s1: ex["hook-photo"] }) },
+      { text: fileBlocks({ s2: ex["offer-price"] }) },
+      { text: fileBlocks({ s3: ex["cta-logo"] }) },
+    ]),
+  );
+  await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));
+  return storage;
+}
+
 describe("qaStage", () => {
-  it("аркуші всіх форматів у моделі, детермінований вердикт, вибір кращої версії сцени", async () => {
+  it("зображення сцен зі scope × форматів, детермінований вердикт, вибір кращої версії сцени", async () => {
     const storage = tmpStorage();
     await seedProject(storage);
     await codegenStage(
@@ -55,9 +90,22 @@ describe("qaStage", () => {
       },
     ]);
     const r1 = await qaStage(ctx1);
-    const call = ctx1.anthropic.calls[0]?.params as { messages: Array<{ content: Array<{ type: string }> }> };
-    expect(call.messages[0]?.content.filter((c) => c.type === "image")).toHaveLength(2);
-    expect(userText(call)).toContain("Перевір сцени: s1, s2, s3");
+    const call = ctx1.anthropic.calls[0]?.params;
+    // scope (3 сцени) × формати (vertical, square); кожне ≤ ліміту vision
+    const sizes = await imageSizes(call);
+    expect(sizes).toHaveLength(6);
+    for (const s of sizes) expect(Math.max(s.width, s.height)).toBeLessThanOrEqual(QA_IMAGE_MAX_SIDE);
+    // 9:16 і 1:1 — кадри в ряд (ширше, ніж вище)
+    expect(sizes[0]).toEqual({
+      width: sceneImageLayout("vertical").width,
+      height: sceneImageLayout("vertical").height,
+    });
+    expect(sizes.every((s) => s.width > s.height)).toBe(true);
+    const text = userText(call);
+    expect(text).toContain("Image 1: scene s1, format vertical, frames 25/50/90%");
+    expect(text).toContain("Image 2: scene s1, format square, frames 25/50/90%");
+    expect(text).toContain("Image 6: scene s3, format square, frames 25/50/90%");
+    expect(text).toContain("Перевір сцени: s1, s2, s3");
     expect(r1.outputs).toEqual({ verdict: "fix", seriousScenes: ["s2"] });
 
     // fix s2 за зауваженнями QA → check s2 → QA №2 оцінює нову версію гірше
@@ -78,6 +126,10 @@ describe("qaStage", () => {
     ]);
     const r2 = await qaStage(ctx2);
     expect(userText(ctx2.anthropic.calls[0]?.params)).toContain("Перевір сцени: s2.");
+    // повторний QA після fix — лише зображення сцени зі scope
+    expect(callImages(ctx2.anthropic.calls[0]?.params)).toHaveLength(2);
+    expect(userText(ctx2.anthropic.calls[0]?.params)).toContain("Image 2: scene s2, format square");
+    expect(userText(ctx2.anthropic.calls[0]?.params)).not.toContain("scene s1");
 
     // лишилась перша версія s2 (1 серйозне < 2)
     const rp = revPaths(PROJECT_ID, 1);
@@ -93,7 +145,32 @@ describe("qaStage", () => {
     expect(r2.outputs).toEqual({ verdict: "fix", seriousScenes: ["s2"] });
     // check.json відновлено для версії 1
     const check = await storage.readJson(rp.check, (v) => CheckReport.parse(v));
-    expect(check.stills.filter((s) => s.sceneId === "s2")).toHaveLength(4);
+    expect(check.stills.filter((s) => s.sceneId === "s2")).toHaveLength(6);
+  });
+
+  it("16:9 — кадри стовпчиком у межах ліміту; старий check.json без кадру e — заглушка замість кадру", async () => {
+    const storage = await checked({ project: { formats: ["vertical", "landscape"] } });
+    const rp = revPaths(PROJECT_ID, 1);
+    const check = await storage.readJson(rp.check, (v) => CheckReport.parse(v));
+    // старий формат check.json: лише a/b
+    await storage.writeJson(rp.check, { ...check, stills: check.stills.filter((s) => s.variant !== "e") });
+    const ctx = makeCtx(storage, "qa", { sceneIds: ["s1", "s3"] }, [
+      { json: { verdict: "pass", issues: [], summary: "" } },
+    ]);
+    const res = await qaStage(ctx);
+    expect(res.outputs.verdict).toBe("pass");
+    const call = ctx.anthropic.calls[0]?.params;
+    const sizes = await imageSizes(call);
+    expect(sizes).toHaveLength(4); // 2 сцени × 2 формати
+    for (const s of sizes) expect(Math.max(s.width, s.height)).toBeLessThanOrEqual(QA_IMAGE_MAX_SIDE);
+    // vertical — у ряд, landscape — у стовпчик
+    const landscape = sceneImageLayout("landscape");
+    expect(landscape.inRow).toBe(false);
+    expect(sizes[0]?.width).toBeGreaterThan(sizes[0]?.height ?? 0);
+    expect(sizes[1]).toEqual({ width: landscape.width, height: landscape.height });
+    expect(landscape.height).toBeGreaterThan(landscape.width);
+    expect(userText(call)).toContain("Image 4: scene s3, format landscape, frames 25/50/90%");
+    expect(sceneImageLayout("square").inRow).toBe(true);
   });
 
   it("без серйозних зауважень — pass навіть якщо модель сказала fix", async () => {
