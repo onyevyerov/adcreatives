@@ -10,6 +10,7 @@ import {
   QaLogEntry,
   type RenderEngine,
   revPaths,
+  STILL_PLAN,
   type Stage,
   type StageContext,
   StageError,
@@ -44,8 +45,9 @@ import { buildSheet, type SheetCell } from "../sheets.ts";
 import { typecheckScenes } from "../typecheck.ts";
 
 /**
- * Стадія `check` (CPU, без LLM): типи сцен → бандл → стіли ScenePreview (50% і 90% сцени) у всіх
- * обраних форматах з QA-режимом → `autoIssues` з логів `ADC_QA` → зведені аркуші → `check.json`.
+ * Стадія `check` (CPU, без LLM): типи сцен → бандл → стіли ScenePreview за `STILL_PLAN` (25%, 50% і
+ * 90% сцени) у всіх обраних форматах з QA-режимом → `autoIssues` з логів `ADC_QA` → зведені аркуші →
+ * `check.json`. Кадр `e` (25%) — перехідні стани появи: його `autoIssues` у звіт не йдуть, лише сам стіл.
  *
  * `params.sceneIds` — які сцени знімати (null — усі). Типи перевіряються для всіх сцен (усі
  * потрапляють у бандл), записи інших сцен беруться з попереднього check.json цієї ревізії або
@@ -105,6 +107,15 @@ function dedupeIssues(issues: readonly AutoIssue[]): AutoIssue[] {
   });
 }
 
+/** Чи має сцена стіли всіх варіантів `STILL_PLAN` у кожному з форматів (старі check.json — лише a/b). */
+function hasAllStills(stills: readonly StillRef[], sceneId: string, formats: readonly Format[]): boolean {
+  return formats.every((format) =>
+    STILL_PLAN.every(({ variant }) =>
+      stills.some((s) => s.sceneId === sceneId && s.format === format && s.variant === variant),
+    ),
+  );
+}
+
 function emptyReport(): CheckReport {
   return {
     compileErrors: [],
@@ -156,7 +167,7 @@ export async function rebuildSheets(
   for (const format of formats) {
     const cells: SheetCell[] = [];
     for (const sceneId of sceneIds) {
-      for (const variant of ["a", "b"] as const) {
+      for (const { variant, fraction } of STILL_PLAN) {
         const still = report.stills.find(
           (s) => s.sceneId === sceneId && s.format === format && s.variant === variant,
         );
@@ -166,7 +177,7 @@ export async function rebuildSheets(
           sceneId,
           variant,
           png,
-          label: `${sceneId} · ${variant}${still ? ` · кадр ${still.frame}` : ""}`,
+          label: `${sceneId} · ${variant} ${Math.round(fraction * 100)}%${still ? ` · кадр ${still.frame}` : ""}`,
           note: failed.has(sceneId) ? `${sceneId}: помилка` : `${sceneId}: немає кадру`,
         });
       }
@@ -327,13 +338,16 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
           (id) =>
             !compileFailed.has(id) &&
             baseMeta.scenes[id] === hashes[id] &&
-            (targets.includes(id) || !report.stills.some((s) => s.sceneId === id)),
+            (targets.includes(id) || !hasAllStills(report.stills, id, formats)),
         );
         for (const id of candidates) {
           const data = sceneData(baseReport, id);
           if (data.runtimeErrors.length || data.compileErrors.length) continue;
           const stills: StillRef[] = [];
-          let ok = data.stills.length === formats.length * 2;
+          // Старий звіт основи (лише a/b) не підходить — сцену знімаємо заново.
+          let ok =
+            data.stills.length === formats.length * STILL_PLAN.length &&
+            hasAllStills(data.stills, id, formats);
           for (const s of data.stills) {
             const dest = rp.still(s.format, s.sceneId, s.variant);
             if (!(await storage.exists(s.path))) {
@@ -351,10 +365,11 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
       }
     }
 
-    // Знімаємо цільові сцени, а також нецільові без стілів у цій ревізії (інакше аркуші й чекпоінт 3
-    // були б неповні — напр., сцена перенесена з основи, але її вхідні дані змінились).
+    // Знімаємо цільові сцени, а також нецільові без повного набору стілів у цій ревізії (інакше аркуші,
+    // QA й чекпоінт 3 були б неповні — напр., сцена перенесена з основи, але її вхідні дані змінились,
+    // або check.json записаний до появи кадру `e`).
     const stillsMissing = allIds.filter(
-      (id) => !targets.includes(id) && !reusedScenes.has(id) && !report.stills.some((s) => s.sceneId === id),
+      (id) => !targets.includes(id) && !reusedScenes.has(id) && !hasAllStills(report.stills, id, formats),
     );
     const renderTargets = [...targets, ...stillsMissing].filter(
       (id) => !compileFailed.has(id) && !reusedScenes.has(id),
@@ -405,12 +420,15 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
 
       // ---------- 3. стіли ----------
       const toRender = renderTargets.filter((id) => !compileFailed.has(id));
-      const total = toRender.length * formats.length * 2;
+      const total = toRender.length * formats.length * STILL_PLAN.length;
       let done = 0;
       for (const id of toRender) {
         const scene = storyboard.scenes.find((s) => s.id === id);
         if (!scene || serveUrl === null) continue;
-        const frames = stillFrames(scene.durationFrames);
+        const frames = stillFrames(
+          scene.durationFrames,
+          STILL_PLAN.map((p) => p.fraction),
+        );
         const data: Omit<SceneCheckData, "checkedAt"> = {
           compileErrors: [],
           runtimeErrors: [],
@@ -418,8 +436,11 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
           stills: [],
         };
         for (const format of formats) {
-          for (const [i, variant] of (["a", "b"] as const).entries()) {
+          for (const [i, { variant }] of STILL_PLAN.entries()) {
             const frame = frames[i] as number;
+            // Кадр `e` — появи ще тривають (текст «вміщується», елемент за краєм): autoIssues не беремо.
+            const issuesOf = (logs: readonly BrowserLog[]) =>
+              variant === "e" ? [] : collectAutoIssues(logs, id, format, frame);
             const key = rp.still(format, id, variant);
             const out = storage.absPath(key);
             await mkdir(path.dirname(out), { recursive: true });
@@ -433,12 +454,12 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
                 out,
                 ...(ctx.signal ? { signal: ctx.signal } : {}),
               });
-              data.autoIssues.push(...collectAutoIssues(res.logs, id, format, frame));
+              data.autoIssues.push(...issuesOf(res.logs));
               data.stills.push({ sceneId: id, format, variant, frame, path: key });
               artifacts.add(key);
             } catch (err) {
               if (ctx.signal?.aborted) throw err;
-              data.autoIssues.push(...collectAutoIssues(errorLogs(err), id, format, frame));
+              data.autoIssues.push(...issuesOf(errorLogs(err)));
               data.runtimeErrors.push({ sceneId: id, format, frame, message: errorMessage(err) });
             }
             done++;
