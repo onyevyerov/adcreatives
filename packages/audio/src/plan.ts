@@ -42,6 +42,7 @@ export const AudioPlanDraft = z.object({
     chunks: z.array(
       z.object({
         label: z.string(),
+        section: z.string(),
         sceneIds: z.array(z.string()),
         durationMs: z.number(),
         positiveStyles: z.array(z.string()),
@@ -98,7 +99,6 @@ export function audioPlanVars(
   return {
     brand: {
       category: brand.identity.category,
-      language: brand.identity.language,
       audience: sanitizer.text(brand.audience),
       tone: sanitizer.styles(brand.voice.tone),
       mood: sanitizer.styles(brand.visualStyle.mood),
@@ -186,8 +186,10 @@ export function normalizeAudioPlan(draft: AudioPlanDraft, opts: NormalizeOptions
       (draftChunks.length === layout.chunks.length ? draftChunks[i] : undefined) ??
       draftChunks.find((d) => d.sceneIds.some((id) => sk.sceneIds.includes(id)));
     const positive = sanitizer.styles(match?.positiveStyles ?? []);
+    const section = sanitizer.text(match?.section ?? "");
     return {
       label: sk.label,
+      ...(section ? { section } : {}),
       sceneIds: sk.sceneIds,
       durationMs: sk.durationMs,
       positiveStyles: positive.length > 0 ? positive : energyStyles(sk.energy),
@@ -233,7 +235,8 @@ export function normalizeAudioPlan(draft: AudioPlanDraft, opts: NormalizeOptions
 
 /**
  * План для `music_v2_5`: глобальні стилі додаються в кожен чанк (у v2-плані глобальних
- * стилів немає, а "instrumental" має діяти на весь трек); текст чанка — лише назва секції.
+ * стилів немає, а "instrumental" має діяти на весь трек); текст чанка — лише назва секції
+ * (`section` від моделі: intro/build/peak…, інакше `label` з purpose сцен).
  */
 export function toCompositionPlan(plan: AudioPlan): CompositionPlanV2 {
   const { positiveGlobalStyles, negativeGlobalStyles, chunks } = plan.compositionPlan;
@@ -248,7 +251,7 @@ export function toCompositionPlan(plan: AudioPlan): CompositionPlanV2 {
   };
   return {
     chunks: chunks.map((c) => ({
-      text: `[${c.label.replace(/[[\]{}]/g, "").slice(0, 100) || "section"}]`,
+      text: `[${(c.section || c.label).replace(/[[\]{}]/g, "").slice(0, 100) || "section"}]`,
       durationMs: c.durationMs,
       positiveStyles: merge(positiveGlobalStyles, c.positiveStyles),
       negativeStyles: merge(negativeGlobalStyles, c.negativeStyles),

@@ -2,7 +2,7 @@ import { revPaths } from "@adc/shared";
 import { describe, expect, it } from "vitest";
 import { directorPaths } from "../src/io.ts";
 import { readLedger } from "../src/ledger.ts";
-import { codegenStage } from "../src/stages/codegen.ts";
+import { ANCHOR_EFFORT, codegenStage } from "../src/stages/codegen.ts";
 import {
   exampleSources,
   fileBlocks,
@@ -21,24 +21,40 @@ async function firstGeneration() {
   const storage = tmpStorage();
   await seedProject(storage);
   const ctx = makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
-    { text: `Ось сцени:\n${fileBlocks({ s1: ex["hook-photo"], s2: ex["offer-price"], s3: BAD })}` },
+    { text: `Ось сцена:\n${fileBlocks({ s1: ex["hook-photo"] })}` },
+    { text: fileBlocks({ s2: ex["offer-price"] }) },
+    { text: fileBlocks({ s3: BAD }) },
   ]);
   const res = await codegenStage(ctx);
   return { storage, ctx, res };
 }
 
 describe("codegenStage", () => {
-  it("перша генерація: усі сцени одним стрім-викликом, AST-guard, реєстр", async () => {
+  it("перша генерація: сцена за стрім-виклик (anchor, далі continue), AST-guard, реєстр", async () => {
     const { storage, ctx, res } = await firstGeneration();
     const rp = revPaths(PROJECT_ID, 1);
     expect(res.outputs).toEqual({ sceneIds: ["s1", "s2", "s3"], guardRejected: ["s3"] });
-    expect(ctx.anthropic.calls).toHaveLength(1);
-    expect(ctx.anthropic.calls[0]?.method).toBe("stream");
+    expect(ctx.anthropic.calls).toHaveLength(3);
+    expect(ctx.anthropic.calls.every((c) => c.method === "stream")).toBe(true);
     const system = systemText(ctx.anthropic.calls[0]?.params);
     expect(system).toContain("useFormat"); // декларації motion-kit
     expect(system).toContain("registerRoot"); // вендорний system prompt Remotion
     expect(system).toContain("examples/hook-photo.tsx");
-    expect(userText(ctx.anthropic.calls[0]?.params)).toContain("Generate the scenes: s1, s2, s3");
+
+    const [u1, u2, u3] = ctx.anthropic.calls.map((c) => userText(c.params));
+    expect(u1).toContain("Mode: anchor");
+    expect(u1).toContain("Generate the scenes: s1.");
+    expect(u1).not.toContain('<file name="s1.tsx">');
+    expect(u2).toContain("Mode: continue");
+    expect(u2).toContain("Generate the scenes: s2.");
+    expect(u2).toContain('<file name="s1.tsx">');
+    expect(u3).toContain('<file name="s2.tsx">');
+    expect(u3).toContain("Generate the scenes: s3.");
+    const effort = (i: number) =>
+      (ctx.anthropic.calls[i]?.params as { output_config?: { effort?: string } } | undefined)?.output_config
+        ?.effort;
+    expect(effort(0)).toBe(ANCHOR_EFFORT);
+    expect(effort(1)).toBe("high"); // frontmatter
 
     expect(await storage.readText(rp.scene("s1"))).toBe(`${ex["hook-photo"].trim()}\n`);
     expect(await storage.exists(rp.scene("s3"))).toBe(false);
@@ -96,11 +112,13 @@ describe("codegenStage", () => {
       storage,
       "codegen",
       { sceneIds: null, instructions: [] },
-      [{ text: fileBlocks({ s2: ex["offer-price"], s3: ex["cta-logo"] }) }],
+      [{ text: fileBlocks({ s2: ex["offer-price"] }) }, { text: fileBlocks({ s3: ex["cta-logo"] }) }],
       { rev: 2 },
     );
     const res = await codegenStage(ctx);
     expect(res.outputs.sceneIds).toEqual(["s2", "s3"]);
+    expect(ctx.anthropic.calls).toHaveLength(2);
+    expect(userText(ctx.anthropic.calls[0]?.params)).toContain("Mode: subset");
     expect(userText(ctx.anthropic.calls[0]?.params)).toContain('<file name="s1.tsx">');
     const ledger = await readLedger(storage, PROJECT_ID, 2);
     expect(ledger.scenes.s1?.versions[0]?.origin).toBe("carry");
@@ -111,7 +129,35 @@ describe("codegenStage", () => {
     await seedProject(storage);
     const ctx = makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
       { text: "Вибачте, не можу." },
+      { text: "Вибачте, не можу." },
+      { text: "Вибачте, не можу." },
     ]);
     await expect(codegenStage(ctx)).rejects.toMatchObject({ code: "codegen_no_files" });
+  });
+
+  it("збій посеред генерації: готові сцени записані, повтор продовжує з першої незгенерованої", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    const failing = makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
+      { text: fileBlocks({ s1: ex["hook-photo"] }) },
+      { error: new Error("boom") },
+    ]);
+    await expect(codegenStage(failing)).rejects.toMatchObject({ code: "llm_api" });
+    expect(await storage.exists(revPaths(PROJECT_ID, 1).scene("s1"))).toBe(true);
+
+    const ctx = makeCtx(
+      storage,
+      "codegen",
+      { sceneIds: null, instructions: [] },
+      [{ text: fileBlocks({ s2: ex["offer-price"] }) }, { text: fileBlocks({ s3: ex["cta-logo"] }) }],
+      { attempt: 2 },
+    );
+    const res = await codegenStage(ctx);
+    expect(res.outputs).toEqual({ sceneIds: ["s1", "s2", "s3"], guardRejected: [] });
+    expect(ctx.anthropic.calls).toHaveLength(2);
+    expect(userText(ctx.anthropic.calls[0]?.params)).toContain("Mode: continue");
+    expect(userText(ctx.anthropic.calls[0]?.params)).toContain("Generate the scenes: s2.");
+    const ledger = await readLedger(storage, PROJECT_ID, 1);
+    expect(ledger.scenes.s1?.versions).toHaveLength(1);
   });
 });

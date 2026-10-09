@@ -6,6 +6,8 @@ import { z } from "zod";
  */
 export const MusicChunk = z.object({
   label: z.string(),
+  /** Музична назва секції для генератора (intro, build, peak, …); без неї текст чанка = label. */
+  section: z.string().optional(),
   sceneIds: z.array(z.string()).min(1),
   /** 3 000–120 000 мс (обмеження ElevenLabs), перевіряється кодом. */
   durationMs: z.number().int().min(3000).max(120000),
@@ -26,7 +28,7 @@ export const SfxSpec = z.object({
 });
 export type SfxSpec = z.infer<typeof SfxSpec>;
 
-/** AudioPlan — LLM-схема стадії `audio-plan` (Sonnet). */
+/** AudioPlan — LLM-схема стадії `audio-plan` (Opus). */
 export const AudioPlan = z.object({
   compositionPlan: z.object({
     /** Стилі з музичного брифу + "instrumental". Без назв брендів і артистів. */

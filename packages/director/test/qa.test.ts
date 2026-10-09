@@ -37,7 +37,9 @@ describe("qaStage", () => {
     await seedProject(storage);
     await codegenStage(
       makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
-        { text: fileBlocks({ s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] }) },
+        { text: fileBlocks({ s1: ex["hook-photo"] }) },
+        { text: fileBlocks({ s2: ex["offer-price"] }) },
+        { text: fileBlocks({ s3: ex["cta-logo"] }) },
       ]),
     );
     await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));
@@ -99,7 +101,9 @@ describe("qaStage", () => {
     await seedProject(storage);
     await codegenStage(
       makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
-        { text: fileBlocks({ s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] }) },
+        { text: fileBlocks({ s1: ex["hook-photo"] }) },
+        { text: fileBlocks({ s2: ex["offer-price"] }) },
+        { text: fileBlocks({ s3: ex["cta-logo"] }) },
       ]),
     );
     await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));

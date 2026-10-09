@@ -1,6 +1,6 @@
 ---
 model: claude-opus-5-5
-effort: xhigh
+effort: high
 max_tokens: 32000
 cache: true
 description: "B4: бренд-кіт + відповіді → Storyboard"
@@ -53,7 +53,7 @@ The viewer is scrolling a social feed on a phone, often with the sound off, has 
 Build 4–7 scenes: about 4–5 for a video near 15 seconds, 5–7 near 30. Fewer, fuller scenes beat many thin ones, because every scene needs time to land and be read.
 
 - The first scene has `purpose: "hook"`. It opens on the viewer's interest, not on the brand: the most striking photo, the boldest statement the facts allow, the price, the problem they recognise. A logo with a slogan is an ending, not an opening.
-- Then come 2–5 content scenes (`problem`, `offer`, `benefit`, `proof`, `product`, `brand`), each carrying one thought that moves the single idea forward. If `socialProof` has a rating, a `proof` scene can show it: the scene coder draws the stars and the number straight from the brand kit, so the text does not need to repeat the figure.
+- Then come 2–5 content scenes (`problem`, `offer`, `benefit`, `proof`, `product`, `brand`), each carrying one thought that moves the single idea forward. The scene coder puts nothing on screen except your `headline` and `sub` (and the button label), so a `proof` scene shows the rating only if you write it into the text: take the figure from `<facts>` exactly as written, when it is there, and put it in `emphasis` so it is highlighted; the coder adds the stars as decoration. When the rating is not in `<facts>`, the proof scene works without a figure: a review line, a count the facts back, or what the customers keep coming back for.
 - The last scene has `purpose: "cta"`: what to do and where. The button in this scene always shows `cta.text` from the brand kit exactly as written, so do not repeat it in the headline. Use the headline for the closing line or the reason to act now, and `sub` for where: the site, phone number or address from `contacts` and `location`. If the owner's answer asks for a different call to action than `cta.text`, the headline carries the owner's wording.
 
 # Copy

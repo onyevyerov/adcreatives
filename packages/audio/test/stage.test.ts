@@ -70,9 +70,9 @@ describe("audioStage", () => {
     expect(plan.compositionPlan.chunks.map((c) => c.durationMs)).toEqual([4_500, 5_000, 6_500]);
     expect(res.outputs).toEqual({ planHash: expect.stringMatching(/^[0-9a-f]{16}$/), reusedMusic: false });
 
-    // Один виклик LLM (Sonnet з frontmatter), один — музики, два SFX (whoosh+shimmer зі спільного кешу, кастомний).
+    // Один виклик LLM (модель з frontmatter), один — музики, два SFX (whoosh+shimmer зі спільного кешу, кастомний).
     expect(ctx.anthropic.calls).toHaveLength(1);
-    expect(ctx.anthropic.calls[0]?.params.model).toBe("claude-sonnet-5-5");
+    expect(ctx.anthropic.calls[0]?.params.model).toBe("claude-opus-5-5");
     expect(client.calls.filter((c) => c.method === "composeDetailed")).toHaveLength(1);
     const sfxCalls = client.calls.filter((c) => c.method === "convert");
     expect(sfxCalls.map((c) => c.request.text).sort()).toEqual(

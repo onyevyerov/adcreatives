@@ -121,6 +121,7 @@ export function draftFor(layout: ChunkLayout, overrides: Partial<AudioPlanDraft>
       negativeGlobalStyles: ["vocals", "lyrics", "heavy distortion"],
       chunks: layout.chunks.map((c) => ({
         label: c.label,
+        section: c.label,
         sceneIds: c.sceneIds,
         durationMs: c.durationMs,
         positiveStyles: [`${c.label} groove`, "soft drums"],

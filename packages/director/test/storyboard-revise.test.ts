@@ -31,7 +31,7 @@ describe("storyboardStage", () => {
     const user = userText(ctx.anthropic.calls[0]?.params);
     expect(user).toContain("<facts>");
     expect(user).toContain("Капучино — 75 грн");
-    expect(ctx.anthropic.calls[0]?.method).toBe("stream"); // effort xhigh → стрім
+    expect(ctx.anthropic.calls[0]?.method).toBe("stream"); // effort high → стрім
   });
 
   it("бажана тривалість клієнта і повтор при задовгих текстах", async () => {

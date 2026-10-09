@@ -38,7 +38,12 @@ async function generated(scenes: Record<string, string>, opts: { rev?: number } 
   const storage = tmpStorage();
   await seedProject(storage, opts);
   await codegenStage(
-    makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [{ text: fileBlocks(scenes) }]),
+    makeCtx(
+      storage,
+      "codegen",
+      { sceneIds: null, instructions: [] },
+      Object.entries(scenes).map(([id, code]) => ({ text: fileBlocks({ [id]: code }) })),
+    ),
   );
   return storage;
 }

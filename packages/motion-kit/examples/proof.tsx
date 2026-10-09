@@ -1,18 +1,19 @@
 /**
- * Еталон: соціальний доказ. Рейтинг рахується від 0 до значення з бренд-кіта,
- * зірки з'являються по черзі, заголовок і підпис — нижче.
+ * Соціальний доказ без фото: п'ять акцентних зірок (форми з @remotion/shapes, не гліфи)
+ * заходять по черзі пружиною бренду, заголовок — слідом за останньою зіркою, підпис — за ним.
+ * На екрані лише тексти сцени: цифра рейтингу з'являється тільки якщо режисер поклав її
+ * в headline (emphasis її підсвітить); з бренд-кіта сцена не малює нічого.
+ * Старти виводяться з довжини сцени, вхідного переходу, кількості слів і темпу бренду.
  */
 import type { SceneProps } from "@adc/motion-kit";
 import {
   Backdrop,
   Body,
-  easings,
+  defaultStagger,
   Headline,
-  headingWeight,
-  progress,
   readableOn,
   SafeArea,
-  springs,
+  springFor,
   useFormat,
   useTheme,
 } from "@adc/motion-kit";
@@ -25,31 +26,37 @@ export default function Scene(props: SceneProps) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { headline, sub, emphasis } = props.scene.text;
-  const rating = props.brand.socialProof.rating;
+  const d = props.durationInFrames;
   const color = readableOn(theme.palette.surface, theme.palette);
-  const shown = rating === null ? null : rating * progress(frame, 0, 30, easings.expoOut);
+
+  // Перший біт — не раніше, ніж закінчиться вхідний перехід: поява під fade невидима.
+  const start = props.scene.transitionFrames;
+  // Усе, що треба прочитати, має стояти на місці приблизно до чверті сцени:
+  // перевірки дивляться кадри на 50 % і 90 %.
+  const readyBy = Math.round(d * 0.25);
+  // Зірки заходять з тим самим кроком і пружиною, що й слова заголовка в цього бренду.
+  const stagger = defaultStagger(theme.motion, "word");
+  const starSpring = springFor(theme.motion);
+  const lastStarAt = start + 4 * stagger;
+  // Заголовок (preset fade, по словах) читабельний через (слів − 1) × stagger + 12 кадрів після старту.
+  const words = headline.split(/\s+/).filter(Boolean).length;
+  const headlineNeeds = (words - 1) * stagger + 12;
+  // Заголовок стартує, коли заходить остання зірка, — або раніше, якщо інакше не встигне до readyBy
+  // (коротка сцена, довгий заголовок, повільний бренд), але не раніше за вхідний перехід.
+  const headlineStart = Math.min(lastStarAt, Math.max(start, readyBy - headlineNeeds));
+  // Підпис стартує, коли заходить останнє слово заголовка.
+  const subStart = headlineStart + (words - 1) * stagger;
+
   const starSize = 48 * unit;
 
   return (
     <AbsoluteFill>
-      <Backdrop variant="noise" color={theme.palette.surface} />
+      <Backdrop variant="noise" color={theme.palette.surface} animate />
       <SafeArea style={{ justifyContent: "center", alignItems: "center", gap: 32 * unit }}>
-        {shown === null ? null : (
-          <div
-            style={{
-              fontFamily: theme.fonts.heading,
-              fontWeight: headingWeight(theme),
-              fontSize: 160 * unit,
-              color,
-              lineHeight: 1,
-            }}
-          >
-            {shown.toFixed(1)}
-          </div>
-        )}
         <div style={{ display: "flex", gap: 12 * unit }}>
           {[0, 1, 2, 3, 4].map((i) => {
-            const s = spring({ frame: frame - 6 - i * 4, fps, config: springs.snappy });
+            // Пружина до свого старту повертає 0, тож затримка — просто зсув кадру.
+            const s = spring({ frame: frame - (start + i * stagger), fps, config: starSpring });
             return (
               <div key={i} style={{ transform: `scale(${s})` }}>
                 <Star
@@ -62,8 +69,15 @@ export default function Scene(props: SceneProps) {
             );
           })}
         </div>
-        <Headline text={headline} emphasis={emphasis} preset="fade" startFrame={20} size="m" color={color} />
-        {sub ? <Body text={sub} preset="fade" startFrame={30} size="s" color={color} /> : null}
+        <Headline
+          text={headline}
+          emphasis={emphasis}
+          preset="fade"
+          startFrame={headlineStart}
+          size="m"
+          color={color}
+        />
+        {sub ? <Body text={sub} preset="fade" startFrame={subStart} size="s" color={color} /> : null}
       </SafeArea>
     </AbsoluteFill>
   );
