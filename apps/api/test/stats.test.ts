@@ -17,7 +17,10 @@ function cost(projectId: string, usd: number, stage: CostStage, phase: CostEvent
     promptHash: null,
     effort: null,
     attempt: 1,
-    units: stage === "render" ? { renders: 1 } : { input: 1000, output: 1000, cacheWrite: 0, cacheRead: 0 },
+    units:
+      stage === "render"
+        ? { renders: 1 }
+        : { input: 1000, output: 1000, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 },
     unitPrices: {},
     usd,
     exact: true,

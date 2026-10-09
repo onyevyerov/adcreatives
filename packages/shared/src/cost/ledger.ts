@@ -1,6 +1,6 @@
 import type { RunSource } from "../schemas/common.ts";
 import type { Prices } from "../schemas/cost.ts";
-import { CostEvent, type TokenUnits } from "../schemas/cost.ts";
+import { CostEvent, type TokenUnitsInput } from "../schemas/cost.ts";
 import type { CostPhase, CostStage } from "../schemas/project.ts";
 import { projectPaths, sharedPaths } from "../storage/paths.ts";
 import type { Storage } from "../storage/Storage.ts";
@@ -32,7 +32,7 @@ export type CostInput =
   | (CostInputBase & {
       provider: "anthropic";
       model: string;
-      units: TokenUnits;
+      units: TokenUnitsInput;
       promptName?: string | null;
       promptHash?: string | null;
       effort?: string | null;
@@ -75,7 +75,11 @@ export function priceInput(
 ): Priced & { units: CostEvent["units"]; model: string } {
   switch (input.provider) {
     case "anthropic":
-      return { ...priceAnthropic(prices, input.model, input.units), units: input.units, model: input.model };
+      return {
+        ...priceAnthropic(prices, input.model, input.units),
+        units: { ...input.units, cacheWrite1h: input.units.cacheWrite1h ?? 0 },
+        model: input.model,
+      };
     case "elevenlabs":
       return {
         ...priceElevenLabs(prices, input.kind, input.seconds),

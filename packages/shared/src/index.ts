@@ -13,4 +13,5 @@ export * from "./stage.ts";
 export * from "./storage/index.ts";
 export * from "./timeline.ts";
 export * from "./trace.ts";
+export * from "./tuning.ts";
 export * from "./types/video.ts";

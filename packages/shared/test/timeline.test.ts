@@ -4,6 +4,7 @@ import {
   computeSfxPlacements,
   computeTimeline,
   framesToMs,
+  STILL_PLAN,
   stillFrames,
   TimelineError,
 } from "../src/timeline.ts";
@@ -71,6 +72,16 @@ describe("computeTimeline", () => {
     expect(stillFrames(100)).toEqual([50, 90]);
     expect(stillFrames(10, [0, 1])).toEqual([0, 9]);
     expect(framesToMs(45, 30)).toBe(1500);
+  });
+
+  it("STILL_PLAN: e/a/b на 25/50/90% сцени", () => {
+    expect(STILL_PLAN.map((p) => p.variant)).toEqual(["e", "a", "b"]);
+    expect(
+      stillFrames(
+        90,
+        STILL_PLAN.map((p) => p.fraction),
+      ),
+    ).toEqual([23, 45, 81]);
   });
 });
 

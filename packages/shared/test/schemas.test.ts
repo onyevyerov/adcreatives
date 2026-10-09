@@ -27,12 +27,16 @@ import {
   PipelineCounters,
   ProjectState,
   primaryFormat,
+  QaIssueKind,
   QaReport,
   RevisionPlan,
   SiteData,
   StatsRow,
+  StillRef,
+  StillVariant,
   Storyboard,
 } from "../src/schemas/index.ts";
+import { RenderMeta } from "../src/stage.ts";
 import { AudioManifest } from "../src/types/video.ts";
 
 const AT = "2026-10-06T10:00:00.000Z";
@@ -203,7 +207,7 @@ describe("schemas round-trip", () => {
       promptHash: "abc",
       effort: "high",
       attempt: 1,
-      units: { input: 1000, output: 500, cacheWrite: 0, cacheRead: 0 },
+      units: { input: 1000, output: 500, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 },
       unitPrices: { input: 4, output: 20 },
       usd: 0.014,
       exact: true,
@@ -250,6 +254,70 @@ describe("formats & intent helpers", () => {
     expect(
       intentHasEdits({ ...ChatIntent.parse(chatIntent), brandEdits: null, facts: [], formats: ["square"] }),
     ).toBe(false);
+  });
+});
+
+describe("Крок 0: сумісність зі старими даними", () => {
+  it("рядок costs.jsonl без cacheWrite1h парситься з 0", () => {
+    const old = {
+      ts: AT,
+      projectId: "p1",
+      rev: 1,
+      stage: "codegen",
+      phase: "first_delivery",
+      source: "chat",
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      promptName: "codegen",
+      promptHash: "abc",
+      effort: "high",
+      attempt: 1,
+      units: { input: 10, output: 20, cacheWrite: 30, cacheRead: 40 },
+      unitPrices: { input: 4 },
+      usd: 0.1,
+      exact: true,
+    };
+    expect(CostEvent.parse(old).units).toEqual({
+      input: 10,
+      output: 20,
+      cacheWrite: 30,
+      cacheWrite1h: 0,
+      cacheRead: 40,
+    });
+    // Не-токенні одиниці лишаються як були.
+    expect(CostEvent.parse({ ...old, provider: "remotion", units: { renders: 1 } }).units).toEqual({
+      renders: 1,
+    });
+  });
+
+  it("стіли: варіант e (25%), старий check.json з a/b читається", () => {
+    expect(StillVariant.options).toEqual(["e", "a", "b"]);
+    expect(
+      StillRef.parse({ sceneId: "s1", format: "square", variant: "e", frame: 20, path: "x" }).variant,
+    ).toBe("e");
+    const oldCheck = {
+      compileErrors: [],
+      bundleError: null,
+      runtimeErrors: [],
+      autoIssues: [],
+      stills: [
+        { sceneId: "s1", format: "vertical", variant: "a", frame: 45, path: "stills/vertical/s1-a.png" },
+        { sceneId: "s1", format: "vertical", variant: "b", frame: 81, path: "stills/vertical/s1-b.png" },
+      ],
+      sheets: [],
+      durationMs: 5,
+    };
+    expect(CheckReport.parse(oldCheck).stills.map((st) => st.variant)).toEqual(["a", "b"]);
+    expect(() => StillRef.parse({ ...oldCheck.stills[0], variant: "c" })).toThrow();
+  });
+
+  it("QA: late_text; RenderMeta", () => {
+    expect(QaIssueKind.options).toContain("late_text");
+    expect(
+      QaReport.parse({ ...qaReport, issues: [{ ...qaReport.issues[0], kind: "late_text" }] }).issues[0]?.kind,
+    ).toBe("late_text");
+    roundTrip(RenderMeta, { inputsHash: "0123456789abcdef" });
+    expect(() => RenderMeta.parse({ inputsHash: "" })).toThrow();
   });
 });
 
