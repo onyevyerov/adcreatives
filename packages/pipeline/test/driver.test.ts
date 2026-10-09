@@ -1,5 +1,5 @@
 import { PipelineCounters, ProjectState, projectPaths, t } from "@adc/shared";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Harness, intent } from "./helpers.ts";
 
 function userText(h: Harness, callIndex: number): string {
@@ -421,5 +421,114 @@ describe("driver — fix/QA limits → template scenes", () => {
     expect(h.messages().at(-1)).toContain(t("templateScenesNote", { scenes: "s3" }));
     const counters = PipelineCounters.parse(await h.storage.readJson(projectPaths("p1").rev(1).pipeline));
     expect(counters.templateScenes).toEqual(["s3"]);
+  });
+});
+
+describe("driver — speculative render (ADC_SPECULATIVE_RENDER)", () => {
+  beforeEach(() => {
+    vi.stubEnv("ADC_SPECULATIVE_RENDER", "1");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** До чекпоінта 3, не запускаючи спекулятивні job. */
+  async function toCheckpoint3(h: Harness) {
+    await toScript(h);
+    await h.approve();
+    for (let i = 0; i < 100 && (await h.project()).project.status !== "awaiting_storyboard"; i++) {
+      if (!(await h.runNext())) break;
+    }
+    expect((await h.project()).project.status).toBe("awaiting_storyboard");
+  }
+  const renderJobs = (h: Harness) => h.pendingJobs().filter((j) => j.stage === "render");
+
+  it("reads the flag via readTuning: spec renders start with checkpoint 3 and never deliver", async () => {
+    const h = new Harness();
+    await toCheckpoint3(h);
+    expect(renderJobs(h).map((j) => [j.jobId, j.params])).toEqual([
+      ["p1.render.r1.a1.spec-vertical", { format: "vertical", speculative: true }],
+    ]);
+    const states = h.eventsOf("state").length;
+    await h.runUntilIdle();
+    const s = await h.project();
+    expect(s.project.status).toBe("awaiting_storyboard");
+    expect(s.pipe.outstanding).toEqual([]);
+    expect(h.eventsOf("state")).toHaveLength(states);
+    expect(h.eventsOf("artifact")).toEqual([]);
+    expect(h.eventsOf("cost").at(-1)).toMatchObject({ stage: "render" });
+
+    await h.approve();
+    expect(renderJobs(h).map((j) => j.jobId)).toEqual(["p1.render.r1.a1.vertical"]);
+    await h.runUntilIdle();
+    expect((await h.project()).project.status).toBe("delivered");
+    expect(h.eventsOf("artifact").map((a) => [a.kind, a.format])).toEqual([
+      ["video", "vertical"],
+      ["poster", "vertical"],
+    ]);
+  });
+
+  it("spec failure: status unchanged, no error or retry button; approve still delivers", async () => {
+    const h = new Harness({
+      behaviors: {
+        render: (job) => (job.params.speculative ? { fail: { userMessage: "Рендер упав." } } : undefined),
+      },
+    });
+    await toCheckpoint3(h);
+    const messages = h.messages().length;
+    await h.runUntilIdle();
+    let s = await h.project();
+    expect(s.project.status).toBe("awaiting_storyboard");
+    expect(s.project.failure).toBeNull();
+    expect(s.pipe.failedJobs).toEqual([]);
+    expect(h.eventsOf("error")).toEqual([]);
+    expect(h.messages()).toHaveLength(messages);
+
+    await h.approve();
+    await h.runUntilIdle();
+    s = await h.project();
+    expect(s.project.status).toBe("delivered");
+  });
+
+  it("approve during spec: normal job queued behind spec; one delivery", async () => {
+    const h = new Harness();
+    await toCheckpoint3(h);
+    await h.approve();
+    expect(renderJobs(h).map((j) => j.jobId)).toEqual([
+      "p1.render.r1.a1.spec-vertical",
+      "p1.render.r1.a1.vertical",
+    ]);
+    await h.runNext("render");
+    expect((await h.project()).project.status).toBe("rendering");
+    await h.runUntilIdle();
+    expect((await h.project()).project.status).toBe("delivered");
+    expect(h.eventsOf("artifact").filter((a) => a.kind === "video")).toHaveLength(1);
+  });
+
+  it("edit at checkpoint 3: spec of the old revision is ignored", async () => {
+    const h = new Harness();
+    await toCheckpoint3(h);
+    await h.say("у другій сцені інший заголовок", intent({ kind: "edit", edits: "s2" }));
+    const before = await h.project();
+    expect(before.project.rev).toBe(2);
+    await h.runNext("render");
+    const after = await h.project();
+    expect(after.project.status).toBe("revising");
+    expect(after.pipe).toEqual(before.pipe);
+    await h.runUntilIdle();
+    const s = await h.project();
+    expect(s.project.status).toBe("awaiting_storyboard");
+    // Нова ревізія — нові спекулятивні рендери.
+    expect(h.jobsOf("render").map((j) => j.jobId)).toEqual([
+      "p1.render.r1.a1.spec-vertical",
+      "p1.render.r2.a1.spec-vertical",
+    ]);
+  });
+
+  it("flag off → no speculative jobs", async () => {
+    vi.stubEnv("ADC_SPECULATIVE_RENDER", "");
+    const h = new Harness();
+    await toStoryboard(h);
+    expect(h.jobsOf("render")).toEqual([]);
   });
 });

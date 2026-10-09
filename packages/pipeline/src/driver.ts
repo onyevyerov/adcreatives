@@ -19,8 +19,10 @@ import {
   projectPaths,
   type Queue,
   type RunSource,
+  readTuning,
   type StageDoneEvent,
   type Storage,
+  type Tuning,
   t,
 } from "@adc/shared";
 import { parseIntent, replyToQuestion } from "./chat.ts";
@@ -73,6 +75,8 @@ export interface PipelineDriverDeps {
   now?: () => Date;
   /** Писати репліку клієнта в стрім (`role: "user"`). Дефолт false — це робить API. */
   echoUserMessages?: boolean;
+  /** Перемикачі (`speculativeRender`); дефолт — `readTuning()` з env на кожен крок. */
+  tuning?: () => Pick<Tuning, "speculativeRender">;
 }
 
 export interface PipelineDriverImpl extends PipelineDriver {
@@ -148,6 +152,7 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
   const { storage, queue, lock } = deps;
   const logger = deps.logger ?? noopLogger;
   const now = deps.now ?? (() => new Date());
+  const tuning = deps.tuning ?? (() => readTuning());
 
   async function load(projectId: string): Promise<MachineState | null> {
     const paths = projectPaths(projectId);
@@ -231,6 +236,7 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
 
   async function buildContext(state: MachineState, input: StepInput): Promise<StepContext> {
     const ctx: StepContext = { now: now().toISOString() };
+    if (tuning().speculativeRender) ctx.speculativeRender = true;
     if (input.kind !== "command") return ctx;
     const { project } = state;
     const cmd = input.command;
