@@ -777,3 +777,165 @@ describe("nextStep — failures", () => {
     ]);
   });
 });
+
+describe("nextStep — speculative render (Tuning.speculativeRender)", () => {
+  const SPEC = ctx({ speculativeRender: true });
+  const step = (s: MachineState, input: StepInput, c: StepContext = SPEC) => {
+    const r = nextStep(s, input, c);
+    return { r, s: { project: r.state, pipe: r.pipe } as MachineState };
+  };
+  /** Подія завершення вже поставленого job (за jobId). */
+  function finish(s: MachineState, jobId: string, opts: { fail?: boolean } = {}): StepInput {
+    const job = s.pipe.outstanding.find((j) => j.jobId === jobId) as JobRecord;
+    const format = (job.params as { format: string }).format;
+    const common = {
+      projectId: "p1",
+      rev: job.rev,
+      stage: job.stage,
+      attempt: job.attempt,
+      jobId,
+      durationMs: 700,
+      format,
+    };
+    const event = opts.fail
+      ? {
+          ...common,
+          type: "stage_failed" as const,
+          error: { code: "x", message: "tech", userMessage: "Збій рендеру.", retryable: true },
+        }
+      : {
+          ...common,
+          type: "stage_done" as const,
+          artifacts: [],
+          outputs: { format, out: `renders/${format}.mp4`, durationMs: 700 },
+          reused: false,
+        };
+    return { kind: "stage_event", event: event as StageDoneEvent };
+  }
+  /** Відео й аудіо готові: подія qa приводить на чекпоінт 3. */
+  function joinToCheckpoint3(c: StepContext = SPEC) {
+    const s0 = state("directing", {
+      formats: ["vertical", "square"],
+      branches: { video: "running", audio: "done" },
+    });
+    return step(s0, running(s0, "qa", {}, { verdict: "pass", seriousScenes: [] }), c);
+  }
+
+  it("entering awaiting_storyboard enqueues a speculative render per selected format", () => {
+    const { r } = joinToCheckpoint3();
+    expect(r.state.status).toBe("awaiting_storyboard");
+    expect(r.effects).toContainEqual(
+      expect.objectContaining({ type: "checkpoint", checkpoint: "storyboard" }),
+    );
+    expect(r.jobs).toEqual([
+      expect.objectContaining({
+        stage: "render",
+        jobId: "p1.render.r1.a1.spec-vertical",
+        params: { format: "vertical", speculative: true },
+      }),
+      expect.objectContaining({
+        stage: "render",
+        jobId: "p1.render.r1.a1.spec-square",
+        params: { format: "square", speculative: true },
+      }),
+    ]);
+  });
+
+  it("flag off → no speculative jobs (current behaviour)", () => {
+    for (const c of [ctx(), ctx({ speculativeRender: false })]) {
+      const { r } = joinToCheckpoint3(c);
+      expect(r.state.status).toBe("awaiting_storyboard");
+      expect(r.jobs).toEqual([]);
+      expect(r.pipe.outstanding).toEqual([]);
+    }
+  });
+
+  it("speculative success at checkpoint 3: no status change, no delivery; approve renders as usual", () => {
+    let { s, r } = joinToCheckpoint3();
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.spec-vertical")));
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.spec-square")));
+    expect(r.state.status).toBe("awaiting_storyboard");
+    expect(r.effects).toEqual([{ type: "cost", stage: "render", rev: 1, durationMs: 700 }]);
+    expect(r.events).toEqual([]);
+    expect(r.pipe.outstanding).toEqual([]);
+
+    ({ s, r } = step(s, cmd({ type: "approve", rev: null })));
+    expect(r.state.status).toBe("rendering");
+    expect(r.jobs.map((j) => [j.jobId, j.params])).toEqual([
+      ["p1.render.r1.a1.vertical", { format: "vertical" }],
+      ["p1.render.r1.a1.square", { format: "square" }],
+    ]);
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.vertical")));
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.square")));
+    expect(r.state.status).toBe("delivered");
+    expect(r.effects).toContainEqual({ type: "delivery", rev: 1, formats: ["vertical", "square"] });
+  });
+
+  it("speculative failure: status unchanged, not in failedJobs, no error in chat", () => {
+    const { s: s0 } = joinToCheckpoint3();
+    const { r } = step(s0, finish(s0, "p1.render.r1.a1.spec-vertical", { fail: true }));
+    expect(r.state.status).toBe("awaiting_storyboard");
+    expect(r.state.failure).toBeNull();
+    expect(r.pipe.failedJobs).toEqual([]);
+    expect(r.events).toEqual([]);
+    expect(r.pipe.outstanding.map((j) => j.jobId)).toEqual(["p1.render.r1.a1.spec-square"]);
+  });
+
+  it("approve during spec: normal jobs deliver; spec events (even failures) change nothing", () => {
+    let { s, r } = joinToCheckpoint3();
+    ({ s, r } = step(s, cmd({ type: "approve", rev: null })));
+    expect(r.state.status).toBe("rendering");
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.spec-vertical")));
+    expect(r.state.status).toBe("rendering");
+    expect(r.effects.some((e) => e.type === "delivery")).toBe(false);
+    // Спекулятивний square падає під час «Рендерю…» — проєкт не падає.
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.spec-square", { fail: true })));
+    expect(r.state.status).toBe("rendering");
+    expect(r.pipe.failedJobs).toEqual([]);
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.vertical")));
+    expect(r.state.status).toBe("rendering");
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.square")));
+    expect(r.state.status).toBe("delivered");
+    expect(r.effects.filter((e) => e.type === "delivery")).toHaveLength(1);
+  });
+
+  it("normal render finishing before its spec still delivers; the late spec event is a no-op", () => {
+    let { s, r } = joinToCheckpoint3();
+    ({ s, r } = step(s, cmd({ type: "approve", rev: null })));
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.vertical")));
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.square")));
+    expect(r.state.status).toBe("delivered");
+    const deliveredAt = r.state.deliveredAt;
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.spec-vertical")));
+    expect(r.state.status).toBe("delivered");
+    expect(r.effects.some((e) => e.type === "delivery")).toBe(false);
+    expect(r.state.deliveredAt).toBe(deliveredAt);
+  });
+
+  it("edit at checkpoint 3 during spec: new revision, spec events of the old revision are ignored", () => {
+    const { s: old } = joinToCheckpoint3();
+    const { s, r } = step(old, msg("змінити s2", intent({ kind: "edit", edits: "s2" })));
+    expect(r.state.rev).toBe(2);
+    expect(r.pipe.outstanding.map((j) => j.stage)).toEqual(["revise"]);
+    for (const jobId of ["p1.render.r1.a1.spec-vertical", "p1.render.r1.a1.spec-square"]) {
+      const late = nextStep(s, finish(old, jobId), SPEC);
+      expect(late.state).toEqual(s.project);
+      expect(late.pipe).toEqual(s.pipe);
+      expect(late.effects).toEqual([]);
+      expect(late.jobs).toEqual([]);
+    }
+  });
+
+  it("retry after a normal render failure never re-enqueues speculative jobs", () => {
+    let { s, r } = joinToCheckpoint3();
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.spec-vertical", { fail: true })));
+    ({ s, r } = step(s, cmd({ type: "approve", rev: null })));
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.vertical", { fail: true })));
+    expect(r.state.status).toBe("failed");
+    expect(r.pipe.failedJobs.map((j) => j.jobId)).toEqual(["p1.render.r1.a1.vertical"]);
+    ({ s, r } = step(s, cmd({ type: "retry" })));
+    expect(r.jobs.map((j) => [j.jobId, j.params])).toEqual([
+      ["p1.render.r1.a2.vertical", { format: "vertical" }],
+    ]);
+  });
+});

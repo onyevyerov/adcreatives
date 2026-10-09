@@ -40,10 +40,11 @@ describe("storyboardStage", () => {
     const long = draft();
     (long.scenes[1] as Storyboard["scenes"][number]).text.sub =
       "Неймовірно довгий підзаголовок, який ніяк не вміщується у два рядки вертикального формату";
-    const ctx = makeCtx(storage, "storyboard", { durationSeconds: 20 }, [{ json: long }, { json: draft() }]);
+    const fix = { scenes: [{ ...structuredClone(fixtureStoryboard.scenes[1]?.text), id: "s2" }] };
+    const ctx = makeCtx(storage, "storyboard", { durationSeconds: 20 }, [{ json: long }, { json: fix }]);
     const res = await storyboardStage(ctx);
     expect(ctx.anthropic.calls).toHaveLength(2);
-    expect(userText(ctx.anthropic.calls[1]?.params)).toContain("порушила ліміти тексту");
+    expect(userText(ctx.anthropic.calls[1]?.params)).toContain("<scenes_to_fix>");
     expect(res.outputs.totalFrames).toBe(600);
   });
 

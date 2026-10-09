@@ -1,18 +1,22 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { loadCodegenContext } from "@adc/director";
 import {
   computeTimeline,
   type Format,
+  inputsHash,
   type MainProps,
   PipelineCounters,
   ProjectState,
   primaryFormat,
   projectPaths,
   type RenderEngine,
+  RenderMeta,
   type Stage,
   type StageContext,
   StageError,
   type Storage,
+  sha256,
   stillFrames,
   t,
 } from "@adc/shared";
@@ -36,6 +40,8 @@ export interface RenderStageDeps {
   prepareRenderJob: PrepareRenderJob;
   /** Новий рушій на кожну задачу: браузер переюзується в її межах і закривається в кінці. */
   createEngine: () => RenderEngine;
+  /** Хеш контексту motion-kit (входить у хеш входів рендеру); дефолт — `loadCodegenContext().hash`. */
+  motionKitHash?: () => string;
 }
 
 export const FORMAT_LABEL: Record<Format, string> = {
@@ -72,7 +78,51 @@ async function readTemplateScenes(storage: Storage, projectId: string, rev: numb
   return counters.templateScenes;
 }
 
-/** Стадія `render`: один job на формат → `rev/<n>/renders/<format>.mp4` (+ постер в основному форматі). */
+/**
+ * Хеш входів рендеру формату: код сцен і `scenes/index.ts`, розкадровка, аудіо-маніфест, бренд, асети,
+ * `templateScenes`, формат і хеш контексту motion-kit. Рахується після `prepareRenderJob` (той пише index).
+ */
+export async function renderInputsHash(args: {
+  storage: Storage;
+  projectId: string;
+  rev: number;
+  inputProps: MainProps;
+  templateScenes: readonly string[];
+  motionKitHash: string;
+}): Promise<string> {
+  const { storage, inputProps } = args;
+  const scenesDir = projectPaths(args.projectId).rev(args.rev).scenesDir;
+  const code: Record<string, string> = {};
+  for (const key of await storage.list(scenesDir)) {
+    code[key.slice(scenesDir.length + 1)] = sha256(await storage.read(key));
+  }
+  return inputsHash({
+    code,
+    storyboard: inputProps.storyboard,
+    audio: inputProps.audio,
+    brand: inputProps.brand,
+    assets: inputProps.assets,
+    templateScenes: [...args.templateScenes],
+    format: inputProps.format,
+    motionKit: args.motionKitHash,
+  });
+}
+
+async function readRenderMeta(storage: Storage, key: string): Promise<RenderMeta | null> {
+  if (!(await storage.exists(key))) return null;
+  try {
+    return await storage.readJson(key, (v) => RenderMeta.parse(v));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Стадія `render`: один job на формат → `rev/<n>/renders/<format>.mp4` (+ постер в основному форматі).
+ * Якщо `renders/<format>.meta.json` має той самий хеш входів і mp4 (і постер) на місці — рендер
+ * перевикористовується (`reused: true`, без витрат Remotion). Спекулятивний рендер (до «Затвердити»)
+ * не пише прогрес у чат.
+ */
 export function createRenderStage(deps: RenderStageDeps): Stage<"render"> {
   return async (ctx: StageContext<"render">) => {
     const { format } = ctx.params;
@@ -91,11 +141,25 @@ export function createRenderStage(deps: RenderStageDeps): Stage<"render"> {
     });
     const inputProps: MainProps = { ...mainProps, format };
 
+    const hash = await renderInputsHash({
+      storage,
+      projectId,
+      rev,
+      inputProps,
+      templateScenes,
+      motionKitHash: (deps.motionKitHash ?? (() => loadCodegenContext().hash))(),
+    });
+    const outKey = paths.render(format);
+    const metaKey = paths.renderMeta(format);
+    const artifacts = isPrimary ? [outKey, paths.poster] : [outKey];
+
     const label = FORMAT_LABEL[format];
+    const quiet = ctx.params.speculative === true;
     // Прогрес у чат — не частіше ніж кожні 10% (крок 0 — стартове повідомлення).
     let lastStep = 0;
     let progressChain: Promise<unknown> = Promise.resolve();
     const progress = (percent: number) => {
+      if (quiet) return;
       progressChain = progressChain
         .then(() =>
           ctx.emit.progress("render", t("renderProgress", { format: label, percent }), percent, 100),
@@ -103,9 +167,18 @@ export function createRenderStage(deps: RenderStageDeps): Stage<"render"> {
         .catch((err: unknown) => ctx.logger.warn("прогрес рендеру не записано", { err: String(err) }));
     };
 
-    const outKey = paths.render(format);
+    const meta = await readRenderMeta(storage, metaKey);
+    if (
+      meta?.inputsHash === hash &&
+      (await storage.exists(outKey)) &&
+      (!isPrimary || (await storage.exists(paths.poster)))
+    ) {
+      progress(100);
+      await progressChain;
+      return { artifacts, outputs: { format, out: outKey, durationMs: 0 }, reused: true, inputsHash: hash };
+    }
+
     const out = storage.absPath(outKey);
-    const artifacts = [outKey];
     const engine = deps.createEngine();
     try {
       progress(0);
@@ -142,10 +215,15 @@ export function createRenderStage(deps: RenderStageDeps): Stage<"render"> {
           out: posterOut,
           signal: ctx.signal,
         });
-        artifacts.push(paths.poster);
+      }
+      // Meta — останнім: є лише тоді, коли mp4 (і постер) цих входів дописано.
+      try {
+        await storage.writeJson(metaKey, { inputsHash: hash } satisfies RenderMeta);
+      } catch (err) {
+        ctx.logger.warn("meta рендеру не записано", { err: String(err) });
       }
       await progressChain;
-      return { artifacts, outputs: { format, out: outKey, durationMs } };
+      return { artifacts, outputs: { format, out: outKey, durationMs }, inputsHash: hash };
     } finally {
       await progressChain;
       try {
