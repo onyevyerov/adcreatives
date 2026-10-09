@@ -72,6 +72,7 @@ async function main(): Promise<number> {
         },
       ],
     },
+    key: null,
     promptFallback: "Warm lo-fi hip hop at 85 BPM with rhodes piano and soft drums, instrumental",
     sfx: [],
   };

@@ -269,6 +269,7 @@ describe("computeAudioPlacements", () => {
     };
     const manifest: AudioManifest = {
       music: { src: "music.mp3", durationMs: 16_000, fadeOutMs: 1_000, volume: 0.8, planHash: "h" },
+      mix: null,
       sfx: [
         { cue: "whoosh", src: "sfx/whoosh.mp3", durationMs: 600, volume: 0.6 },
         { cue: "riser", src: "sfx/riser.mp3", durationMs: 1_500, volume: 0.6 },

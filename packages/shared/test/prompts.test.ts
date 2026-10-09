@@ -207,6 +207,7 @@ ${extra}---
         assets: [],
         concept: "-",
         scene: {},
+        readonlyScenes: "-",
         code: "-",
         problems: "-",
         language: "uk",

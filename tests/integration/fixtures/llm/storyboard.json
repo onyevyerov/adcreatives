@@ -16,6 +16,26 @@
         "durationFrames": 75,
         "transitionFrames": 0,
         "text": { "headline": "Капучино — 75 грн", "sub": "-10% до 10:00", "emphasis": ["75 грн"] },
+        "items": [
+          { "id": "t1", "role": "number", "text": "75 грн", "group": null, "factIds": ["f1"] },
+          { "id": "t2", "role": "badge", "text": "-10%", "group": null, "factIds": [] }
+        ],
+        "events": [
+          {
+            "id": "price-hit",
+            "at": 20,
+            "what": "The price lands with a bump.",
+            "sound": { "cue": "impact", "accent": "hard" },
+            "textIds": ["t1"]
+          },
+          {
+            "id": "badge-in",
+            "at": 45,
+            "what": "The discount badge fades in.",
+            "sound": null,
+            "textIds": ["t2"]
+          }
+        ],
         "factIds": ["f1"],
         "assetIds": ["a02"],
         "layoutIntent": "hero_image",
@@ -30,6 +50,8 @@
         "durationFrames": 90,
         "transitionFrames": 15,
         "text": { "headline": "Чекаємо на каву", "sub": "Львів, вул. Руська, 1", "emphasis": [] },
+        "items": [],
+        "events": [],
         "factIds": [],
         "assetIds": [],
         "layoutIntent": "logo_lockup",
@@ -44,7 +66,7 @@
       "mood": ["теплий", "ранковий"],
       "bpm": 85,
       "instrumentation": ["rhodes", "soft drums"],
-      "structure": [{ "label": "main", "sceneIds": ["s1", "s2"], "energy": 0.6 }]
+      "structure": [{ "label": "main", "sceneIds": ["s1", "s2"], "energy": 0.6, "mix": "full" }]
     },
     "copyRules": {
       "maxCharsPerLine": { "vertical": 18, "square": 22, "landscape": 32 },

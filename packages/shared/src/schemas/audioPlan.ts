@@ -37,6 +37,8 @@ export const AudioPlan = z.object({
     negativeGlobalStyles: z.array(z.string()),
     chunks: z.array(MusicChunk).min(1),
   }),
+  /** Тональність треку («A minor») — для висоти тону звукових подій; null — невідома. */
+  key: z.string().nullable().default(null),
   /** Запасний промпт для music.compose. */
   promptFallback: z.string(),
   /** Стандартні cue + до 3 кастомних. */

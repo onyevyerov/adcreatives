@@ -34,6 +34,11 @@ export function revPaths(projectId: string, rev: number) {
     still: (format: Format, sceneId: string, variant: StillVariant) =>
       join(root, "stills", format, `${sceneId}-${variant}.png`),
     sheet: (format: Format) => join(root, "sheets", `${format}.png`),
+    /** Кадр стрічки сцени для QA (`frame` — локальний кадр сцени). */
+    strip: (format: Format, sceneId: string, frame: number) =>
+      join(root, "strips", format, `${sceneId}-${frame}.png`),
+    /** Аркуш стрічки сцени. */
+    stripSheet: (format: Format, sceneId: string) => join(root, "strips", format, `${sceneId}.jpg`),
     check: join(root, "check.json"),
     qa: join(root, "qa.json"),
     pipeline: join(root, "pipeline.json"),
@@ -65,6 +70,8 @@ export function projectPaths(projectId: string) {
     screenshotsDir: join(root, "crawl", "screenshots"),
     screenshot: (fileName: string) => join(root, "crawl", "screenshots", fileName),
     brandkitDir: join(root, "brandkit"),
+    /** Стиснений текст сайту, який бачив бренд-кіт (вхід сценариста). */
+    siteText: join(root, "brandkit", "site-text.txt"),
     brandkit: (version: number) => join(root, "brandkit", `v${version}.json`),
     /** Контакт-лист асетів (монтаж мініатюр з номерами), вхід бренд-кіта. */
     contactSheet: join(root, "brandkit", "contact-sheet.png"),

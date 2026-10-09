@@ -17,9 +17,11 @@ import {
 const ex = exampleSources();
 const CODE: Record<string, string> = { s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] };
 
-/** Стадія з `Tuning` з цього env (дефолти — погоджена конфігурація: fanout, high / medium). */
+/** Стадія з `Tuning` з цього env (дефолти — погоджена конфігурація: fanout, high / high). */
 const stageWith = (env: Record<string, string> = {}) => createCodegenStage({ tuning: () => readTuning(env) });
 const fanoutStage = stageWith();
+/** Решта сцен на нижчому effort, ніж anchor — щоб тести розрізняли виклики. */
+const mediumRestStage = stageWith({ ADC_CODEGEN_REST_EFFORT: "medium" });
 
 type Block = { type: string; text?: string; cache_control?: unknown };
 type Params = {
@@ -81,7 +83,7 @@ describe("codegenStage (fanout)", () => {
       ...byScene({ s2: ok("s2"), s3: ok("s3") }),
     ]);
     const log = traceLlm(ctx);
-    const res = await fanoutStage(ctx);
+    const res = await mediumRestStage(ctx);
     expect(res.outputs).toEqual({ sceneIds: ["s1", "s2", "s3"], guardRejected: [] });
 
     // anchor завершився до будь-якого іншого виклику; warm — рівно один, до паралельних; s2 і s3
@@ -228,7 +230,7 @@ describe("codegenStage (fanout)", () => {
     expect(cached?.text).toContain("s3: Зроби кнопку більшою");
     for (const p of [p1, p3]) {
       expect(p.messages[0]?.content[0]).toEqual(cached);
-      expect(p.output_config?.effort).toBe("medium");
+      expect(p.output_config?.effort).toBe("high");
     }
     expect(p1.messages[0]?.content[1]?.text).toBe("Mode: subset.\nGenerate the scenes: s1.");
     const ledger = await readLedger(storage, PROJECT_ID, 1);

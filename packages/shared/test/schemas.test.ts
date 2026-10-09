@@ -14,6 +14,7 @@ import { toStrictJsonSchema, UnsupportedSchemaError } from "../src/llm/structure
 import {
   AssetManifest,
   AudioPlan,
+  AutoIssueKind,
   BrandKit,
   BrandKitFile,
   BrandKitPatch,
@@ -30,6 +31,7 @@ import {
   QaIssueKind,
   QaReport,
   RevisionPlan,
+  Scene,
   SiteData,
   StatsRow,
   StillRef,
@@ -61,6 +63,7 @@ const audioPlan: z.input<typeof AudioPlan> = {
       },
     ],
   },
+  key: null,
   promptFallback: "warm lo-fi instrumental",
   sfx: [{ cue: "whoosh", text: "soft whoosh", durationSeconds: 0.8, custom: false }],
 };
@@ -147,8 +150,20 @@ describe("schemas round-trip", () => {
           field: "headline",
           text: "75 грн",
           kind: "price",
+          itemId: null,
           factId: "f1",
           matchedContact: false,
+          matchedSite: false,
+        },
+        {
+          sceneId: "s2",
+          field: "item",
+          itemId: "t2",
+          text: "від $300–2000",
+          kind: "price",
+          factId: null,
+          matchedContact: false,
+          matchedSite: true,
         },
       ],
       unverified: [],
@@ -318,6 +333,98 @@ describe("Крок 0: сумісність зі старими даними", ()
     ).toBe("late_text");
     roundTrip(RenderMeta, { inputsHash: "0123456789abcdef" });
     expect(() => RenderMeta.parse({ inputsHash: "" })).toThrow();
+  });
+});
+
+describe("Крок 0 «якість відео»: сумісність зі старими даними", () => {
+  /** Storyboard зі старого `storyboard.json`: без items, events і mix. */
+  const oldStoryboard = () => {
+    const sb = JSON.parse(JSON.stringify(fixtureStoryboard));
+    for (const s of sb.scenes) {
+      s.items = undefined;
+      s.events = undefined;
+    }
+    for (const part of sb.musicBrief.structure) part.mix = undefined;
+    return JSON.parse(JSON.stringify(sb));
+  };
+
+  it("старий storyboard без items/events/mix парситься з дефолтами; sfxCue лишається", () => {
+    const sb = Storyboard.parse(oldStoryboard());
+    expect(sb.scenes.every((s) => s.items.length === 0 && s.events.length === 0)).toBe(true);
+    expect(sb.scenes.map((s) => s.sfxCue)).toEqual(["whoosh", "pop", "shimmer"]);
+    expect(sb.musicBrief.structure.map((p) => p.mix)).toEqual(["full", "full"]);
+  });
+
+  it("round-trip нового storyboard: items, events і mix зберігаються", () => {
+    roundTrip(Storyboard, fixtureStoryboard);
+    const s2 = Storyboard.parse(JSON.parse(JSON.stringify(fixtureStoryboard))).scenes[1];
+    expect(s2?.items.map((i) => i.role)).toEqual(["label", "number", "badge"]);
+    expect(s2?.events.map((e) => e.sound?.cue ?? null)).toEqual(["impact", null]);
+  });
+
+  it("items/events: id за форматом, дефолти accent/group/factIds/textIds", () => {
+    const base = Storyboard.parse(oldStoryboard()).scenes[0];
+    if (!base) throw new Error("fixture");
+    const parse = (patch: object) => Scene.parse({ ...base, ...patch });
+    const item = { id: "t1", role: "item", text: "Крок 1" };
+    const event = { id: "step-in", at: 0, what: "x", sound: { cue: "tick" } };
+    const ok = parse({ items: [item], events: [event] });
+    expect(ok.items[0]).toEqual({ ...item, group: null, factIds: [] });
+    expect(ok.events[0]).toEqual({ ...event, sound: { cue: "tick", accent: "normal" }, textIds: [] });
+    expect(parse({ events: [{ ...event, sound: undefined }] }).events[0]?.sound).toBeNull();
+    expect(() => parse({ items: [{ ...item, id: "x1" }] })).toThrow();
+    expect(() => parse({ items: [{ ...item, text: "" }] })).toThrow();
+    expect(() => parse({ items: [{ ...item, role: "icon" }] })).toThrow();
+    expect(() => parse({ events: [{ ...event, id: "Step_In" }] })).toThrow();
+    expect(() => parse({ events: [{ ...event, at: -1 }] })).toThrow();
+    expect(() => parse({ events: [{ ...event, sound: { cue: "boom" } }] })).toThrow();
+    expect(parse({ layoutIntent: "custom" }).layoutIntent).toBe("custom");
+  });
+
+  it("старий claims.json: field headline/sub, без itemId і matchedSite", () => {
+    const old = {
+      checkedAt: AT,
+      brandkitVersion: 1,
+      verified: [
+        { sceneId: "s2", field: "sub", text: "-10%", kind: "percent", factId: "f2", matchedContact: false },
+      ],
+      unverified: [],
+    };
+    expect(ClaimsReport.parse(old).verified[0]).toMatchObject({ itemId: null, matchedSite: false });
+    expect(() =>
+      ClaimsReport.parse({ ...old, verified: [{ ...old.verified[0], field: "footer" }] }),
+    ).toThrow();
+  });
+
+  it("старий audio.json без mix і audio-plan.json без key", () => {
+    const { mix: _mix, ...oldManifest } = fixtureAudioManifest;
+    expect(AudioManifest.parse(oldManifest).mix).toBeNull();
+    expect(
+      AudioManifest.parse({ ...oldManifest, mix: { src: "soundtrack.wav", durationMs: 15000 } }).mix,
+    ).toEqual({
+      src: "soundtrack.wav",
+      durationMs: 15000,
+    });
+    const { key: _key, ...oldPlan } = audioPlan as z.output<typeof AudioPlan>;
+    expect(AudioPlan.parse(oldPlan).key).toBeNull();
+    expect(AudioPlan.parse({ ...oldPlan, key: "A minor" }).key).toBe("A minor");
+  });
+
+  it("QA: нові види зауважень", () => {
+    expect(AutoIssueKind.options).toEqual(expect.arrayContaining(["static_hold", "event_unused"]));
+    expect(QaIssueKind.options).toEqual(
+      expect.arrayContaining([
+        "static_hold",
+        "placeholder",
+        "dead_half",
+        "weak_moment",
+        "off_brief",
+        "text_too_fast",
+        // лишаються для старих даних
+        "late_text",
+        "too_much_text",
+      ]),
+    );
   });
 });
 

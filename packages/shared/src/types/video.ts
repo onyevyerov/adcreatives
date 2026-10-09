@@ -31,6 +31,17 @@ export const AudioManifest = z.object({
       planHash: z.string(),
     })
     .nullable(),
+  /**
+   * Готове зведення (музика, події, дакінг, мастер). Якщо не null, хост грає лише його
+   * і ігнорує `music` та `sfx`.
+   */
+  mix: z
+    .object({
+      src: z.string(),
+      durationMs: z.number().int(),
+    })
+    .nullable()
+    .default(null),
   /** Бібліотека SFX ревізії: cue → файл. */
   sfx: z.array(
     z.object({

@@ -87,7 +87,8 @@ import { createMockAnthropic } from "@adc/shared/llm";     // мок Anthropic �
 ### Перемикачі генерації (`ADC_*`)
 
 `readTuning()` з `@adc/shared` читає їх на старті воркера; невалідне значення — помилка старту.
-Дефолти — погоджена конфігурація (паралельні сцени після anchor, anchor `high`, решта `medium`).
+Дефолти — погоджена конфігурація (паралельні сцени після anchor, anchor і решта `high`, `ADC_QA_MAX_ROUNDS=2`).
+Режим `ADC_CODEGEN_MODE=film` (один виклик на весь фільм) з'явиться разом зі стадією codegen для нього; дефолт — `fanout`.
 Відкат до послідовної генерації без деплою коду:
 `ADC_CODEGEN_MODE=sequential ADC_CODEGEN_ANCHOR_EFFORT=xhigh ADC_CODEGEN_REST_EFFORT=high`.
 Повний список — `TUNING_ENV` у `packages/shared/src/tuning.ts`.

@@ -314,10 +314,12 @@ export class Harness {
           unverified: (this.opts.unverified ?? []).map((u) => ({
             sceneId: u.sceneId,
             field: "headline",
+            itemId: null,
             text: u.text,
             kind: u.kind,
             factId: null,
             matchedContact: false,
+            matchedSite: false,
           })),
         };
         await s.writeJson(rp.claims, claims);

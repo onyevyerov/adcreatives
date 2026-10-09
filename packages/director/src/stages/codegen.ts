@@ -435,7 +435,7 @@ export function createCodegenStage(deps: CodegenStageDeps = {}): Stage<"codegen"
             now: now(),
           });
         } else {
-          const guard = guardScene(code, `${id}.tsx`);
+          const guard = guardScene(code, { fileName: `${id}.tsx` });
           ok = guard.ok;
           if (!guard.ok) {
             guardRejected.push(id);

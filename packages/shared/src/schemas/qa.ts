@@ -13,6 +13,10 @@ export const AutoIssueKind = z.enum([
   "low_contrast",
   /** `BrandImage`/`Logo` з assetId, якого немає в `assets`. */
   "missing_asset",
+  /** Кадр не змінюється ≥ 1.5 с (стрічка кадрів сцени). */
+  "static_hold",
+  /** Подія сцени (`events[].id`) не використана в коді сцени. */
+  "event_unused",
 ]);
 export type AutoIssueKind = z.infer<typeof AutoIssueKind>;
 
@@ -88,6 +92,18 @@ export const QaIssueKind = z.enum([
   "logo_distorted",
   /** Текст, який треба прочитати, ще не на місці на 25% сцени (стіл `e`). */
   "late_text",
+  /** Кадри стоять майже без змін ≥ 1.5 с. */
+  "static_hold",
+  /** Смужки чи порожні плашки там, де мав бути контент. */
+  "placeholder",
+  /** Половина кадру порожня ≥ 2 с. */
+  "dead_half",
+  /** Момент події не видно або не читається. */
+  "weak_moment",
+  /** Сцена не робить того, що в `motionIntent`. */
+  "off_brief",
+  /** Текст видно менше, ніж потрібно, щоб його прочитати. */
+  "text_too_fast",
 ]);
 export type QaIssueKind = z.infer<typeof QaIssueKind>;
 

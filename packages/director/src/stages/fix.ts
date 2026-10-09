@@ -219,6 +219,7 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
         formats: formats.join(", "),
         brand: brandForCode(brandFile),
         scene: scene ?? null,
+        readonlyScenes: "-",
         concept: storyboard.concept,
         assets: assetsForPrompt(brandFile, manifest),
         code: code ?? "(no code: the previous generation returned nothing — write the scene from scratch)",
@@ -280,7 +281,7 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
       const rawKey = dp.raw(`fix-${sceneId}-a${ctx.attempt}-${Date.now()}`);
       await storage.write(rawKey, r.value.text);
       const code = parseSingleScene(r.value.text, sceneId);
-      const guard = code === null ? null : guardScene(code, `${sceneId}.tsx`);
+      const guard = code === null ? null : guardScene(code, { fileName: `${sceneId}.tsx` });
       const violations =
         code === null
           ? ["модель не повернула код сцени"]

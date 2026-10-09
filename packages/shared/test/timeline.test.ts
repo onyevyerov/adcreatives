@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { fixtureStoryboard } from "../src/fixtures.ts";
+import { BPM_GRID, type SceneEvent } from "../src/schemas/storyboard.ts";
 import {
+  beatFrames,
+  computeEventPlacements,
   computeSfxPlacements,
   computeTimeline,
+  eventFrame,
   framesToMs,
   STILL_PLAN,
+  snapBpm,
   stillFrames,
+  stripFrames,
   TimelineError,
 } from "../src/timeline.ts";
 
@@ -124,5 +130,117 @@ describe("computeSfxPlacements", () => {
       { cue: "riser", sceneId: "s1", from: 0, durationInFrames: 30 },
       { cue: "whoosh", sceneId: "s2", from: 20, durationInFrames: 10 },
     ]);
+  });
+});
+
+describe("beatFrames / snapBpm", () => {
+  it("beatFrames: ціле число кадрів для кожного темпу з BPM_GRID при 30 fps", () => {
+    expect(BPM_GRID.map((bpm) => beatFrames(bpm))).toEqual([30, 25, 24, 20, 18, 15, 12]);
+    for (const bpm of BPM_GRID) expect(Number.isInteger(beatFrames(bpm))).toBe(true);
+    expect(beatFrames(120, 60)).toBe(30);
+  });
+
+  it("snapBpm: найближчий темп з сітки, за рівної відстані — нижчий", () => {
+    expect(snapBpm(85)).toBe(90);
+    expect(snapBpm(80)).toBe(75);
+    expect(snapBpm(124)).toBe(120);
+    expect(snapBpm(200)).toBe(150);
+    expect(snapBpm(40)).toBe(60);
+    expect(snapBpm(110)).toBe(100);
+    for (const bpm of BPM_GRID) expect(snapBpm(bpm)).toBe(bpm);
+  });
+});
+
+describe("computeEventPlacements / eventFrame", () => {
+  const scene = (
+    id: string,
+    durationFrames: number,
+    transitionFrames: number,
+    extra: { sfxCue?: string | null; events?: SceneEvent[] } = {},
+  ) => ({ id, durationFrames, transitionFrames, ...extra });
+  const event = (id: string, at: number, sound: SceneEvent["sound"] = null): SceneEvent => ({
+    id,
+    at,
+    what: id,
+    sound,
+    textIds: [],
+  });
+
+  it("глобальний кадр = from сцени + at, з урахуванням переходів; відсортовано", () => {
+    const placements = computeEventPlacements({
+      fps: 30,
+      scenes: [
+        scene("s1", 90, 0, {
+          events: [event("late", 60, { cue: "pop", accent: "soft" }), event("early", 10)],
+        }),
+        // s2 стартує з 75 (90 − 15)
+        scene("s2", 90, 15, { events: [event("hit", 20, { cue: "impact", accent: "hard" })] }),
+      ],
+    });
+    expect(placements).toEqual([
+      { sceneId: "s1", eventId: "early", frame: 10, cue: null, accent: "normal" },
+      { sceneId: "s1", eventId: "late", frame: 60, cue: "pop", accent: "soft" },
+      { sceneId: "s2", eventId: "hit", frame: 95, cue: "impact", accent: "hard" },
+    ]);
+  });
+
+  it("legacy sfxCue → подія arrive на from сцени; власна arrive має перевагу", () => {
+    const placements = computeEventPlacements({
+      fps: 30,
+      scenes: [
+        scene("s1", 90, 0, { sfxCue: "whoosh" }),
+        scene("s2", 90, 15, {
+          sfxCue: "pop",
+          events: [event("arrive", 5, { cue: "ding", accent: "normal" })],
+        }),
+        scene("s3", 90, 0, { sfxCue: "custom-1" }),
+        scene("s4", 90, 0, { sfxCue: null }),
+      ],
+    });
+    expect(placements.map((p) => [p.sceneId, p.eventId, p.frame, p.cue])).toEqual([
+      ["s1", "arrive", 0, "whoosh"],
+      ["s2", "arrive", 80, "ding"],
+      // кастомний ключ — подія без звуку
+      ["s3", "arrive", 165, null],
+    ]);
+  });
+
+  it("фікстурний storyboard: legacy cue і події сцени s2", () => {
+    const placements = computeEventPlacements(fixtureStoryboard);
+    const s2 = computeTimeline(fixtureStoryboard).scenes[1];
+    expect(placements.filter((p) => p.sceneId === "s2")).toEqual([
+      { sceneId: "s2", eventId: "arrive", frame: s2?.from, cue: "pop", accent: "normal" },
+      { sceneId: "s2", eventId: "price-hit", frame: (s2?.from ?? 0) + 30, cue: "impact", accent: "hard" },
+      { sceneId: "s2", eventId: "badge-in", frame: (s2?.from ?? 0) + 60, cue: null, accent: "normal" },
+    ]);
+  });
+
+  it("eventFrame: локальний кадр події; чужий id кидає Error", () => {
+    const s2 = fixtureStoryboard.scenes[1];
+    if (!s2) throw new Error("fixture");
+    expect(eventFrame(s2, "price-hit")).toBe(30);
+    expect(eventFrame(s2, "badge-in")).toBe(60);
+    expect(() => eventFrame(s2, "nope")).toThrow(/nope/);
+    const s1 = fixtureStoryboard.scenes[0];
+    if (!s1) throw new Error("fixture");
+    expect(() => eventFrame(s1, "price-hit")).toThrow(/s1/);
+  });
+});
+
+describe("stripFrames", () => {
+  it("кожні 15 кадрів, без кадру 0, з останнім кадром", () => {
+    expect(stripFrames(60)).toEqual([15, 30, 45, 59]);
+    expect(stripFrames(150)).toEqual([15, 30, 45, 60, 75, 90, 105, 120, 135, 149]);
+  });
+
+  it("останній кадр не дублюється, коли він кратний кроку", () => {
+    expect(stripFrames(61)).toEqual([15, 30, 45, 60]);
+    expect(stripFrames(31)).toEqual([15, 30]);
+  });
+
+  it("власний крок і короткі сцени", () => {
+    expect(stripFrames(50, 20)).toEqual([20, 40, 49]);
+    expect(stripFrames(10)).toEqual([9]);
+    expect(stripFrames(1)).toEqual([0]);
   });
 });

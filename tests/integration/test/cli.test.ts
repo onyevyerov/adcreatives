@@ -82,10 +82,12 @@ describe("cli: події чату в терміналі", () => {
               {
                 sceneId: "s2",
                 field: "sub",
+                itemId: null,
                 text: "-10%",
                 kind: "percent",
                 factId: null,
                 matchedContact: false,
+                matchedSite: false,
               },
             ],
           },

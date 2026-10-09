@@ -141,7 +141,12 @@ export async function prepareJob(opts: PrepareJobOptions): Promise<PreparedJob> 
   const { assets, written } = await syncPublicAssets(storage, projectId, rev, brand, storyboard, manifest);
   const audio =
     (await readOptional(storage, rp.audio, (v) => AudioManifest.parse(v))) ??
-    ({ music: null, sfx: [], totalFrames: computeTimeline(storyboard).totalFrames } satisfies AudioManifest);
+    ({
+      music: null,
+      mix: null,
+      sfx: [],
+      totalFrames: computeTimeline(storyboard).totalFrames,
+    } satisfies AudioManifest);
   // Поточна версія, відхилена AST-guard, у реєстр не йде, навіть якщо на диску лишився старий файл.
   const rejected = rejectedScenes(await readLedger(storage, projectId, rev));
   const index = await writeScenesIndex(storage, projectId, rev, storyboard, [
