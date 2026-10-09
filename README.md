@@ -76,6 +76,22 @@ import { createMockAnthropic } from "@adc/shared/llm";     // мок Anthropic �
 від користувацької. Змінні — `{{var}}` (об'єкти підставляються як JSON). Хеш файлу пишеться в журнал
 витрат і трейс. У dev файл перечитується на кожен виклик.
 
+Кеш і довідка (подробиці — коментар у `packages/shared/src/llm/prompts.ts`):
+
+- `prefix: motion-reference` — спільна довідка (`kind: prefix`) іде першим системним блоком зі своїм
+  breakpoint-ом; codegen і code-fix ділять один запис кешу;
+- `cache_ttl: 5m | 1h` — TTL системного блоку; довші TTL мають іти перед коротшими;
+- рядок `=== cache ===` у user-частині — текст до нього кешується окремим блоком (5 хв);
+- `schema_mode: prompt` — JSON Schema одразу в промпті (великі схеми, як BrandKit).
+
+### Перемикачі генерації (`ADC_*`)
+
+`readTuning()` з `@adc/shared` читає їх на старті воркера; невалідне значення — помилка старту.
+Дефолти — погоджена конфігурація (паралельні сцени після anchor, anchor `high`, решта `medium`).
+Відкат до послідовної генерації без деплою коду:
+`ADC_CODEGEN_MODE=sequential ADC_CODEGEN_ANCHOR_EFFORT=xhigh ADC_CODEGEN_REST_EFFORT=high`.
+Повний список — `TUNING_ENV` у `packages/shared/src/tuning.ts`.
+
 ## Відхилення від тексту ТЗ (технічні, свідомі)
 
 - **`jobId`**: `<projectId>.<stage>.r<rev>.a<attempt>` замість `<projectId>:<stage>:<rev>:<attempt>` —

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { CostRecorder } from "./cost/ledger.ts";
 import type { Emitter } from "./events/emit.ts";
 import type { Llm } from "./llm/client.ts";
@@ -29,7 +30,8 @@ export interface StageParamsMap {
   qa: { sceneIds: string[] | null };
   revise: { text: string; at: "script" | "storyboard" | "delivered" };
   audio: Record<string, never>;
-  render: { format: Format };
+  /** speculative — рендер до затвердження розкадровки: збій не міняє статус, успіх не робить видачу. */
+  render: { format: Format; speculative?: boolean };
 }
 
 /** Що стадія повертає оркестратору для рішень (окрім артефактів у сховищі). */
@@ -47,6 +49,10 @@ export interface StageOutputsMap {
   audio: { planHash: string; reusedMusic: boolean };
   render: { format: Format; out: string; durationMs: number };
 }
+
+/** `rev/<n>/renders/<format>.meta.json` — з якими входами зроблено mp4 формату. */
+export const RenderMeta = z.object({ inputsHash: z.string().min(1) });
+export type RenderMeta = z.infer<typeof RenderMeta>;
 
 export type StageParams<S extends StageName = StageName> = StageParamsMap[S];
 export type StageOutputs<S extends StageName = StageName> = StageOutputsMap[S];

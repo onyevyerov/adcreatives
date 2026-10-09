@@ -1,4 +1,5 @@
 import type { Format } from "../schemas/common.ts";
+import type { StillVariant } from "../schemas/qa.ts";
 
 /**
  * Ключі артефактів у сховищі (відносно DATA_DIR). Єдине місце, де зашиті імена файлів.
@@ -30,7 +31,7 @@ export function revPaths(projectId: string, rev: number) {
     publicDir: join(video, "public"),
     publicFile: (name: string) => join(video, "public", name),
     bundleDir: join(video, "bundle"),
-    still: (format: Format, sceneId: string, variant: "a" | "b") =>
+    still: (format: Format, sceneId: string, variant: StillVariant) =>
       join(root, "stills", format, `${sceneId}-${variant}.png`),
     sheet: (format: Format) => join(root, "sheets", `${format}.png`),
     check: join(root, "check.json"),
@@ -39,6 +40,8 @@ export function revPaths(projectId: string, rev: number) {
     audioPlan: join(root, "audio-plan.json"),
     audio: join(root, "audio.json"),
     render: (format: Format) => join(root, "renders", `${format}.mp4`),
+    /** `RenderMeta` рендеру формату: хеш входів, за яким готовий mp4 перевикористовується. */
+    renderMeta: (format: Format) => join(root, "renders", `${format}.meta.json`),
     poster: join(root, "poster.png"),
     inputs: join(root, "inputs.json"),
   };

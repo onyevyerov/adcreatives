@@ -37,6 +37,11 @@ describe("prices", () => {
       cacheRead: 1_000_000,
     });
     expect(sonnet.usd).toBeCloseTo(2 + 10 + 2.5 + 0.2);
+    expect(sonnet.unitPrices.cacheWrite1h).toBe(4);
+    // Запис кешу на 1 год — 2 × input: Opus 5.5 = 8, Sonnet 5.5 = 4.
+    const units1h = { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 1_000_000, cacheRead: 0 };
+    expect(priceAnthropic(prices, "claude-opus-5-5", units1h).usd).toBeCloseTo(8);
+    expect(priceAnthropic(prices, "claude-sonnet-5-5", units1h).usd).toBeCloseTo(4);
     expect(priceElevenLabs(prices, "music", 30).usd).toBeCloseTo(0.075);
     expect(priceElevenLabs(prices, "sfx", 60).usd).toBeCloseTo(0.12);
     expect(priceRemotion(prices, 3).usd).toBeCloseTo(0.03);
@@ -78,6 +83,14 @@ describe("ledger", () => {
     const events = await readCosts(s, "p1");
     expect(events.map((e) => e.provider)).toEqual(["anthropic", "elevenlabs", "remotion"]);
     expect(events[0]?.usd).toBeCloseTo(0.024);
+    // Запис без cacheWrite1h нормалізується до 0 — рядок журналу завжди повний.
+    expect(events[0]?.units).toEqual({
+      input: 1000,
+      output: 1000,
+      cacheWrite: 0,
+      cacheWrite1h: 0,
+      cacheRead: 0,
+    });
     expect(events[1]?.units).toEqual({ seconds: 16 });
     expect((await readCosts(s, null)).length).toBe(1);
     expect(sumUsd(events)).toBeCloseTo(0.024 + 0.04 + 0.01);

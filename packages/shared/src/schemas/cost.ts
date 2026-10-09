@@ -8,10 +8,15 @@ export type Provider = z.infer<typeof Provider>;
 export const TokenUnits = z.object({
   input: z.number().int().min(0),
   output: z.number().int().min(0),
+  /** Запис кешу з TTL 5 хв. */
   cacheWrite: z.number().int().min(0),
+  /** Запис кешу з TTL 1 год (у старих `costs.jsonl` поля немає → 0). */
+  cacheWrite1h: z.number().int().min(0).default(0),
   cacheRead: z.number().int().min(0),
 });
 export type TokenUnits = z.infer<typeof TokenUnits>;
+/** Одиниці на вході обліку: `cacheWrite1h` можна не вказувати. */
+export type TokenUnitsInput = z.input<typeof TokenUnits>;
 
 export const SecondsUnits = z.object({ seconds: z.number().min(0) });
 export const RendersUnits = z.object({ renders: z.number().int().min(0) });
@@ -51,6 +56,8 @@ export const AnthropicModelPrice = z.object({
   output: z.number(),
   /** Запис кешу 5 хв. */
   cacheWrite: z.number(),
+  /** Запис кешу 1 год (2 × input). */
+  cacheWrite1h: z.number(),
   cacheRead: z.number(),
 });
 

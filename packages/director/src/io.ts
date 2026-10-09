@@ -13,6 +13,7 @@ import {
   revPaths,
   type StageContext,
   StageError,
+  type StillVariant,
   type Storage,
   Storyboard,
 } from "@adc/shared";
@@ -36,7 +37,7 @@ export function directorPaths(projectId: string, rev: number) {
     root,
     ledger: join(root, "scenes.json"),
     version: (sceneId: string, v: number) => join(root, "versions", sceneId, `v${v}.tsx`),
-    versionStill: (sceneId: string, v: number, format: Format, variant: "a" | "b") =>
+    versionStill: (sceneId: string, v: number, format: Format, variant: StillVariant) =>
       join(root, "versions", sceneId, `v${v}`, `${format}-${variant}.png`),
     storyboardMeta: join(root, "storyboard.meta.json"),
     codegen: join(root, "codegen.json"),

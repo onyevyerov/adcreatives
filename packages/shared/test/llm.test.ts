@@ -6,8 +6,14 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createCostRecorder, readCosts } from "../src/cost/ledger.ts";
 import { loadPrices } from "../src/cost/prices.ts";
-import { createLlm, LlmError, REFUSAL_RETRY_NOTE } from "../src/llm/client.ts";
-import { createMockAnthropic, type MockReply } from "../src/llm/mock.ts";
+import {
+  createLlm,
+  LlmError,
+  REFUSAL_RETRY_NOTE,
+  TASK_BUDGET_BETA,
+  usageToUnits,
+} from "../src/llm/client.ts";
+import { createMockAnthropic, type MockOptions, type MockReply } from "../src/llm/mock.ts";
 import { createPromptLoader } from "../src/llm/prompts.ts";
 import { LocalStorage } from "../src/storage/local.ts";
 import { createNoopTracer } from "../src/trace.ts";
@@ -22,6 +28,16 @@ function promptsDir(): string {
   write("pick", "low", "Обери колір.\n\n=== user ===\nБренд: {{brand}}");
   write("deep", "xhigh", "Подумай глибоко.\n\n=== user ===\nЗавдання: {{task}}");
   write("empty", "low", "");
+  writeFileSync(path.join(dir, "ref.md"), "---\nkind: prefix\ncache_ttl: 1h\n---\nДовідка {{lib}}.");
+  writeFileSync(
+    path.join(dir, "scene.md"),
+    "---\nmodel: claude-opus-5-5\neffort: high\nmax_tokens: 4000\nprefix: ref\ncache_ttl: 1h\n---\nПравила.\n\n" +
+      "=== user ===\nСпільне: {{shared}}\n=== cache ===\nСцена: {{scene}}",
+  );
+  writeFileSync(
+    path.join(dir, "pick-prompt.md"),
+    "---\nmodel: claude-opus-5-5\neffort: low\nmax_tokens: 4000\nschema_mode: prompt\n---\nОбери колір.\n\n=== user ===\nБренд: {{brand}}",
+  );
   return dir;
 }
 
@@ -30,9 +46,9 @@ const Pick = z.object({
   score: z.number().int().min(1).max(5),
 });
 
-function setup(replies: MockReply[]) {
+function setup(replies: MockReply[], mockOptions?: MockOptions) {
   const storage = new LocalStorage(mkdtempSync(path.join(tmpdir(), "adc-llm-data-")));
-  const client = createMockAnthropic(replies);
+  const client = createMockAnthropic(replies, mockOptions);
   const trace = createNoopTracer();
   const cost = createCostRecorder(storage, loadPrices(), {
     projectId: "p1",
@@ -208,5 +224,126 @@ describe("llm wrapper", () => {
     const { llm } = setup([{ stopReason: "max_tokens", text: "{" }]);
     await expect(llm.structured("pick", { brand: "x" }, Pick)).rejects.toMatchObject({ code: "max_tokens" });
     await expect(llm.text("empty", {}, { userText: "x" })).rejects.toMatchObject({ code: "prompt" });
+  });
+
+  describe("Крок 0: prefix, кеш user-частини, warm, task budget", () => {
+    const vars = { lib: "motion-kit", shared: "бренд і розкадровка", scene: "s2" };
+
+    it("system = [prefix (1h), stage (1h)]; user = [userCached (5m), хвіст]; costDetail у витратах", async () => {
+      const { llm, client, storage } = setup([{ text: "код" }]);
+      await llm.stream("scene", vars, { costDetail: "scene:s2" });
+      const params = client.calls[0]?.params as Anthropic.MessageStreamParams;
+      expect(params.system).toEqual([
+        { type: "text", text: "Довідка motion-kit.", cache_control: { type: "ephemeral", ttl: "1h" } },
+        { type: "text", text: "Правила.", cache_control: { type: "ephemeral", ttl: "1h" } },
+      ]);
+      expect(params.messages[0]?.content).toEqual([
+        { type: "text", text: "Спільне: бренд і розкадровка", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "Сцена: s2" },
+      ]);
+      expect(client.calls[0]?.options?.headers).toBeUndefined();
+      const [event] = await readCosts(storage, "p1");
+      expect(event?.detail).toBe("scene:s2");
+    });
+
+    it("cacheUserPrefix: false — userCached без cache_control", async () => {
+      const { llm, client } = setup([{ text: "код" }]);
+      await llm.stream("scene", vars, { cacheUserPrefix: false });
+      const params = client.calls[0]?.params as Anthropic.MessageStreamParams | undefined;
+      const content = params?.messages[0]?.content;
+      expect(content).toEqual([
+        { type: "text", text: "Спільне: бренд і розкадровка" },
+        { type: "text", text: "Сцена: s2" },
+      ]);
+    });
+
+    it("taskBudget → output_config.task_budget і beta-заголовок; менше 20 000 — помилка", async () => {
+      const { llm, client } = setup([{ text: "код" }]);
+      await llm.stream("scene", vars, { taskBudget: 25_000, effort: "medium" });
+      const params = client.calls[0]?.params as unknown as { output_config: unknown };
+      expect(params.output_config).toEqual({
+        effort: "medium",
+        task_budget: { type: "tokens", total: 25_000 },
+      });
+      expect(client.calls[0]?.options?.headers).toEqual({ "anthropic-beta": TASK_BUDGET_BETA });
+      await expect(llm.stream("scene", vars, { taskBudget: 5_000 })).rejects.toMatchObject({
+        code: "prompt",
+      });
+    });
+
+    it("warm: max_tokens 0 без стріму й формату, ті самі system/userCached/effort, черги не споживає", async () => {
+      const { llm, client, storage } = setup([{ text: "код" }], {
+        warmUsage: {
+          input_tokens: 10,
+          cache_creation_input_tokens: 3_000,
+          cache_creation: { ephemeral_5m_input_tokens: 1_000, ephemeral_1h_input_tokens: 2_000 },
+        },
+      });
+      const warmed = await llm.warm("scene", vars, { effort: "medium", costDetail: "warm:codegen" });
+      expect(client.remaining()).toBe(1);
+      await llm.stream("scene", vars, { effort: "medium" });
+      expect(client.remaining()).toBe(0);
+
+      const [w, real] = client.calls;
+      expect(w?.method).toBe("create");
+      const wp = w?.params as Anthropic.MessageCreateParamsNonStreaming;
+      const rp = real?.params as Anthropic.MessageStreamParams;
+      expect(wp.max_tokens).toBe(0);
+      expect(wp.output_config).toEqual({ effort: "medium" });
+      expect(wp.thinking).toEqual(rp.thinking);
+      expect(wp.model).toBe(rp.model);
+      expect(wp.system).toEqual(rp.system);
+      const realContent = rp.messages[0]?.content as unknown[] | undefined;
+      expect(wp.messages[0]?.content).toEqual([realContent?.[0]]);
+
+      // Opus 5.5: 10 × $4 + 1 000 × $5 + 2 000 × $8 за 1 млн.
+      expect(warmed).toEqual({ usd: 0.02104, cacheWrite: 1_000, cacheWrite1h: 2_000, cacheRead: 0 });
+      const costs = await readCosts(storage, "p1");
+      expect(costs[0]).toMatchObject({ detail: "warm:codegen", effort: "medium", promptName: "scene" });
+      expect(costs[0]?.units).toMatchObject({ cacheWrite: 1_000, cacheWrite1h: 2_000 });
+    });
+
+    it("warm без userCached: system прогрівається, у user — хвіст промпта", async () => {
+      const { llm, client, storage } = setup([]);
+      const res = await llm.warm("pick", { brand: "Зерно" });
+      expect(res.cacheWrite1h).toBe(0);
+      const wp = client.calls[0]?.params as Anthropic.MessageCreateParamsNonStreaming;
+      expect(wp.messages[0]?.content).toEqual([{ type: "text", text: "Бренд: Зерно" }]);
+      expect((await readCosts(storage, "p1"))[0]?.detail).toBe("warm");
+    });
+
+    it("schema_mode: prompt — одразу схема в промпті, без output_config.format", async () => {
+      const { llm, client } = setup([{ text: '{"color":"green","score":2}', usage }]);
+      const res = await llm.structured("pick-prompt", { brand: "Зерно" }, Pick);
+      expect(res.data).toEqual({ color: "green", score: 2 });
+      expect(client.calls).toHaveLength(1);
+      const params = client.calls[0]?.params as Anthropic.MessageCreateParamsNonStreaming;
+      expect(params.output_config?.format).toBeUndefined();
+      expect(JSON.stringify(params.messages)).toContain("JSON Schema");
+    });
+
+    it("usageToUnits: запис кешу за TTL; без розбивки — увесь запис як 5 хв", () => {
+      const base = { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3 };
+      expect(
+        usageToUnits({
+          ...base,
+          cache_creation_input_tokens: 30,
+          cache_creation: { ephemeral_5m_input_tokens: 10, ephemeral_1h_input_tokens: 20 },
+        } as Anthropic.Usage),
+      ).toEqual({ input: 1, output: 2, cacheWrite: 10, cacheWrite1h: 20, cacheRead: 3 });
+      expect(usageToUnits({ ...base, cache_creation_input_tokens: 30 } as Anthropic.Usage)).toEqual({
+        input: 1,
+        output: 2,
+        cacheWrite: 30,
+        cacheWrite1h: 0,
+        cacheRead: 3,
+      });
+    });
+
+    it("промпт kind: prefix напряму не викликається", async () => {
+      const { llm, client } = setup([{ text: "x" }]);
+      await expect(llm.text("ref", vars)).rejects.toThrow(/kind: prefix/);
+      expect(client.calls).toHaveLength(0);
+    });
   });
 });

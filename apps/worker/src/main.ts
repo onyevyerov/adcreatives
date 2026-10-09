@@ -8,6 +8,7 @@ import {
   loadPrices,
   loadRootEnv,
   type PipelineDriver,
+  readTuning,
 } from "@adc/shared";
 import { Redis } from "ioredis";
 import { loadWorkerEnv } from "./env.ts";
@@ -20,6 +21,8 @@ async function main(): Promise<void> {
   loadRootEnv();
   const env = loadWorkerEnv();
   const logger = createConsoleLogger({ service: "worker" }, env.logLevel);
+  // Невалідний перемикач генерації (ADC_CODEGEN_* тощо) — падіння на старті, а не тихий дефолт.
+  logger.info("перемикачі генерації", { ...readTuning() });
   const connection = redisConnection(env.redisUrl);
 
   // Окреме (неблокувальне) з'єднання для подій чату в Redis Stream.
