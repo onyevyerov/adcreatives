@@ -137,8 +137,19 @@ function jsxTagName(node: ts.JsxOpeningLikeElement | ts.JsxClosingElement): stri
   return ts.isIdentifier(t) ? t.text : null;
 }
 
-/** Перевіряє код сцени. `fileName` — для повідомлень. */
-export function guardScene(code: string, fileName = "scene.tsx"): GuardResult {
+export interface GuardOptions {
+  /** Для повідомлень. */
+  fileName?: string;
+  /**
+   * Точні рядки, які сцена може показати в кадрі (`allowedScreenTexts`). Перевірка — у B5;
+   * поки параметр ігнорується.
+   */
+  allowedTexts?: readonly string[];
+}
+
+/** Перевіряє код сцени. */
+export function guardScene(code: string, opts: GuardOptions = {}): GuardResult {
+  const fileName = opts.fileName ?? "scene.tsx";
   const source = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const violations: GuardViolation[] = [];
   const seen = new Set<string>();

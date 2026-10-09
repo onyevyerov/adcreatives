@@ -17,7 +17,7 @@ const mainDefaults: MainInput = {
   storyboard: fixtureStoryboard,
   format: "vertical",
   assets: {},
-  audio: { music: null, sfx: [], totalFrames: 450 },
+  audio: { music: null, mix: null, sfx: [], totalFrames: 450 },
   templateScenes: [],
   qa: false,
   fonts: studioFonts,

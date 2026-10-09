@@ -146,12 +146,13 @@ export async function createFixtureJob(opts: FixtureJobOptions): Promise<Fixture
     assets.a02 = { src: "logo.png", width: 320, height: 120, focal: { x: 0.5, y: 0.5 } };
   }
 
-  let audio: AudioManifest = { music: null, sfx: [], totalFrames: 0 };
+  let audio: AudioManifest = { music: null, mix: null, sfx: [], totalFrames: 0 };
   if (opts.audio !== false) {
     await writeFile(path.join(publicDir, "music.wav"), makeToneWav(4));
     await writeFile(path.join(publicDir, "sfx", "pop.wav"), makeToneWav(0.3, 880));
     audio = {
       music: { src: "music.wav", durationMs: 4000, fadeOutMs: 500, volume: 0.8, planHash: "fixture" },
+      mix: null,
       sfx: [{ cue: "pop", src: "sfx/pop.wav", durationMs: 300, volume: 0.6 }],
       totalFrames: 0,
     };
@@ -169,6 +170,8 @@ export function shortStoryboard(scenes: Array<Pick<Scene, "id" | "purpose"> & Pa
       durationFrames: 35,
       transitionFrames: i === 0 ? 0 : 10,
       text: { headline: "Кава, яку обсмажуємо самі", sub: "Львів, вул. Руська, 1", emphasis: ["самі"] },
+      items: [],
+      events: [],
       factIds: [],
       assetIds: ["a01"],
       layoutIntent: "hero_image",

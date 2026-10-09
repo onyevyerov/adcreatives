@@ -235,10 +235,12 @@ export function verifyClaims(
         const claim: Claim = {
           sceneId: scene.id,
           field,
+          itemId: null,
           text: c.text,
           kind: c.kind,
           factId: fact?.id ?? null,
           matchedContact,
+          matchedSite: false,
         };
         (fact || matchedContact ? verified : unverified).push(claim);
       }

@@ -33,6 +33,7 @@ export function buildAudioManifest(input: ManifestInput): AudioManifest {
           planHash: input.music.planHash,
         }
       : null,
+    mix: null,
     sfx: input.sfx.map((s) => ({
       cue: s.cue,
       src: publicSfxFile(s.cue),

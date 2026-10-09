@@ -229,6 +229,8 @@ export const fixtureStoryboard: Storyboard = {
       durationFrames: 150,
       transitionFrames: 0,
       text: { headline: "Кава, яку обсмажуємо самі", sub: null, emphasis: ["самі"] },
+      items: [],
+      events: [],
       factIds: [],
       assetIds: ["a01"],
       layoutIntent: "hero_image",
@@ -247,6 +249,27 @@ export const fixtureStoryboard: Storyboard = {
         sub: "-10% на каву з собою до 10:00",
         emphasis: ["75 грн", "-10%"],
       },
+      items: [
+        { id: "t1", role: "label", text: "Спешелті еспресо з молоком", group: null, factIds: [] },
+        { id: "t2", role: "number", text: "75 грн", group: "row:ціна", factIds: ["f1"] },
+        { id: "t3", role: "badge", text: "-10%", group: "row:ціна", factIds: ["f2"] },
+      ],
+      events: [
+        {
+          id: "price-hit",
+          at: 30,
+          what: "The price lands with a bump.",
+          sound: { cue: "impact", accent: "hard" },
+          textIds: ["t2"],
+        },
+        {
+          id: "badge-in",
+          at: 60,
+          what: "The discount badge fades in next to the price.",
+          sound: null,
+          textIds: ["t3"],
+        },
+      ],
       factIds: ["f1", "f2"],
       assetIds: [],
       layoutIntent: "typographic",
@@ -261,6 +284,8 @@ export const fixtureStoryboard: Storyboard = {
       durationFrames: 165,
       transitionFrames: 15,
       text: { headline: "Забронюйте столик", sub: "Львів, вул. Руська, 1", emphasis: [] },
+      items: [],
+      events: [],
       factIds: [],
       assetIds: [],
       layoutIntent: "logo_lockup",
@@ -276,8 +301,8 @@ export const fixtureStoryboard: Storyboard = {
     bpm: 85,
     instrumentation: ["rhodes", "soft drums", "vinyl crackle"],
     structure: [
-      { label: "intro", sceneIds: ["s1"], energy: 0.4 },
-      { label: "main", sceneIds: ["s2", "s3"], energy: 0.65 },
+      { label: "intro", sceneIds: ["s1"], energy: 0.4, mix: "full" },
+      { label: "main", sceneIds: ["s2", "s3"], energy: 0.65, mix: "breakdown" },
     ],
   },
   copyRules: {
@@ -288,6 +313,7 @@ export const fixtureStoryboard: Storyboard = {
 
 export const fixtureAudioManifest: AudioManifest = {
   music: { src: "music.mp3", durationMs: 16_000, fadeOutMs: 800, volume: 0.8, planHash: "abcdef0123456789" },
+  mix: null,
   sfx: [
     { cue: "whoosh", src: "sfx/whoosh.mp3", durationMs: 600, volume: 0.6 },
     { cue: "pop", src: "sfx/pop.mp3", durationMs: 300, volume: 0.6 },

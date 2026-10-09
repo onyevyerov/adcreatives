@@ -2,17 +2,18 @@ import { describe, expect, it } from "vitest";
 import { readTuning, TUNING_ENV, Tuning, TuningError } from "../src/tuning.ts";
 
 describe("readTuning", () => {
-  it("дефолти — погоджена конфігурація (fanout, anchor high, решта medium)", () => {
+  it("дефолти — погоджена конфігурація (fanout, anchor і решта high, qaMaxRounds 2)", () => {
     expect(readTuning({})).toEqual({
       codegenMode: "fanout",
       codegenAnchorEffort: "high",
-      codegenRestEffort: "medium",
+      codegenRestEffort: "high",
       codegenRestModel: null,
       codegenMaxTokens: null,
       codegenTaskBudget: null,
       codegenConcurrency: 5,
       fixCheckEffort: null,
       speculativeRender: false,
+      qaMaxRounds: 2,
     } satisfies Tuning);
   });
 
@@ -37,6 +38,7 @@ describe("readTuning", () => {
       ADC_CODEGEN_CONCURRENCY: "3",
       ADC_FIX_CHECK_EFFORT: "medium",
       ADC_SPECULATIVE_RENDER: "true",
+      ADC_QA_MAX_ROUNDS: "3",
       ADC_CODEGEN_MODE: "  ",
     });
     expect(t).toMatchObject({
@@ -47,7 +49,9 @@ describe("readTuning", () => {
       codegenConcurrency: 3,
       fixCheckEffort: "medium",
       speculativeRender: true,
+      qaMaxRounds: 3,
     });
+    expect(readTuning({ ADC_CODEGEN_MODE: "film" }).codegenMode).toBe("film");
     expect(readTuning({ ADC_SPECULATIVE_RENDER: "0" }).speculativeRender).toBe(false);
     expect(Object.keys(TUNING_ENV).sort()).toEqual(Object.keys(Tuning.shape).sort());
   });
@@ -58,6 +62,7 @@ describe("readTuning", () => {
     ["ADC_CODEGEN_MAX_TOKENS", "lots"],
     ["ADC_CODEGEN_TASK_BUDGET", "10000"],
     ["ADC_CODEGEN_CONCURRENCY", "0"],
+    ["ADC_QA_MAX_ROUNDS", "4"],
     ["ADC_CODEGEN_CONCURRENCY", "2.5"],
     ["ADC_SPECULATIVE_RENDER", "yes"],
   ])("невалідне %s=%s — помилка, не тихий дефолт", (name, value) => {
