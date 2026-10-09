@@ -245,7 +245,7 @@ export class Harness {
       promptHash: "h",
       effort: "high",
       attempt: 1,
-      units: { input: 1, output: 1, cacheWrite: 0, cacheRead: 0 },
+      units: { input: 1, output: 1, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 },
       unitPrices: {},
       usd,
       exact: true,

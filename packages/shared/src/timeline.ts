@@ -1,3 +1,4 @@
+import type { StillVariant } from "./schemas/qa.ts";
 import type { Storyboard } from "./schemas/storyboard.ts";
 
 /**
@@ -119,6 +120,13 @@ export function computeSfxPlacements(
   });
   return out;
 }
+
+/** Стіли сцени для check / QA: варіант і частка її тривалості. */
+export const STILL_PLAN = [
+  { variant: "e", fraction: 0.25 },
+  { variant: "a", fraction: 0.5 },
+  { variant: "b", fraction: 0.9 },
+] as const satisfies ReadonlyArray<{ variant: StillVariant; fraction: number }>;
 
 /** Кадри для стілів сцени: частки її тривалості (за замовчуванням 50% і 90%), локальні для сцени. */
 export function stillFrames(durationInFrames: number, fractions: readonly number[] = [0.5, 0.9]): number[] {

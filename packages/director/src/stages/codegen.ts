@@ -1,6 +1,7 @@
 import {
   type Asset,
   type BrandKit,
+  type Effort,
   type Format,
   inputsHash,
   RevisionPlan,
@@ -42,6 +43,19 @@ import {
 import { assetsForPrompt } from "./storyboard.ts";
 
 export const CODEGEN_PROMPT = "codegen";
+
+/**
+ * Режим одного виклику codegen (рядок `Mode:` у промпті): `anchor` — перша сцена першої генерації,
+ * що задає мову ролику; `continue` — наступна сцена першої генерації, поруч код уже готових;
+ * `subset` — правка вказаних сцен.
+ */
+export type CodegenPromptMode = "anchor" | "continue" | "subset";
+
+/**
+ * Effort для сцени `anchor` (решта — з frontmatter промпта): її код — еталон мови для всіх наступних
+ * сцен, а одна сцена вміщується в `max_tokens` навіть із глибшим thinking.
+ */
+export const ANCHOR_EFFORT: Effort = "xhigh";
 
 export const CodegenReport = z.object({
   mode: z.enum(["all", "subset", "reused"]),
@@ -135,10 +149,13 @@ async function instructionsFor(
 /**
  * Стадія `codegen`: розкадровка → `video/scenes/<sceneId>.tsx` + `video/scenes/index.ts`.
  *
- * - `params.sceneIds = null` — усі сцени одним викликом (перша генерація). Якщо є ревізія-основа,
- *   сцени з тим самим хешем входів переносяться без генерації, а решта генерується в режимі правки.
+ * - `params.sceneIds = null` — усі сцени (перша генерація). Якщо є ревізія-основа, сцени з тим самим
+ *   хешем входів переносяться без генерації, а решта генерується в режимі правки.
  * - `params.sceneIds = [...]` — лише ці сцени; решта подається як контекст «тільки для читання»
  *   (і переноситься з ревізії-основи, якщо в поточній ревізії її коду ще немає).
+ * Сцени генеруються по одній за виклик, у порядку розкадровки: кожен виклик бачить код уже готових
+ * сцен, а кожна готова сцена одразу записується в журнал. Повторна спроба після збою продовжує з
+ * першої незгенерованої сцени.
  * Код кожної сцени проходить AST-guard; відхилені сцени не пишуться у `video/scenes/`
  * (їхній код — у журналі версій) і повертаються в `guardRejected`.
  */
@@ -162,7 +179,7 @@ export function createCodegenStage(deps: CodegenStageDeps = {}): Stage<"codegen"
     const allIds = storyboard.scenes.map((s) => s.id);
     const artifacts = new Set<string>();
 
-    const vars = (mode: "all" | "subset", targets: string[], readonly: string) => ({
+    const vars = (mode: CodegenPromptMode, targets: string[], readonly: string) => ({
       ...contextVars(context),
       mode,
       targets: targets.join(", "),
@@ -178,7 +195,7 @@ export function createCodegenStage(deps: CodegenStageDeps = {}): Stage<"codegen"
           .join("\n") || "(немає — перша генерація за розкадровкою)",
       readonlyScenes: readonly || "(немає)",
     });
-    const promptHash = ctx.prompts.load(CODEGEN_PROMPT, vars("all", allIds, "")).hash;
+    const promptHash = ctx.prompts.load(CODEGEN_PROMPT, vars("anchor", allIds, "")).hash;
     const hashes: Record<string, string> = {};
     for (const scene of storyboard.scenes) {
       hashes[scene.id] = sceneCodegenHash({
@@ -264,73 +281,72 @@ export function createCodegenStage(deps: CodegenStageDeps = {}): Stage<"codegen"
     }
 
     const mode: "all" | "subset" = targets.length === allIds.length ? "all" : "subset";
-    let readonly = "";
-    if (mode === "subset") {
-      const blocks: string[] = [];
-      for (const id of allIds) {
-        if (targets.includes(id)) continue;
-        const code = await readCurrentCode(storage, projectId, rev, ledger, id);
-        if (code) blocks.push(fileBlock(`${id}.tsx`, code));
-      }
-      readonly = blocks.join("\n\n");
-    }
-
-    // ---------- виклик моделі (стрім) ----------
-    await progress(
-      ctx,
-      "codegen",
-      t("directingProgress", { done: 0, total: targets.length }),
-      0,
-      targets.length,
-    );
-    let streamed = "";
-    let reported = 0;
-    const onText = (delta: string) => {
-      streamed += delta;
-      const done = Math.min(targets.length, (streamed.match(/<\/file>/g) ?? []).length);
-      if (done > reported) {
-        reported = done;
-        void progress(
-          ctx,
-          "codegen",
-          t("directingProgress", { done, total: targets.length }),
-          done,
-          targets.length,
-        );
-      }
-    };
-    let text: string;
-    try {
-      const res = await ctx.llm.stream(CODEGEN_PROMPT, vars(mode, targets, readonly), {
-        onText,
-        ...(ctx.signal ? { signal: ctx.signal } : {}),
-      });
-      text = res.text;
-    } catch (err) {
-      return llmStageError(err, "генерація сцен");
-    }
-    const rawKey = dp.raw(`codegen-r${rev}-a${ctx.attempt}`);
-    await storage.write(rawKey, text);
-
-    // ---------- розбір і AST-guard ----------
-    const files = parseFileBlocks(text);
-    const byScene = new Map(files.filter((f) => f.sceneId).map((f) => [f.sceneId as string, f.code]));
-    const extra = files.filter((f) => !f.sceneId || !targets.includes(f.sceneId)).map((f) => f.name);
-    if (extra.length) logger.warn("codegen: зайві файли у відповіді проігноровано", { extra });
-    if (byScene.size === 0) {
-      throw new StageError(
-        "codegen: у відповіді моделі немає жодного <file>",
-        "codegen_no_files",
-        "Модель не повернула код сцен — спробуйте ще раз.",
-        true,
-      );
-    }
-
     const guardRejected: string[] = [];
     const missing: string[] = [];
     const violations: Record<string, string[]> = {};
+    /** Цілі, що вже мають свіжий код у цій ревізії (згенеровані в цьому запуску або продовжені). */
+    const done = new Set<string>();
+
+    // Продовження після збою: сцени, які попередня спроба цієї ревізії вже згенерувала з тими самими
+    // входами, не генеруємо вдруге.
+    const resumed: string[] = [];
     for (const id of targets) {
-      const code = byScene.get(id) ?? null;
+      const cur = currentVersion(ledger, id);
+      if (
+        cur?.origin === "codegen" &&
+        cur.guardOk &&
+        cur.inputsHash === hashes[id] &&
+        (await storage.exists(rp.scene(id)))
+      ) {
+        resumed.push(id);
+        done.add(id);
+      }
+    }
+    if (resumed.length) logger.info("codegen: продовжую — сцени вже згенеровано", { resumed });
+
+    /** Код інших сцен ролику як контекст «тільки для читання»: готові цілі й сцени поза генерацією. */
+    const readonlyFor = async (target: string): Promise<string> => {
+      const blocks: string[] = [];
+      for (const id of allIds) {
+        if (id === target) continue;
+        if (targets.includes(id) && !done.has(id)) continue;
+        if (currentVersion(ledger, id)?.guardOk === false) continue;
+        const code = await readCurrentCode(storage, projectId, rev, ledger, id);
+        if (code) blocks.push(fileBlock(`${id}.tsx`, code));
+      }
+      return blocks.join("\n\n");
+    };
+
+    // ---------- генерація: одна сцена за виклик, у порядку розкадровки ----------
+    // Кожен виклик бачить код уже готових сцен, тож ролик лишається цілісним, а збій посеред
+    // генерації не губить готові сцени: вони записані, повтор продовжить з наступної.
+    const total = targets.length;
+    await progress(ctx, "codegen", t("directingProgress", { done: done.size, total }), done.size, total);
+    for (const [i, id] of targets.entries()) {
+      if (done.has(id)) continue;
+      const readonly = await readonlyFor(id);
+      const promptMode: CodegenPromptMode = mode === "subset" ? "subset" : readonly ? "continue" : "anchor";
+
+      let text: string;
+      try {
+        const res = await ctx.llm.stream(CODEGEN_PROMPT, vars(promptMode, [id], readonly), {
+          ...(promptMode === "anchor" ? { effort: ANCHOR_EFFORT } : {}),
+          ...(ctx.signal ? { signal: ctx.signal } : {}),
+        });
+        text = res.text;
+      } catch (err) {
+        return llmStageError(err, `генерація сцени ${i + 1} з ${total}`);
+      }
+      const rawKey = dp.raw(`codegen-r${rev}-${id}-a${ctx.attempt}`);
+      await storage.write(rawKey, text);
+      artifacts.add(rawKey);
+
+      // ---------- розбір і AST-guard ----------
+      const files = parseFileBlocks(text);
+      const code = files.find((f) => f.sceneId === id)?.code ?? null;
+      const extra = files.filter((f) => f.sceneId !== id).map((f) => f.name);
+      if (extra.length) logger.warn("codegen: зайві файли у відповіді проігноровано", { scene: id, extra });
+
       if (code === null) {
         missing.push(id);
         guardRejected.push(id);
@@ -343,22 +359,35 @@ export function createCodegenStage(deps: CodegenStageDeps = {}): Stage<"codegen"
           inputsHash: hashes[id] ?? null,
           now: now(),
         });
-        continue;
+      } else {
+        const guard = guardScene(code, `${id}.tsx`);
+        if (!guard.ok) {
+          guardRejected.push(id);
+          violations[id] = formatViolations(guard.violations).split("\n");
+        }
+        const { written } = await addVersion(storage, projectId, rev, ledger, id, {
+          origin: "codegen",
+          code,
+          guardOk: guard.ok,
+          violations: violations[id] ?? [],
+          inputsHash: hashes[id] ?? null,
+          now: now(),
+        });
+        for (const k of written) artifacts.add(k);
       }
-      const guard = guardScene(code, `${id}.tsx`);
-      if (!guard.ok) {
-        guardRejected.push(id);
-        violations[id] = formatViolations(guard.violations).split("\n");
-      }
-      const { written } = await addVersion(storage, projectId, rev, ledger, id, {
-        origin: "codegen",
-        code,
-        guardOk: guard.ok,
-        violations: violations[id] ?? [],
-        inputsHash: hashes[id] ?? null,
-        now: now(),
-      });
-      for (const k of written) artifacts.add(k);
+      // Журнал — після кожної сцени: готове переживе збій наступного виклику.
+      artifacts.add(await writeLedger(storage, projectId, rev, ledger));
+      done.add(id);
+      await progress(ctx, "codegen", t("directingProgress", { done: done.size, total }), done.size, total);
+    }
+
+    if (missing.length > 0 && missing.length === targets.length) {
+      throw new StageError(
+        "codegen: у відповідях моделі немає жодного <file>",
+        "codegen_no_files",
+        "Модель не повернула код сцен — спробуйте ще раз.",
+        true,
+      );
     }
     if (guardRejected.length) logger.warn("codegen: сцени не пройшли AST-guard", { violations });
 
@@ -376,7 +405,6 @@ export function createCodegenStage(deps: CodegenStageDeps = {}): Stage<"codegen"
     };
     await storage.writeJson(dp.codegen, report);
     artifacts.add(dp.codegen);
-    artifacts.add(rawKey);
 
     return {
       artifacts: [...artifacts],

@@ -4,21 +4,28 @@ import type { CostRecorder } from "../cost/ledger.ts";
 import { type Logger, noopLogger } from "../logger.ts";
 import type { CostEvent, TokenUnits } from "../schemas/cost.ts";
 import type { Tracer } from "../trace.ts";
-import type { Effort, LoadedPrompt, PromptLoader, PromptVars } from "./prompts.ts";
+import type { CacheTtl, Effort, LoadedPrompt, PromptLoader, PromptVars } from "./prompts.ts";
 import { toStrictJsonSchema } from "./structured.ts";
 
 type Message = Anthropic.Message;
 type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
 type StreamParams = Anthropic.MessageStreamParams;
 type ContentBlockParam = Anthropic.ContentBlockParam;
+type TextBlockParam = Anthropic.TextBlockParam;
+
+/** Опції запиту, які передаємо клієнту (заголовки — для beta-функцій). */
+export interface AnthropicRequestOptions {
+  signal?: AbortSignal | undefined;
+  headers?: Record<string, string>;
+}
 
 /** Мінімальний інтерфейс клієнта, щоб у тестах підставляти мок. */
 export interface AnthropicLike {
   messages: {
-    create(params: CreateParams, options?: { signal?: AbortSignal }): Promise<Message>;
+    create(params: CreateParams, options?: AnthropicRequestOptions): Promise<Message>;
     stream(
       params: StreamParams,
-      options?: { signal?: AbortSignal },
+      options?: AnthropicRequestOptions,
     ): {
       finalMessage(): Promise<Message>;
       on(event: "text", listener: (delta: string) => void): unknown;
@@ -44,6 +51,29 @@ export interface LlmCallOptions {
   stream?: boolean;
   onText?: (delta: string) => void;
   signal?: AbortSignal;
+  /**
+   * Beta task budgets (`output_config.task_budget`, заголовок `task-budgets-2026-03-13`), мінімум 20 000:
+   * модель бачить зворотний відлік і розподіляє thinking і відповідь у межах бюджету.
+   */
+  taskBudget?: number;
+  /** → `CostEvent.detail`, напр. "scene:s3". */
+  costDetail?: string;
+  /**
+   * false — не ставити `cache_control` на userCached (префікс унікальний, запис кешу був би марним).
+   * Дефолт true.
+   */
+  cacheUserPrefix?: boolean;
+}
+
+export type LlmWarmOptions = Pick<LlmCallOptions, "model" | "effort" | "signal" | "costDetail">;
+
+export interface LlmWarmResult {
+  usd: number;
+  /** Записано в кеш на 5 хв. */
+  cacheWrite: number;
+  /** Записано в кеш на 1 год. */
+  cacheWrite1h: number;
+  cacheRead: number;
 }
 
 export interface LlmTextResult {
@@ -71,6 +101,12 @@ export interface Llm {
   text(name: string, vars: PromptVars, opts?: LlmCallOptions): Promise<LlmTextResult>;
   /** Вільний текст через стрім (codegen): `opts.onText` отримує дельти. */
   stream(name: string, vars: PromptVars, opts?: LlmCallOptions): Promise<LlmTextResult>;
+  /**
+   * Прогрів кешу: `max_tokens: 0`, без стріму й без output format; ті самі model / thinking / effort /
+   * system / userCached, що й наступні виклики з тими самими name+vars+opts. Пише витрати
+   * (`detail` — `opts.costDetail`, дефолт "warm").
+   */
+  warm(name: string, vars: PromptVars, opts?: LlmWarmOptions): Promise<LlmWarmResult>;
 }
 
 export class LlmError extends Error {
@@ -96,6 +132,10 @@ export interface CreateLlmOptions {
   /** Пауза між повторами; у тестах — миттєва. */
   sleep?: (ms: number) => Promise<void>;
 }
+
+/** Beta-заголовок task budgets і мінімальний бюджет. */
+export const TASK_BUDGET_BETA = "task-budgets-2026-03-13";
+export const MIN_TASK_BUDGET = 20_000;
 
 /** Ефорти, для яких завжди йдемо через стрім (довгі відповіді, таймаути). */
 const STREAM_EFFORTS: ReadonlySet<Effort> = new Set(["high", "xhigh", "max"]);
@@ -130,12 +170,47 @@ function retryAfterMs(err: unknown): number | null {
   return null;
 }
 
+/** Usage → одиниці обліку; запис кешу розбитий за TTL (`cacheWrite` — 5 хв, `cacheWrite1h` — 1 год). */
 export function usageToUnits(usage: Anthropic.Usage | undefined | null): TokenUnits {
+  const byTtl = usage?.cache_creation;
   return {
     input: usage?.input_tokens ?? 0,
     output: usage?.output_tokens ?? 0,
-    cacheWrite: usage?.cache_creation_input_tokens ?? 0,
+    cacheWrite: byTtl ? (byTtl.ephemeral_5m_input_tokens ?? 0) : (usage?.cache_creation_input_tokens ?? 0),
+    cacheWrite1h: byTtl?.ephemeral_1h_input_tokens ?? 0,
     cacheRead: usage?.cache_read_input_tokens ?? 0,
+  };
+}
+
+function cacheControl(ttl: CacheTtl): Anthropic.CacheControlEphemeral {
+  return ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+}
+
+/** System: `[prefix? (свій TTL), stage (TTL промпта)]`. */
+export function systemBlocks(prompt: LoadedPrompt): TextBlockParam[] {
+  const blocks: TextBlockParam[] = [];
+  if (prompt.prefix) {
+    blocks.push({
+      type: "text",
+      text: prompt.prefix.system,
+      cache_control: cacheControl(prompt.prefix.cacheTtl),
+    });
+  }
+  blocks.push({
+    type: "text",
+    text: prompt.system,
+    ...(prompt.cache ? { cache_control: cacheControl(prompt.cacheTtl) } : {}),
+  });
+  return blocks;
+}
+
+/** Блок userCached (з `cache_control` 5 хв, якщо кеш промпта ввімкнено і виклик його не вимкнув). */
+function userCachedBlock(prompt: LoadedPrompt, cacheUserPrefix: boolean | undefined): TextBlockParam | null {
+  if (!prompt.userCached) return null;
+  return {
+    type: "text",
+    text: prompt.userCached,
+    ...(prompt.cache && cacheUserPrefix !== false ? { cache_control: cacheControl("5m") } : {}),
   };
 }
 
@@ -155,7 +230,8 @@ function textOf(message: Message): string {
 /**
  * API відмовляє в structured output, якщо граматика схеми завелика (BrandKit: ~95 полів).
  * Ліміт сумарний і точно не задокументований, тож такі схеми передаємо в промпті, а відповідь
- * перевіряє Zod (з тим самим одним повтором). Схеми, що вже не скомпілювались, пам'ятаємо.
+ * перевіряє Zod (з тим самим одним повтором). Схеми, що вже не скомпілювались, пам'ятаємо в пам'яті
+ * процесу; промпт із відомо великою схемою краще позначити `schema_mode: prompt`.
  */
 const GRAMMAR_TOO_LARGE = /compiled grammar is too large|schema is too complex/i;
 const promptOnlySchemas = new Set<string>();
@@ -218,12 +294,24 @@ export function createLlm(options: CreateLlmOptions): Llm {
     const maxTokens = opts.maxTokens ?? prompt.maxTokens;
     const useStream = mode === "stream" || opts.stream === true || STREAM_EFFORTS.has(effort);
     const baseUser = [prompt.user, opts.userText].filter((s): s is string => Boolean(s?.trim())).join("\n\n");
-    if (!baseUser) throw new LlmError(`промпт ${name}: немає user-частини`, "prompt");
+    if (!baseUser && !prompt.userCached) throw new LlmError(`промпт ${name}: немає user-частини`, "prompt");
+    if (
+      opts.taskBudget !== undefined &&
+      !(Number.isInteger(opts.taskBudget) && opts.taskBudget >= MIN_TASK_BUDGET)
+    ) {
+      throw new LlmError(`${name}: taskBudget має бути цілим ≥ ${MIN_TASK_BUDGET}`, "prompt");
+    }
+    const requestOptions: AnthropicRequestOptions = {
+      signal: opts.signal,
+      ...(opts.taskBudget !== undefined ? { headers: { "anthropic-beta": TASK_BUDGET_BETA } } : {}),
+    };
+    const cachedBlock = userCachedBlock(prompt, opts.cacheUserPrefix);
 
     const jsonSchema = schema ? toStrictJsonSchema(schema) : null;
     const schemaKey = jsonSchema ? JSON.stringify(jsonSchema) : "";
-    // Схема в промпті замість граматики API (див. GRAMMAR_TOO_LARGE).
-    let schemaInPrompt = jsonSchema !== null && promptOnlySchemas.has(schemaKey);
+    // Схема в промпті замість граматики API: за frontmatter або після GRAMMAR_TOO_LARGE.
+    let schemaInPrompt =
+      jsonSchema !== null && (prompt.schemaMode === "prompt" || promptOnlySchemas.has(schemaKey));
     const costs: CostEvent[] = [];
     let attempt = 0;
     let refusalRetried = false;
@@ -241,6 +329,7 @@ export function createLlm(options: CreateLlmOptions): Llm {
             effort,
             attempt,
             exact,
+            ...(opts.costDetail ? { detail: opts.costDetail } : {}),
           }),
         );
       } catch (err) {
@@ -258,22 +347,21 @@ export function createLlm(options: CreateLlmOptions): Llm {
         .join("\n\n");
       const format =
         jsonSchema && !schemaInPrompt ? { type: "json_schema" as const, schema: jsonSchema } : null;
+      const tail = [baseUser, extra].filter(Boolean).join("\n\n");
       const content: ContentBlockParam[] = [
         ...(opts.images ?? []).map(imageBlock),
-        { type: "text", text: extra ? `${baseUser}\n\n${extra}` : baseUser },
+        ...(cachedBlock ? [cachedBlock] : []),
+        ...(tail ? [{ type: "text" as const, text: tail }] : []),
       ];
+      const taskBudget =
+        opts.taskBudget !== undefined ? { task_budget: { type: "tokens", total: opts.taskBudget } } : {};
       return {
         model,
         max_tokens: maxTokens,
         thinking: { type: "adaptive" },
-        output_config: format ? { effort, format } : { effort },
-        system: [
-          {
-            type: "text",
-            text: prompt.system,
-            ...(prompt.cache ? { cache_control: { type: "ephemeral" as const } } : {}),
-          },
-        ],
+        // task_budget — beta-поле (заголовок у requestOptions); типи не-beta SDK його не знають.
+        output_config: { effort, ...(format ? { format } : {}), ...taskBudget } as Anthropic.OutputConfig,
+        system: systemBlocks(prompt),
         messages: [{ role: "user", content }],
       };
     };
@@ -282,11 +370,11 @@ export function createLlm(options: CreateLlmOptions): Llm {
       const params = buildParams();
       attempt += 1;
       if (!useStream) {
-        const msg = await client.messages.create(params, { signal: opts.signal });
+        const msg = await client.messages.create(params, requestOptions);
         await record(msg, true);
         return msg;
       }
-      const s = client.messages.stream(params, { signal: opts.signal });
+      const s = client.messages.stream(params, requestOptions);
       if (opts.onText) s.on("text", opts.onText);
       try {
         const msg = await s.finalMessage();
@@ -378,10 +466,76 @@ export function createLlm(options: CreateLlmOptions): Llm {
     }
   }
 
+  async function warm(name: string, vars: PromptVars, opts: LlmWarmOptions = {}): Promise<LlmWarmResult> {
+    const prompt = prompts.load(name, vars);
+    trace?.notePrompt(prompt.name, prompt.hash);
+    const model = opts.model ?? prompt.model;
+    const effort = opts.effort ?? prompt.effort;
+    const cachedBlock = userCachedBlock(prompt, true);
+    // Кеш пишеться до останнього breakpoint-а: userCached, а без нього — system. Хвіст потрібен
+    // лише тоді, коли userCached немає (API не приймає порожнє повідомлення).
+    const content: ContentBlockParam[] = cachedBlock
+      ? [cachedBlock]
+      : [{ type: "text", text: prompt.user?.trim() || "." }];
+    // max_tokens: 0 API приймає лише без стріму і без output_config.format.
+    const params: CreateParams = {
+      model,
+      max_tokens: 0,
+      thinking: { type: "adaptive" },
+      output_config: { effort },
+      system: systemBlocks(prompt),
+      messages: [{ role: "user", content }],
+    };
+    let attempt = 0;
+    for (let retry = 0; ; retry++) {
+      attempt += 1;
+      try {
+        const message = await client.messages.create(params, { signal: opts.signal });
+        const units = usageToUnits(message.usage);
+        let usd = 0;
+        try {
+          const event = await cost.record({
+            provider: "anthropic",
+            model,
+            units,
+            promptName: prompt.name,
+            promptHash: prompt.hash,
+            effort,
+            attempt,
+            exact: true,
+            detail: opts.costDetail ?? "warm",
+          });
+          usd = event.usd;
+        } catch (err) {
+          logger.error("не вдалося записати витрати", { err: String(err), prompt: name });
+        }
+        return {
+          usd,
+          cacheWrite: units.cacheWrite,
+          cacheWrite1h: units.cacheWrite1h,
+          cacheRead: units.cacheRead,
+        };
+      } catch (err) {
+        if (!isRetryableTransportError(err) || retry >= maxTransport) {
+          throw new LlmError(`${name}: прогрів кешу: ${(err as Error).message}`, "api", [], { cause: err });
+        }
+        const wait = retryAfterMs(err) ?? 1000 * 2 ** retry;
+        logger.warn("повтор прогріву кешу", {
+          prompt: name,
+          retry: retry + 1,
+          waitMs: wait,
+          err: String(err),
+        });
+        await sleep(wait);
+      }
+    }
+  }
+
   return {
     structured: <S extends z.ZodType>(name: string, vars: PromptVars, schema: S, opts?: LlmCallOptions) =>
       run<z.output<S>>("structured", name, vars, schema as z.ZodType<z.output<S>>, opts),
     text: (name, vars, opts) => run<undefined>("text", name, vars, null, opts),
     stream: (name, vars, opts) => run<undefined>("stream", name, vars, null, opts),
+    warm,
   };
 }

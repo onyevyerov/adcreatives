@@ -134,10 +134,13 @@ export function makeCtx<S extends StageName>(
   };
 }
 
-/** Текст user-повідомлення виклику мок-клієнта. */
+/** Текст user-повідомлення виклику мок-клієнта: усі текстові блоки (userCached і хвіст) через "\n\n". */
 export function userText(params: unknown): string {
   const p = params as { messages: Array<{ content: Array<{ type: string; text?: string }> }> };
-  return p.messages[0]?.content.find((c) => c.type === "text")?.text ?? "";
+  return (p.messages[0]?.content ?? [])
+    .filter((c) => c.type === "text")
+    .map((c) => c.text ?? "")
+    .join("\n\n");
 }
 
 export function systemText(params: unknown): string {

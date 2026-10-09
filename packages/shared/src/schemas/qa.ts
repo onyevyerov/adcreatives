@@ -35,10 +35,14 @@ export const AutoIssue = QaLogEntry.extend({
 });
 export type AutoIssue = z.infer<typeof AutoIssue>;
 
+/** Кадр стілу сцени: e — 25%, a — 50%, b — 90% тривалості (частки — `STILL_PLAN` у timeline.ts). */
+export const StillVariant = z.enum(["e", "a", "b"]);
+export type StillVariant = z.infer<typeof StillVariant>;
+
 export const StillRef = z.object({
   sceneId: z.string(),
   format: Format,
-  variant: z.enum(["a", "b"]),
+  variant: StillVariant,
   frame: z.number().int(),
   /** Ключ у сховищі. */
   path: z.string(),
@@ -82,6 +86,8 @@ export const QaIssueKind = z.enum([
   "stretched_image",
   "too_much_text",
   "logo_distorted",
+  /** Текст, який треба прочитати, ще не на місці на 25% сцени (стіл `e`). */
+  "late_text",
 ]);
 export type QaIssueKind = z.infer<typeof QaIssueKind>;
 

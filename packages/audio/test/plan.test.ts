@@ -183,7 +183,7 @@ describe("normalizeAudioPlan", () => {
     expect(vars.chunks).toHaveLength(3);
     // Промпт рендериться без пропущених змінних.
     const prompt = createPromptLoader().load("audio-plan", vars);
-    expect(prompt.model).toBe("claude-sonnet-5-5");
+    expect(prompt.model).toBe("claude-opus-5-5");
     expect(prompt.user).toContain('"durationMs": 4500');
   });
 });
