@@ -42,6 +42,7 @@ export default function Scene(props: SceneProps) { … }
 `isDark`, `minContrastFor`), формат і safe-зона (`useFormat`, `SafeArea`, `formatInfoFor`, `SAFE_MARGINS`,
 `isInsideRect`), текст (`FitText`, `KineticText`, `Headline`, `Body`, `Pill`, `CTAButton`), зображення
 (`BrandImage`, `Logo`), фон (`Backdrop`), рух (`springs`, `easings`, `progress`, `springFor`, `defaultStagger`),
+девайси (`useBeat`, `ColorField`, `ClipReveal`, `DrawPath`, `MorphShape`, `Breathe`),
 чисті хелпери розкладки тексту (`fitText`, `markEmphasis`, `headingWeight`, `bodyWeight` тощо).
 
 Шрифти — через `@remotion/google-fonts` з `subsets: ["latin", "cyrillic"]` і лише потрібними `weights`
@@ -97,8 +98,9 @@ interface AssetRef { src: string; width: number; height: number; focal: { x: num
 
 ## Еталонні сцени
 
-`packages/motion-kit/examples/*.tsx` — 4–5 сцен (hook з фото, оффер із ціною, типографічна сцена,
-proof, CTA з лого). Компілюються в тестах і підставляються в промпт `codegen` як зразки.
+`packages/motion-kit/examples/*.tsx` — 5 сцен-жанрів (hook з фото, оффер із ціною, типографічна сцена,
+proof, CTA з лого) і `device-reveal.tsx` (еталон девайсів). Компілюються в тестах і підставляються
+в промпт `codegen` як зразки (через спільний префікс `prompts/motion-reference.md`).
 
 ## Зміни після Кроку 0 (B3, хвиля 1)
 
@@ -118,3 +120,26 @@ proof, CTA з лого). Компілюються в тестах і підст�
 - `BrandImage` з `mask: { type: "rounded" }` без `radius` — `theme.radius.lg × unit` (раніше без `× unit`).
 - `Pill` і `CTAButton` підбирають кегль під доступну ширину (до 60% номіналу) і пишуть QA-логи
   `text_min_size` / `text_overflow` (раніше — фіксований кегль, `nowrap`, без логу).
+
+## Девайси (B4, оптимізація вартості й якості)
+
+Готові прийоми замість ручної математики в сценах (`src/devices/`); сумісно — лише додано експорти.
+Поведінка й приклади — `API.md`, розділ `## Devices`; сигнатури — `API.generated.md`.
+
+- `useBeat(at, opts?)` — 0→1 від кадру `at`: пружина `springFor(theme.motion)` або `progress` за `duration`.
+- `ColorField` — поле палітри: `wipe` / `split` / `push` (`cover`, `exitFrame`); діти — кадр під полем.
+- `ClipReveal` — відкриття дітей через `clipPath`: `inset` / `circle` / `polygon`, `from` — край або центр.
+- `DrawPath` — SVG-лінія, що малюється (`evolvePath` з `@remotion/paths`).
+- `MorphShape` — заокруглена форма між ключовими станами (`x`, `y`, `width`, `height`, `radius`, колір).
+- `Breathe` — «дихання» шару на весь кадр після появи тексту (детермінований період за `theme.motion`).
+
+Інваріанти (перевіряє `test/devices.test.tsx`):
+- чиста функція кадру: без стану й ефектів, той самий кадр → та сама розмітка;
+- clamp: до старту — початковий стан, після кінця — кінцевий, без екстраполяції;
+- колір — лише роль палітри (`keyof Palette`), не CSS-рядок; між ролями — `mix()` двох кольорів палітри;
+- дефолтні px × `unit` (`strokeWidth`, `radius`); центр `Breathe` — центр safe-зони;
+- QA: `DrawPath` і `MorphShape` пишуть `outside_safe_area`, якщо не `bleed`; `ColorField` і `MorphShape`
+  позначають свій колір (`data-adc-bg`) для перевірки контрасту тексту над ними / в них.
+
+Префікс codegen: examples + `API.md` + `API.generated.md` зросли на ~14 % (80 384 → 91 936 байт).
+Посилання на девайси в `prompts/codegen.md` — окремо (B2b, хвиля 2).

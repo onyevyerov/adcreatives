@@ -23,6 +23,9 @@ export type { AutoIssueKind, QaLogEntry } from "@adc/shared/schemas/qa";
 export type { Scene, ScenePurpose, Storyboard } from "@adc/shared/schemas/storyboard";
 export type { AssetRef, AudioManifest, MainProps, ScenePreviewProps, SceneProps, } from "@adc/shared/types/video";
 export { averageColor, contrastRatio, isDark, minContrastFor, mix, parseColor, readableOn, relativeLuminance, withAlpha, } from "./color.ts";
+export { Breathe, useBeat } from "./devices/motion.tsx";
+export { ClipReveal, ColorField, type Side } from "./devices/reveal.tsx";
+export { DrawPath, type MorphKey, MorphShape } from "./devices/shape.tsx";
 export { type FontInfo, type FontPlan, fontStack, planFont, pruneFontInfo } from "./fonts.ts";
 export { FORMAT_SIZE, type FormatInfo, formatFromSize, formatInfoFor, isInsideRect, type Rect, SAFE_MARGINS, SafeArea, sizeForFormat, useFormat, } from "./format.tsx";
 export { MusicTrack, musicVolumeAt, Sfx } from "./host/audio.tsx";
@@ -659,4 +662,108 @@ import { type Measurer } from "./layout.ts";
  * Поза браузером — приблизний вимірювач.
  */
 export declare function createMeasurer(fontFamily: string, fontWeight: number, letterSpacingEm?: number): Measurer;
+```
+
+## devices/motion
+
+`src/devices/motion`
+
+```ts
+import type { CSSProperties, ReactNode } from "react";
+import { type EasingFn, type SpringConfig } from "../motion.ts";
+/** 0→1 від кадру `at`: пружина бренду або progress за `duration` (clamp). */
+export declare function useBeat(at: number, opts?: {
+    duration?: number;
+    easing?: EasingFn;
+    config?: SpringConfig;
+}): number;
+/** Шар на весь кадр, що «дихає» з `startFrame` (масштаб і зсув по косинусу). */
+export declare function Breathe(props: {
+    startFrame?: number;
+    period?: number;
+    amount?: number;
+    drift?: number;
+    style?: CSSProperties;
+    children?: ReactNode;
+}): import("react").JSX.Element;
+```
+
+## devices/reveal
+
+`src/devices/reveal`
+
+```ts
+import type { Palette } from "@adc/shared/schemas/brandkit";
+import type { CSSProperties, ReactNode } from "react";
+import { type EasingFn } from "../motion.ts";
+export type Side = "left" | "right" | "top" | "bottom";
+/** Поле кольору палітри: wipe / split / push кадру. */
+export declare function ColorField(props: {
+    mode?: "wipe" | "split" | "push";
+    color?: keyof Palette;
+    from?: Side;
+    startFrame?: number;
+    duration?: number;
+    /** 0–1. */
+    cover?: number;
+    exitFrame?: number;
+    easing?: EasingFn;
+    children?: ReactNode;
+}): import("react").JSX.Element;
+/** Відкриває дітей через clip-path. */
+export declare function ClipReveal(props: {
+    shape?: "inset" | "circle" | "polygon";
+    from?: Side | "center";
+    startFrame?: number;
+    duration?: number;
+    easing?: EasingFn;
+    style?: CSSProperties;
+    children?: ReactNode;
+}): import("react").JSX.Element;
+```
+
+## devices/shape
+
+`src/devices/shape`
+
+```ts
+import type { Palette } from "@adc/shared/schemas/brandkit";
+import { type CSSProperties, type ReactNode } from "react";
+import { type EasingFn } from "../motion.ts";
+/** SVG-лінія, що малюється (evolvePath). */
+export declare function DrawPath(props: {
+    d: string;
+    width: number;
+    height: number;
+    viewBox?: string;
+    color?: keyof Palette;
+    strokeWidth?: number;
+    startFrame?: number;
+    duration?: number;
+    easing?: EasingFn;
+    /** Може виходити за safe-зону (без QA-перевірки). */
+    bleed?: boolean;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+/** Ключовий стан MorphShape, px. */
+export interface MorphKey {
+    /** Старт переходу в цей стан; дефолт — старт попереднього + duration. */
+    at?: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    radius?: number;
+    color?: keyof Palette;
+}
+/** Заокруглена форма між ключовими станами. */
+export declare function MorphShape(props: {
+    keys: MorphKey[];
+    duration?: number;
+    easing?: EasingFn;
+    /** Може виходити за safe-зону (без QA-перевірки). */
+    bleed?: boolean;
+    style?: CSSProperties;
+    children?: ReactNode;
+}): import("react").JSX.Element;
 ```
