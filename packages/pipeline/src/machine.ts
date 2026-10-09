@@ -74,6 +74,11 @@ export interface StepContext {
   unverifiedClaims?: Array<{ kind: FactKind; text: string }>;
   /** Ключі файлів у `uploads/` на момент `start`. */
   uploads?: string[];
+  /**
+   * `Tuning.speculativeRender` (драйвер читає `readTuning`): на вході в `awaiting_storyboard`
+   * рендер кожного формату стартує до «Затвердити», а звичайний рендер потім його перевикористовує.
+   */
+  speculativeRender?: boolean;
 }
 
 export type Effect =
@@ -92,6 +97,11 @@ export interface StepResult extends NextStepResult {
 }
 
 type RenderParams = StageParamsMap["render"];
+
+/** Спекулятивний рендер: збій не міняє статус і не йде у failedJobs, успіх не робить видачу. */
+function isSpeculative(job: JobRecord): boolean {
+  return job.stage === "render" && (job.params as Partial<RenderParams>).speculative === true;
+}
 
 /** Мутабельна чернетка кроку: усі зміни — над копіями вхідного стану. */
 class Draft {
@@ -569,6 +579,8 @@ function onStageEvent(d: Draft, ev: StageDoneEvent): void {
   if (idx < 0) return; // застаріла ревізія або подвійна подія — ігноруємо
   const [job] = d.pipe.outstanding.splice(idx, 1) as [JobRecord];
   d.effects.push({ type: "cost", stage: ev.stage, rev: ev.rev, durationMs: ev.durationMs });
+  // Готовий mp4 перевикористає звичайний job після «Затвердити»; тут лише знімаємо job з обліку.
+  if (isSpeculative(job)) return;
 
   if (ev.type === "stage_failed") {
     onStageFailed(d, job, ev);
@@ -782,11 +794,20 @@ function maybeJoin(d: Draft): void {
     rev: d.project.rev,
     changedScenes: d.pipe.changedScenes,
   });
+  if (d.ctx.speculativeRender) startSpeculativeRender(d);
+}
+
+/** Рендер до затвердження розкадровки (jobId із суфіксом `spec-<format>`). */
+function startSpeculativeRender(d: Draft): void {
+  for (const format of d.project.formats) {
+    d.enqueue("render", { format, speculative: true } satisfies RenderParams, `spec-${format}`);
+  }
 }
 
 function onRenderDone(d: Draft): void {
   if (d.status !== "rendering") return;
-  if (d.hasOutstanding((j) => j.stage === "render") || d.pipe.failedJobs.length > 0) return;
+  const pending = (j: JobRecord) => j.stage === "render" && !isSpeculative(j);
+  if (d.hasOutstanding(pending) || d.pipe.failedJobs.length > 0) return;
   const p = d.project;
   p.deliveredAt = d.ctx.now;
   p.firstDeliveredAt ??= d.ctx.now;

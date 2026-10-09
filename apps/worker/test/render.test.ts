@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { shortStoryboard } from "@adc/render/testing";
 import {
   type ChatEvent,
@@ -13,7 +13,12 @@ import {
 import { fixtureAudioManifest, fixtureBrandKit } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { buildStageContext } from "../src/context.ts";
-import { createRenderStage, type PrepareRenderJobArgs, posterFrame } from "../src/render.ts";
+import {
+  createRenderStage,
+  type PrepareRenderJobArgs,
+  posterFrame,
+  renderInputsHash,
+} from "../src/render.ts";
 import { makeDeps, stageJob, tempStorage, writeProject } from "./helpers.ts";
 
 const storyboard = shortStoryboard([
@@ -64,7 +69,12 @@ function mockEngine(opts: { failMedia?: boolean } = {}) {
   return { engine, calls };
 }
 
-async function setup(formats: Format[], format: Format, engineOpts: { failMedia?: boolean } = {}) {
+async function setup(
+  formats: Format[],
+  format: Format,
+  engineOpts: { failMedia?: boolean } = {},
+  opts: { motionKitHash?: () => string; speculative?: boolean } = {},
+) {
   const storage = await tempStorage();
   await writeProject(storage, { formats, phase: "revision", rev: 2 });
   await storage.writeJson(projectPaths("p1").rev(2).pipeline, {
@@ -83,11 +93,25 @@ async function setup(formats: Format[], format: Format, engineOpts: { failMedia?
       return { jobDir: "/abs/job/video", mainProps: mainProps("vertical") };
     },
     createEngine: () => engine,
+    motionKitHash: opts.motionKitHash ?? (() => "mk-1"),
   });
-  const job = stageJob("render", { format }, { rev: 2, suffix: format });
+  const params = opts.speculative ? { format, speculative: true } : { format };
+  const job = stageJob("render", params, { rev: 2, suffix: opts.speculative ? `spec-${format}` : format });
   const { ctx } = await buildStageContext(job, deps);
-  return { storage, deps, stage, ctx, calls, prepared, job };
+  /** Контекст ще одного job того самого формату (звичайний — після «Затвердити»). */
+  const nextCtx = async (attempt = 2, speculative = false) => {
+    const next = stageJob("render", speculative ? { format, speculative: true } : { format }, {
+      rev: 2,
+      attempt,
+      suffix: speculative ? `spec-${format}` : format,
+    });
+    return (await buildStageContext(next, deps)).ctx;
+  };
+  return { storage, deps, stage, ctx, calls, prepared, job, nextCtx };
 }
+
+const progressOf = (deps: { emitters: Map<string, { events: unknown[] }> }) =>
+  ((deps.emitters.get("p1")?.events ?? []) as ChatEvent[]).filter((e) => e.type === "progress");
 
 describe("posterFrame", () => {
   it("50% of the cta scene in global Main frames", () => {
@@ -172,5 +196,125 @@ describe("renderStage", () => {
     await expect(stage(ctx as never)).rejects.toThrow("ffmpeg впав");
     expect(calls.closed).toBe(1);
     expect(await readCosts(storage, "p1")).toEqual([]);
+  });
+});
+
+describe("renderStage — reuse by inputs hash", () => {
+  it("writes renders/<format>.meta.json with the inputs hash after a real render", async () => {
+    const { storage, stage, ctx } = await setup(["vertical"], "vertical");
+    const result = await stage(ctx as never);
+    const meta = await storage.readJson(projectPaths("p1").rev(2).renderMeta("vertical"));
+    expect(meta).toEqual({ inputsHash: result.inputsHash });
+    expect(result.inputsHash).toMatch(/^[0-9a-f]{16}$/);
+    expect(result.reused).toBeUndefined();
+  });
+
+  it("same inputs + mp4 on disk → reused: true, no engine, no Remotion cost", async () => {
+    const { storage, stage, ctx, calls, nextCtx, deps } = await setup(["vertical", "square"], "vertical");
+    const first = await stage(ctx as never);
+    const second = await stage((await nextCtx()) as never);
+    expect(second).toEqual({
+      artifacts: ["projects/p1/rev/2/renders/vertical.mp4", "projects/p1/rev/2/poster.png"],
+      outputs: { format: "vertical", out: "projects/p1/rev/2/renders/vertical.mp4", durationMs: 0 },
+      reused: true,
+      inputsHash: first.inputsHash,
+    });
+    expect(calls.bundle).toHaveLength(1);
+    expect(calls.media).toHaveLength(1);
+    expect(calls.closed).toBe(1);
+    expect(await readCosts(storage, "p1")).toHaveLength(1);
+    // Клієнт усе одно бачить, що формат готовий.
+    expect(progressOf(deps).at(-1)).toMatchObject({ label: "Рендерю 9:16… 100%", done: 100 });
+  });
+
+  it("missing mp4 or poster → renders again", async () => {
+    const { storage, stage, ctx, calls, nextCtx } = await setup(["vertical"], "vertical");
+    await stage(ctx as never);
+    await rm(storage.absPath(projectPaths("p1").rev(2).poster));
+    const second = await stage((await nextCtx()) as never);
+    expect(second.reused).toBeUndefined();
+    expect(calls.media).toHaveLength(2);
+    await rm(storage.absPath(projectPaths("p1").rev(2).render("vertical")));
+    const third = await stage((await nextCtx(3)) as never);
+    expect(third.reused).toBeUndefined();
+    expect(calls.media).toHaveLength(3);
+    expect(await readCosts(storage, "p1")).toHaveLength(3);
+  });
+
+  it("changed scene code or motion-kit context → renders again", async () => {
+    let mk = "mk-1";
+    const { storage, stage, ctx, calls, nextCtx } = await setup(
+      ["square"],
+      "square",
+      {},
+      {
+        motionKitHash: () => mk,
+      },
+    );
+    const rp = projectPaths("p1").rev(2);
+    await storage.write(rp.scene("s1"), "export const S1 = 1;");
+    const first = await stage(ctx as never);
+    await storage.write(rp.scene("s1"), "export const S1 = 2;");
+    const second = await stage((await nextCtx()) as never);
+    expect(second.reused).toBeUndefined();
+    expect(second.inputsHash).not.toBe(first.inputsHash);
+    mk = "mk-2";
+    const third = await stage((await nextCtx(3)) as never);
+    expect(third.reused).toBeUndefined();
+    expect(calls.media).toHaveLength(3);
+    const fourth = await stage((await nextCtx(4)) as never);
+    expect(fourth.reused).toBe(true);
+  });
+
+  it("speculative: renders silently (no progress), records cost; the approved job reuses it", async () => {
+    const { storage, stage, ctx, calls, nextCtx, deps } = await setup(
+      ["vertical"],
+      "vertical",
+      {},
+      {
+        speculative: true,
+      },
+    );
+    const spec = await stage(ctx as never);
+    expect(spec.reused).toBeUndefined();
+    expect(calls.media).toHaveLength(1);
+    expect(progressOf(deps)).toEqual([]);
+    expect(await readCosts(storage, "p1")).toHaveLength(1);
+
+    const approved = await stage((await nextCtx(1)) as never);
+    expect(approved.reused).toBe(true);
+    expect(calls.media).toHaveLength(1);
+    expect(await readCosts(storage, "p1")).toHaveLength(1);
+  });
+
+  it("render failure leaves no meta", async () => {
+    const { storage, stage, ctx } = await setup(["vertical"], "vertical", { failMedia: true });
+    await expect(stage(ctx as never)).rejects.toThrow();
+    expect(await storage.exists(projectPaths("p1").rev(2).renderMeta("vertical"))).toBe(false);
+  });
+});
+
+describe("renderInputsHash", () => {
+  it("depends on format, templateScenes, storyboard, audio, brand and motion-kit hash", async () => {
+    const storage = await tempStorage();
+    const base = { storage, projectId: "p1", rev: 1, templateScenes: [] as string[], motionKitHash: "mk" };
+    const h = (over: Partial<typeof base> & { props?: Partial<MainProps> } = {}) => {
+      const { props, ...rest } = over;
+      return renderInputsHash({ ...base, ...rest, inputProps: { ...mainProps("vertical"), ...props } });
+    };
+    const ref = await h();
+    expect(await h()).toBe(ref);
+    const variants = [
+      await h({ props: { format: "square" } }),
+      await h({ templateScenes: ["s2"] }),
+      await h({ motionKitHash: "mk2" }),
+      await h({ props: { storyboard: shortStoryboard([{ id: "s1", purpose: "hook" }]) } }),
+      await h({ props: { audio: { ...fixtureAudioManifest, music: null } } }),
+      await h({
+        props: { brand: { ...fixtureBrandKit, identity: { ...fixtureBrandKit.identity, name: "X" } } },
+      }),
+    ];
+    for (const v of variants) expect(v).not.toBe(ref);
+    expect(new Set(variants).size).toBe(variants.length);
   });
 });

@@ -9,6 +9,7 @@ import {
   type CostEvent,
   ProjectState,
   projectPaths,
+  RenderMeta,
   readCosts,
   readTrace,
   Storyboard,
@@ -28,6 +29,9 @@ import { type FixtureSite, startFixtureSite, testHostMap, testResolver, userPhot
  *
  * Нижня межа тривалості ролика (15 с у проді) тут знижена до 5 с, щоб рендер займав секунди:
  * `normalizeStoryboard` бере межу з `@adc/shared`, інші модулі від неї не залежать.
+ *
+ * Увімкнено спекулятивний рендер (`ADC_SPECULATIVE_RENDER=1`): на чекпоінті 3 рендер стартує до
+ * «Затвердити», а звичайні job після затвердження перевикористовують готові mp4 за хешем входів.
  */
 vi.mock("@adc/shared", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@adc/shared")>()),
@@ -48,6 +52,7 @@ const ofType = <T extends ChatEvent["type"]>(type: T) =>
   events().filter((e): e is Extract<ChatEvent, { type: T }> => e.type === type);
 
 beforeAll(async () => {
+  vi.stubEnv("ADC_SPECULATIVE_RENDER", "1");
   site = await startFixtureSite();
   dataDir = await mkdtemp(path.join(os.tmpdir(), "adc-integration-"));
   anthropic = recordedAnthropic();
@@ -72,6 +77,7 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  vi.unstubAllEnvs();
   await harness?.close();
   await site?.close();
   if (dataDir && !process.env.KEEP_INTEGRATION_DATA) await rm(dataDir, { recursive: true, force: true });
@@ -155,6 +161,30 @@ describe("пайплайн від URL до mp4", () => {
     expect(delivery.length).toBeGreaterThan(0);
   });
 
+  it("спекулятивний рендер: звичайні job після «Затвердити» перевикористовують готові mp4", async () => {
+    const project = await harness.storage.readJson(projectPaths(projectId).project, (v) =>
+      ProjectState.parse(v),
+    );
+    const renders = harness.queue.history.filter((j) => j.stage === "render" && j.projectId === projectId);
+    expect(renders.map((j) => j.jobId.split(".").slice(2).join("."))).toEqual([
+      "r1.a1.spec-vertical",
+      "r1.a1.spec-square",
+      "r1.a1.vertical",
+      "r1.a1.square",
+    ]);
+    const rev = projectPaths(projectId).rev(project.rev);
+    for (const format of ["vertical", "square"] as const) {
+      const meta = await harness.storage.readJson(rev.renderMeta(format), (v) => RenderMeta.parse(v));
+      expect(meta.inputsHash).toMatch(/^[0-9a-f]{16}$/);
+    }
+    // Спекулятивний рендер мовчить; після «Затвердити» — старт і одразу 100% (перевикористано).
+    expect(
+      ofType("progress")
+        .filter((e) => e.stage === "render")
+        .map((e) => e.label),
+    ).toEqual(["Рендерю відео (9:16, 1:1)…", "Рендерю 9:16… 100%", "Рендерю 1:1… 100%"]);
+  });
+
   it("без шаблонних сцен: записаний код скомпілювався з першої спроби", async () => {
     const project = await harness.storage.readJson(projectPaths(projectId).project, (v) =>
       ProjectState.parse(v),
@@ -186,6 +216,7 @@ describe("пайплайн від URL до mp4", () => {
     expect(
       [...costs, ...shared].some((e) => e.provider === "elevenlabs" && e.detail?.startsWith("sfx")),
     ).toBe(true);
+    // Рендер — лише спекулятивний: звичайні job перевикористали mp4 і витрат Remotion не писали.
     const renders = costs.filter((e) => e.provider === "remotion");
     expect(renders.map((e) => e.detail).sort()).toEqual(["render square", "render vertical"]);
     expect(costs.every((e) => e.source === "test" && e.projectId === projectId)).toBe(true);
