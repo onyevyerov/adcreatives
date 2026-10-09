@@ -1,15 +1,19 @@
-import { FORMAT_SIZE, type Format } from "@adc/shared";
+import { FORMAT_SIZE, type Format, STILL_PLAN, type StillVariant } from "@adc/shared";
 import sharp, { type OverlayOptions } from "sharp";
 
 /**
- * Зведений аркуш формату (`sheets/<format>.png`): стіли всіх сцен однією картинкою —
- * колонка на сцену, зверху кадр «a» (50%), знизу «b» (90%), підписи під кадрами.
- * Ширина аркуша ≤ ~2400 px (ліміт image block 2576 px по довшій стороні); зайві сцени — новим рядом.
+ * Зображення зі стілів сцен.
+ *
+ * - Зведений аркуш формату (`sheets/<format>.png`) — для людини: стіли всіх сцен однією картинкою,
+ *   колонка на сцену, рядки за `STILL_PLAN` (e — 25%, a — 50%, b — 90%), підписи під кадрами.
+ *   Ширина аркуша ≤ ~2400 px; зайві сцени — новим рядом.
+ * - Зображення сцени для QA (`buildSceneImage`) — кадри e/a/b однієї сцени в одному форматі:
+ *   9:16 і 1:1 у ряд, 16:9 у стовпчик; довша сторона ≤ `QA_IMAGE_MAX_SIDE`.
  */
 
 export interface SheetCell {
   sceneId: string;
-  variant: "a" | "b";
+  variant: StillVariant;
   /** PNG стілу; null — кадру немає (помилка або сцену не перевірено). */
   png: Buffer | null;
   label: string;
@@ -17,12 +21,18 @@ export interface SheetCell {
   note?: string;
 }
 
+/**
+ * Ліміт довшої сторони зображення для vision. Документація Anthropic радить ≤ 1568 px: більші
+ * зображення API однаково зменшує (довше відповідає й нічого не додає до деталей).
+ */
+export const QA_IMAGE_MAX_SIDE = 1568;
+
 const GAP = 8;
 const LABEL_H = 28;
 const MAX_WIDTH = 2400;
 const BG = { r: 255, g: 255, b: 255, alpha: 1 };
 
-/** Розмір мініатюри кадру для формату. */
+/** Розмір мініатюри кадру для формату (аркуш для людини). */
 export function thumbSize(format: Format): { width: number; height: number } {
   const { width, height } = FORMAT_SIZE[format];
   const longSide = format === "square" ? 360 : 480;
@@ -57,46 +67,100 @@ function placeholderSvg(width: number, height: number, note: string): Buffer {
   );
 }
 
-/** Будує аркуш із клітинок у порядку сцен (на сцену дві клітинки: a, b). */
+/** Кадр клітинки (або сіра перекреслена заглушка) + підпис під ним, з лівим верхнім кутом у (left, top). */
+async function cellLayers(
+  cell: SheetCell | undefined,
+  fallbackLabel: string,
+  size: { width: number; height: number },
+  left: number,
+  top: number,
+): Promise<OverlayOptions[]> {
+  let img: Buffer;
+  try {
+    img = cell?.png
+      ? await sharp(cell.png).resize(size.width, size.height, { fit: "fill" }).png().toBuffer()
+      : await sharp(placeholderSvg(size.width, size.height, cell?.note ?? "немає кадру"))
+          .png()
+          .toBuffer();
+  } catch {
+    img = await sharp(placeholderSvg(size.width, size.height, "кадр пошкоджено"))
+      .png()
+      .toBuffer();
+  }
+  return [
+    { input: img, left, top },
+    { input: labelSvg(size.width, cell?.label ?? fallbackLabel), left, top: top + size.height },
+  ];
+}
+
+/** Будує аркуш із клітинок у порядку сцен (на сцену клітинка на кожен варіант `STILL_PLAN`). */
 export async function buildSheet(format: Format, cells: readonly SheetCell[]): Promise<Buffer> {
   const thumb = thumbSize(format);
+  const rows = STILL_PLAN.length;
   const sceneIds = [...new Set(cells.map((c) => c.sceneId))];
   const columns = Math.max(1, Math.min(sceneIds.length, Math.floor((MAX_WIDTH - GAP) / (thumb.width + GAP))));
   const bands = Math.ceil(sceneIds.length / columns);
   const cellH = thumb.height + LABEL_H;
   const width = GAP + columns * (thumb.width + GAP);
-  const height = GAP + bands * 2 * (cellH + GAP);
+  const height = GAP + bands * rows * (cellH + GAP);
 
   const layers: OverlayOptions[] = [];
   for (const [i, sceneId] of sceneIds.entries()) {
     const col = i % columns;
     const band = Math.floor(i / columns);
-    for (const variant of ["a", "b"] as const) {
+    for (const [row, { variant }] of STILL_PLAN.entries()) {
       const cell = cells.find((c) => c.sceneId === sceneId && c.variant === variant);
       const left = GAP + col * (thumb.width + GAP);
-      const top = GAP + (band * 2 + (variant === "a" ? 0 : 1)) * (cellH + GAP);
-      let img: Buffer;
-      try {
-        img = cell?.png
-          ? await sharp(cell.png).resize(thumb.width, thumb.height, { fit: "fill" }).png().toBuffer()
-          : await sharp(placeholderSvg(thumb.width, thumb.height, cell?.note ?? "немає кадру"))
-              .png()
-              .toBuffer();
-      } catch {
-        img = await sharp(placeholderSvg(thumb.width, thumb.height, "кадр пошкоджено"))
-          .png()
-          .toBuffer();
-      }
-      layers.push({ input: img, left, top });
-      layers.push({
-        input: labelSvg(thumb.width, cell?.label ?? `${sceneId} · ${variant}`),
-        left,
-        top: top + thumb.height,
-      });
+      const top = GAP + (band * rows + row) * (cellH + GAP);
+      layers.push(...(await cellLayers(cell, `${sceneId} · ${variant}`, thumb, left, top)));
     }
   }
   return sharp({ create: { width, height, channels: 4, background: BG } })
     .composite(layers)
     .png({ compressionLevel: 9 })
+    .toBuffer();
+}
+
+/** Розкладка зображення сцени для QA: кадри у ряд (9:16, 1:1) чи стовпчиком (16:9) у межах maxSide. */
+export function sceneImageLayout(
+  format: Format,
+  maxSide = QA_IMAGE_MAX_SIDE,
+): { inRow: boolean; frame: { width: number; height: number }; width: number; height: number } {
+  const full = FORMAT_SIZE[format];
+  const aspect = full.width / full.height;
+  const n = STILL_PLAN.length;
+  const inRow = format !== "landscape";
+  // Межі кадру по ширині й висоті з урахуванням проміжків і підписів; без збільшення понад оригінал.
+  const maxW = Math.min(full.width, inRow ? (maxSide - GAP * (n + 1)) / n : maxSide - 2 * GAP);
+  const maxH = Math.min(
+    full.height,
+    inRow ? maxSide - 2 * GAP - LABEL_H : (maxSide - GAP - n * (LABEL_H + GAP)) / n,
+  );
+  const w = Math.floor(Math.min(maxW, maxH * aspect));
+  const frame = { width: w, height: Math.floor(w / aspect) };
+  const cellH = frame.height + LABEL_H;
+  return inRow
+    ? { inRow, frame, width: GAP + n * (frame.width + GAP), height: GAP + cellH + GAP }
+    : { inRow, frame, width: GAP + frame.width + GAP, height: GAP + n * (cellH + GAP) };
+}
+
+/** Зображення однієї сцени в одному форматі для QA: кадри в порядку `STILL_PLAN`, PNG. */
+export async function buildSceneImage(
+  format: Format,
+  cells: readonly SheetCell[],
+  maxSide = QA_IMAGE_MAX_SIDE,
+): Promise<Buffer> {
+  const layout = sceneImageLayout(format, maxSide);
+  const { frame } = layout;
+  const layers: OverlayOptions[] = [];
+  for (const [i, { variant }] of STILL_PLAN.entries()) {
+    const cell = cells.find((c) => c.variant === variant);
+    const left = layout.inRow ? GAP + i * (frame.width + GAP) : GAP;
+    const top = layout.inRow ? GAP : GAP + i * (frame.height + LABEL_H + GAP);
+    layers.push(...(await cellLayers(cell, variant, frame, left, top)));
+  }
+  return sharp({ create: { width: layout.width, height: layout.height, channels: 4, background: BG } })
+    .composite(layers)
+    .png()
     .toBuffer();
 }

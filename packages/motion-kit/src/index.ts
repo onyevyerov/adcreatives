@@ -30,6 +30,9 @@ export {
   relativeLuminance,
   withAlpha,
 } from "./color.ts";
+export { Breathe, useBeat } from "./devices/motion.tsx";
+export { ClipReveal, ColorField, type Side } from "./devices/reveal.tsx";
+export { DrawPath, type MorphKey, MorphShape } from "./devices/shape.tsx";
 export { type FontInfo, type FontPlan, fontStack, planFont, pruneFontInfo } from "./fonts.ts";
 export {
   FORMAT_SIZE,

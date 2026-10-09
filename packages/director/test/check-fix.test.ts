@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CheckReport, type LocalStorage, revPaths, type ScenePreviewProps } from "@adc/shared";
+import {
+  type BrowserLog,
+  CheckReport,
+  type LocalStorage,
+  type RenderStillOptions,
+  revPaths,
+  type ScenePreviewProps,
+  STILL_PLAN,
+} from "@adc/shared";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { directorPaths } from "../src/io.ts";
@@ -51,6 +59,29 @@ async function generated(scenes: Record<string, string>, opts: { rev?: number } 
 const readCheck = (storage: LocalStorage, rev = 1) =>
   storage.readJson(revPaths(PROJECT_ID, rev).check, (v) => CheckReport.parse(v));
 
+/** Мок-рушій, що додає рядки логу залежно від кадру стілу (локальний хелпер B3). */
+function frameLogEngine(byFrame: (o: RenderStillOptions) => string[]) {
+  const engine = mockEngine();
+  const render = engine.renderStill.bind(engine);
+  engine.renderStill = async (o: RenderStillOptions) => {
+    const res = await render(o);
+    const extra: BrowserLog[] = byFrame(o).map((text) => ({ type: "log", text }));
+    return { ...res, logs: [...res.logs, ...extra] };
+  };
+  return engine;
+}
+
+/** Імітує check.json, записаний до появи кадру `e`: лише стіли a/b. */
+async function stripEStills(storage: LocalStorage, rev = 1): Promise<void> {
+  const report = await readCheck(storage, rev);
+  await storage.writeJson(revPaths(PROJECT_ID, rev).check, {
+    ...report,
+    stills: report.stills.filter((s) => s.variant !== "e"),
+  });
+}
+
+const sceneOf = (o: RenderStillOptions) => (o.inputProps as ScenePreviewProps).sceneId;
+
 describe("checkStage (мок RenderEngine)", () => {
   it("типи по сценах, AST-guard, стіли у всіх форматах, autoIssues, аркуші", async () => {
     const storage = await generated({ s1: ex["hook-photo"], s2: TS_BAD, s3: GUARD_BAD });
@@ -68,11 +99,15 @@ describe("checkStage (мок RenderEngine)", () => {
         .join("\n"),
     ).toMatch(/huge/);
     expect(report.compileErrors.find((e) => e.sceneId === "s3")?.message).toMatch(/AST-guard: .*Date/);
+    // 3 стіли на сцену й формат на кадрах STILL_PLAN (25/50/90% від 150 кадрів)
+    expect(STILL_PLAN.map((p) => p.variant)).toEqual(["e", "a", "b"]);
     expect(report.stills.map((s) => `${s.format}/${s.sceneId}-${s.variant}@${s.frame}`).sort()).toEqual([
       "square/s1-a@75",
       "square/s1-b@135",
+      "square/s1-e@38",
       "vertical/s1-a@75",
       "vertical/s1-b@135",
+      "vertical/s1-e@38",
     ]);
     expect(report.autoIssues).toHaveLength(2);
     expect(report.autoIssues[0]).toMatchObject({
@@ -83,6 +118,8 @@ describe("checkStage (мок RenderEngine)", () => {
     expect(report.sheets.map((s) => s.format)).toEqual(["vertical", "square"]);
     const meta = await sharp(await storage.read(revPaths(PROJECT_ID, 1).sheet("vertical"))).metadata();
     expect(meta.width).toBeGreaterThan(500);
+    // аркуш для людини: три рядки (e, a, b) мініатюр 270×480 з підписами
+    expect(meta.height).toBe(8 + 3 * (480 + 28 + 8));
 
     // ScenePreview з QA-режимом і асетами в public/
     const props = engine.stills[0]?.inputProps as ScenePreviewProps;
@@ -120,12 +157,14 @@ describe("checkStage (мок RenderEngine)", () => {
     expect(report.runtimeErrors.map((e) => [e.sceneId, e.format])).toEqual([
       ["s2", "vertical"],
       ["s2", "vertical"],
+      ["s2", "vertical"],
+      ["s2", "square"],
       ["s2", "square"],
       ["s2", "square"],
     ]);
     expect(report.compileErrors).toEqual([]);
     const s3 = engine.stills.filter((s) => (s.inputProps as ScenePreviewProps).sceneId === "s3");
-    expect(s3).toHaveLength(4);
+    expect(s3).toHaveLength(6);
     expect((s3[0]?.inputProps as ScenePreviewProps | undefined)?.useTemplate).toBe(true);
     expect(engine.closed).toBe(1);
   });
@@ -161,7 +200,9 @@ describe("checkStage (мок RenderEngine)", () => {
     expect(engine.stills).toHaveLength(0);
     expect(res.reused).toBe(true);
     const report = await readCheck(storage, 2);
-    expect(report.stills).toHaveLength(12);
+    expect(report.stills).toHaveLength(18); // 3 сцени × 2 формати × STILL_PLAN
+    expect(report.stills.filter((s) => s.variant === "e")).toHaveLength(6);
+    expect(await storage.exists(revPaths(PROJECT_ID, 2).still("vertical", "s1", "e"))).toBe(true);
     expect(report.stills[0]?.path).toContain("/rev/2/");
     expect(await storage.exists(revPaths(PROJECT_ID, 2).scene("s1"))).toBe(true);
 
@@ -175,7 +216,65 @@ describe("checkStage (мок RenderEngine)", () => {
     expect(new Set(engine3.stills.map((s) => (s.inputProps as ScenePreviewProps).sceneId))).toEqual(
       new Set(["s2"]),
     );
-    expect((await readCheck(storage, 3)).stills).toHaveLength(12);
+    expect((await readCheck(storage, 3)).stills).toHaveLength(18);
+  });
+
+  it("autoIssues з кадру e (25%) не йдуть у звіт, сам стіл e є", async () => {
+    const storage = await generated({ s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] });
+    const eFrame = 38; // s1: 25% від 150 кадрів
+    const engine = frameLogEngine((o) =>
+      sceneOf(o) !== "s1"
+        ? []
+        : o.frame === eFrame
+          ? [qaLogLine("outside_safe_area", "headline ще влітає")]
+          : [qaLogLine("text_overflow", "headline не вліз")],
+    );
+    const res = await createCheckStage({ engine })(makeCtx(storage, "check", { sceneIds: null }));
+    expect(engine.stills.filter((o) => sceneOf(o) === "s1" && o.frame === eFrame)).toHaveLength(2);
+    const report = await readCheck(storage);
+    expect(report.autoIssues.map((i) => [i.sceneId, i.format, i.kind])).toEqual([
+      ["s1", "vertical", "text_overflow"],
+      ["s1", "square", "text_overflow"],
+    ]);
+    expect(report.autoIssues.every((i) => i.frame !== eFrame)).toBe(true);
+    expect(report.stills.filter((s) => s.sceneId === "s1" && s.variant === "e")).toHaveLength(2);
+    expect(res.outputs.issueScenes).toEqual(["s1"]);
+
+    // лише кадр e «скаржиться» → сцена без autoIssues
+    const storage2 = await generated({ s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] });
+    const res2 = await createCheckStage({
+      engine: frameLogEngine((o) =>
+        o.frame === eFrame ? [qaLogLine("text_overflow", "ще з'являється")] : [],
+      ),
+    })(makeCtx(storage2, "check", { sceneIds: null }));
+    expect(res2.outputs.issueScenes).toEqual([]);
+    expect((await readCheck(storage2)).autoIssues).toEqual([]);
+  });
+
+  it("старий check.json (лише a/b): основа не перевикористовується, нецільові сцени знімаються заново", async () => {
+    const storage = await generated({ s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] });
+    await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));
+    await stripEStills(storage, 1);
+    expect((await readCheck(storage, 1)).stills).toHaveLength(12); // старий формат парситься
+
+    // нова ревізія: хеш входів збігся, але стілів основи 2 × 2 ≠ formats × STILL_PLAN → рендер
+    await seedProject(storage, { rev: 2 });
+    const engine2 = mockEngine();
+    const res2 = await createCheckStage({ engine: engine2 })(
+      makeCtx(storage, "check", { sceneIds: null }, [], { rev: 2 }),
+    );
+    expect(res2.reused).toBeUndefined();
+    expect(engine2.stills).toHaveLength(18);
+    expect((await readCheck(storage, 2)).stills).toHaveLength(18);
+
+    // та сама ревізія: правка s2, а s1/s3 без кадру e у check.json → теж знімаються
+    await stripEStills(storage, 2);
+    const engine3 = mockEngine();
+    await createCheckStage({ engine: engine3 })(
+      makeCtx(storage, "check", { sceneIds: ["s2"] }, [], { rev: 2 }),
+    );
+    expect(new Set(engine3.stills.map(sceneOf))).toEqual(new Set(["s1", "s2", "s3"]));
+    expect((await readCheck(storage, 2)).stills).toHaveLength(18);
   });
 });
 
@@ -214,7 +313,7 @@ describe("fixStage (записані відповіді LLM)", () => {
       makeCtx(storage, "check", { sceneIds: ["s2", "s3"] }),
     );
     expect(res2.outputs.failedScenes).toEqual([]);
-    expect((await readCheck(storage)).stills).toHaveLength(12);
+    expect((await readCheck(storage)).stills).toHaveLength(18);
   });
 
   it("відповідь з забороненим кодом → нова версія відхилена, сцена поза реєстром", async () => {
