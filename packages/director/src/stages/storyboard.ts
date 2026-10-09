@@ -3,9 +3,12 @@ import {
   type BrandKit,
   type BrandKitFile,
   computeTimeline,
+  type Format,
   inputsHash,
   type ProjectState,
   revPaths,
+  SceneId,
+  SceneText,
   type Stage,
   type StageContext,
   type Storage,
@@ -28,6 +31,13 @@ import {
 import { type NormalizeResult, normalizeStoryboard, type TextIssue } from "../normalize.ts";
 
 export const STORYBOARD_PROMPT = "storyboard";
+export const STORYBOARD_COPYFIX_PROMPT = "storyboard-copyfix";
+
+/** Відповідь `storyboard-copyfix`: нові тексти лише проблемних сцен (поля — як `Scene.text`). */
+export const StoryboardCopyfix = z.object({
+  scenes: z.array(SceneText.extend({ id: SceneId })),
+});
+export type StoryboardCopyfix = z.infer<typeof StoryboardCopyfix>;
 
 export const StoryboardMeta = z.object({
   inputsHash: z.string(),
@@ -112,16 +122,73 @@ function durationRule(seconds: number | null): string {
     : `Клієнт попросив рівно ${seconds} с — разом ${seconds * 30} кадрів при 30 fps (після віднімання переходів).`;
 }
 
-function issuesFeedback(issues: readonly TextIssue[]): string {
-  const lines = issues.map(
-    (i) =>
-      `- ${i.sceneId}.${i.field} (${i.format}): ${i.kind === "length" ? `${i.actual} символів, максимум ${i.limit}` : `слово з ${i.actual} символів, максимум ${i.limit} у рядку`} — «${i.text}»`,
-  );
-  return (
-    "Попередня розкадровка порушила ліміти тексту (copyRules) для обраних форматів:\n" +
-    `${lines.join("\n")}\n` +
-    "Поверни повну виправлену розкадровку: скороти ці тексти (зберігаючи зміст і факти), решту лиши як є."
-  );
+/** Змінні `storyboard-copyfix`: проблемні сцени з помилками й лімітами + усі headline підряд. */
+export function copyfixVars(
+  sb: Storyboard,
+  issues: readonly TextIssue[],
+  brand: BrandKit,
+  opts: { language: string; formats: readonly Format[] },
+) {
+  const byScene = new Map<string, TextIssue[]>();
+  for (const i of issues) byScene.set(i.sceneId, [...(byScene.get(i.sceneId) ?? []), i]);
+  // Ліміти найвужчого з обраних форматів — ті самі, що перевіряє `checkCopy`.
+  const perLine = Math.min(...opts.formats.map((f) => sb.copyRules.maxCharsPerLine[f]));
+  const limits = {
+    headline: perLine * sb.copyRules.maxLines.headline,
+    sub: perLine * sb.copyRules.maxLines.sub,
+    word: perLine,
+  };
+  return {
+    language: opts.language,
+    formats: opts.formats.join(", "),
+    brand: {
+      name: brand.identity.name,
+      voice: brand.voice,
+      location: brand.location,
+      contacts: brand.contacts,
+    },
+    facts: brand.facts,
+    copyRules: sb.copyRules,
+    headlines: sb.scenes.map((s) => `${s.id}: ${s.text.headline}`).join("\n"),
+    scenes: sb.scenes.flatMap((s) => {
+      const own = byScene.get(s.id);
+      if (!own) return [];
+      return [
+        {
+          id: s.id,
+          purpose: s.purpose,
+          headline: s.text.headline,
+          sub: s.text.sub,
+          emphasis: s.text.emphasis,
+          factIds: s.factIds,
+          limits,
+          issues: own.map(({ field, format, kind, actual, limit }) => ({
+            field,
+            format,
+            kind,
+            actual,
+            limit,
+          })),
+        },
+      ];
+    }),
+  };
+}
+
+/** Нові тексти лише для `sceneIds`; решта сцен і полів розкадровки — ті самі об'єкти. */
+export function mergeCopyfix(
+  sb: Storyboard,
+  fix: StoryboardCopyfix,
+  sceneIds: ReadonlySet<string>,
+): Storyboard {
+  const byId = new Map(fix.scenes.filter((s) => sceneIds.has(s.id)).map((s) => [s.id, s]));
+  return {
+    ...sb,
+    scenes: sb.scenes.map((scene) => {
+      const f = byId.get(scene.id);
+      return f ? { ...scene, text: { headline: f.headline, sub: f.sub, emphasis: f.emphasis } } : scene;
+    }),
+  };
 }
 
 async function storyboardInputs(storage: Storage, projectId: string, paramsDuration: number | null) {
@@ -203,12 +270,14 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
       }
     }
 
-    const call = async (userText?: string) => {
+    const call = async () => {
       try {
-        const res = await ctx.llm.structured(STORYBOARD_PROMPT, vars, Storyboard, {
-          ...(userText ? { userText } : {}),
-          ...(ctx.signal ? { signal: ctx.signal } : {}),
-        });
+        const res = await ctx.llm.structured(
+          STORYBOARD_PROMPT,
+          vars,
+          Storyboard,
+          ctx.signal ? { signal: ctx.signal } : {},
+        );
         return res.data;
       } catch (err) {
         return llmStageError(err, "сценарій");
@@ -222,18 +291,40 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
         durationSeconds: duration,
       });
 
+    /**
+     * Точковий ретрай: нові headline/sub/emphasis лише для сцен з `textIssues`, решта розкадровки
+     * (concept, motionIntent, таймінги, інші сцени) лишається як є. Збій → null (лишається чернетка).
+     */
+    const copyfix = async (current: NormalizeResult): Promise<NormalizeResult | null> => {
+      const ids = new Set(current.textIssues.map((i) => i.sceneId));
+      try {
+        const res = await ctx.llm.structured(
+          STORYBOARD_COPYFIX_PROMPT,
+          copyfixVars(current.storyboard, current.textIssues, brandFile, { language, formats }),
+          StoryboardCopyfix,
+          ctx.signal ? { signal: ctx.signal } : {},
+        );
+        return normalize(mergeCopyfix(current.storyboard, res.data, ids));
+      } catch (err) {
+        if (ctx.signal?.aborted) throw err;
+        ctx.logger.warn("точковий ретрай текстів розкадровки не вдався — лишаю чернетку", {
+          err: String(err),
+          scenes: [...ids],
+        });
+        return null;
+      }
+    };
+
     const draft = await call();
     let result = normalize(draft);
     let retried = false;
     if (result.textIssues.length > 0) {
-      // Обмеження довжини текстів structured output не гарантує — одна повторна спроба з помилками.
+      // Обмеження довжини текстів structured output не гарантує — одна точкова спроба з помилками.
       retried = true;
-      const second = normalize(
-        await call(
-          `${issuesFeedback(result.textIssues)}\n\n<previous_storyboard>\n${JSON.stringify(draft)}\n</previous_storyboard>`,
-        ),
-      );
-      if (second.textIssues.length <= result.textIssues.length) result = second;
+      const second = await copyfix(result);
+      if (second && second.textIssues.length <= result.textIssues.length) {
+        result = { ...second, changes: [...result.changes, ...second.changes] };
+      }
     }
 
     const claims = verifyClaims(result.storyboard, brandFile, { now: now() });
