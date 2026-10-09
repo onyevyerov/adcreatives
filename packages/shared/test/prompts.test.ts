@@ -68,6 +68,7 @@ describe("prompts", () => {
         "qa",
         "revise",
         "storyboard",
+        "storyboard-copyfix",
       ].sort(),
     );
     // Лише frontmatter: наповнені промпти мають {{змінні}}, які передає стадія.
