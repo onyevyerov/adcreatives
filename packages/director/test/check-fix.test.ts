@@ -21,13 +21,13 @@ import {
   exampleSources,
   fileBlocks,
   makeCtx,
-  mockEngine,
   PROJECT_ID,
   qaLogLine,
   seedProject,
   tmpStorage,
   userText,
 } from "./helpers.ts";
+import { movingEngine } from "./strip-engine.ts";
 
 const ex = exampleSources();
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -61,7 +61,7 @@ const readCheck = (storage: LocalStorage, rev = 1) =>
 
 /** Мок-рушій, що додає рядки логу залежно від кадру стілу (локальний хелпер B3). */
 function frameLogEngine(byFrame: (o: RenderStillOptions) => string[]) {
-  const engine = mockEngine();
+  const engine = movingEngine();
   const render = engine.renderStill.bind(engine);
   engine.renderStill = async (o: RenderStillOptions) => {
     const res = await render(o);
@@ -81,11 +81,16 @@ async function stripEStills(storage: LocalStorage, rev = 1): Promise<void> {
 }
 
 const sceneOf = (o: RenderStillOptions) => (o.inputProps as ScenePreviewProps).sceneId;
+/** Рендери стілів (без кадрів стрічки). */
+const stillRenders = (engine: { stills: RenderStillOptions[] }) =>
+  engine.stills.filter((o) => o.out.includes("/stills/"));
+/** autoIssues без `event_unused` (у фікстурі s2 має події, а еталонний код їх не знає). */
+const withoutEvents = <T extends { kind: string }>(xs: T[]) => xs.filter((i) => i.kind !== "event_unused");
 
 describe("checkStage (мок RenderEngine)", () => {
   it("типи по сценах, AST-guard, стіли у всіх форматах, autoIssues, аркуші", async () => {
     const storage = await generated({ s1: ex["hook-photo"], s2: TS_BAD, s3: GUARD_BAD });
-    const engine = mockEngine({
+    const engine = movingEngine({
       logs: { s1: [qaLogLine("text_overflow", "headline не вліз"), "звичайний лог"] },
     });
     const res = await createCheckStage({ engine })(makeCtx(storage, "check", { sceneIds: null }));
@@ -148,7 +153,7 @@ describe("checkStage (мок RenderEngine)", () => {
       templateScenes: ["s3"],
       dirtyScenes: [],
     });
-    const engine = mockEngine({ fail: { s2: "TypeError: cannot read properties of undefined" } });
+    const engine = movingEngine({ fail: { s2: "TypeError: cannot read properties of undefined" } });
     const res = await createCheckStage({ engine: () => engine })(
       makeCtx(storage, "check", { sceneIds: null }),
     );
@@ -171,7 +176,7 @@ describe("checkStage (мок RenderEngine)", () => {
 
   it("помилка бандла на сцені → compileError цієї сцени і повтор без неї; невідома — помилка стадії", async () => {
     const storage = await generated({ s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] });
-    const engine = mockEngine({
+    const engine = movingEngine({
       bundleError: (n) =>
         n === 1 ? "Module build failed: /data/rev/1/video/scenes/s2.tsx: Unexpected token" : null,
     });
@@ -180,7 +185,7 @@ describe("checkStage (мок RenderEngine)", () => {
     expect(engine.bundles).toHaveLength(2);
     expect((await readCheck(storage)).compileErrors[0]?.message).toMatch(/^bundle: /);
 
-    const broken = mockEngine({ bundleError: () => "rspack crashed" });
+    const broken = movingEngine({ bundleError: () => "rspack crashed" });
     await expect(
       createCheckStage({ engine: broken })(makeCtx(storage, "check", { sceneIds: null })),
     ).rejects.toMatchObject({
@@ -191,9 +196,9 @@ describe("checkStage (мок RenderEngine)", () => {
 
   it("нова ревізія: незмінені сцени переносяться (код і стіли) без рендера", async () => {
     const storage = await generated({ s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] });
-    await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));
+    await createCheckStage({ engine: movingEngine() })(makeCtx(storage, "check", { sceneIds: null }));
     await seedProject(storage, { rev: 2 });
-    const engine = mockEngine();
+    const engine = movingEngine();
     const res = await createCheckStage({ engine })(
       makeCtx(storage, "check", { sceneIds: null }, [], { rev: 2 }),
     );
@@ -207,7 +212,7 @@ describe("checkStage (мок RenderEngine)", () => {
     expect(await storage.exists(revPaths(PROJECT_ID, 2).scene("s1"))).toBe(true);
 
     // змінена сцена s2 знімається, решта — з основи
-    const engine3 = mockEngine();
+    const engine3 = movingEngine();
     await seedProject(storage, { rev: 3 });
     await storage.write(revPaths(PROJECT_ID, 3).scene("s2"), ex.typographic);
     await createCheckStage({ engine: engine3 })(
@@ -232,13 +237,13 @@ describe("checkStage (мок RenderEngine)", () => {
     const res = await createCheckStage({ engine })(makeCtx(storage, "check", { sceneIds: null }));
     expect(engine.stills.filter((o) => sceneOf(o) === "s1" && o.frame === eFrame)).toHaveLength(2);
     const report = await readCheck(storage);
-    expect(report.autoIssues.map((i) => [i.sceneId, i.format, i.kind])).toEqual([
+    expect(withoutEvents(report.autoIssues).map((i) => [i.sceneId, i.format, i.kind])).toEqual([
       ["s1", "vertical", "text_overflow"],
       ["s1", "square", "text_overflow"],
     ]);
-    expect(report.autoIssues.every((i) => i.frame !== eFrame)).toBe(true);
+    expect(withoutEvents(report.autoIssues).every((i) => i.frame !== eFrame)).toBe(true);
     expect(report.stills.filter((s) => s.sceneId === "s1" && s.variant === "e")).toHaveLength(2);
-    expect(res.outputs.issueScenes).toEqual(["s1"]);
+    expect(res.outputs.issueScenes).toEqual(["s1", "s2"]);
 
     // лише кадр e «скаржиться» → сцена без autoIssues
     const storage2 = await generated({ s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] });
@@ -247,29 +252,33 @@ describe("checkStage (мок RenderEngine)", () => {
         o.frame === eFrame ? [qaLogLine("text_overflow", "ще з'являється")] : [],
       ),
     })(makeCtx(storage2, "check", { sceneIds: null }));
-    expect(res2.outputs.issueScenes).toEqual([]);
-    expect((await readCheck(storage2)).autoIssues).toEqual([]);
+    // лишається тільки event_unused сцени s2 (події price-hit, badge-in не згадані в коді)
+    expect(res2.outputs.issueScenes).toEqual(["s2"]);
+    expect((await readCheck(storage2)).autoIssues.map((i) => [i.sceneId, i.kind, i.frame])).toEqual([
+      ["s2", "event_unused", 30],
+      ["s2", "event_unused", 60],
+    ]);
   });
 
   it("старий check.json (лише a/b): основа не перевикористовується, нецільові сцени знімаються заново", async () => {
     const storage = await generated({ s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] });
-    await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));
+    await createCheckStage({ engine: movingEngine() })(makeCtx(storage, "check", { sceneIds: null }));
     await stripEStills(storage, 1);
     expect((await readCheck(storage, 1)).stills).toHaveLength(12); // старий формат парситься
 
     // нова ревізія: хеш входів збігся, але стілів основи 2 × 2 ≠ formats × STILL_PLAN → рендер
     await seedProject(storage, { rev: 2 });
-    const engine2 = mockEngine();
+    const engine2 = movingEngine();
     const res2 = await createCheckStage({ engine: engine2 })(
       makeCtx(storage, "check", { sceneIds: null }, [], { rev: 2 }),
     );
     expect(res2.reused).toBeUndefined();
-    expect(engine2.stills).toHaveLength(18);
+    expect(stillRenders(engine2)).toHaveLength(18);
     expect((await readCheck(storage, 2)).stills).toHaveLength(18);
 
     // та сама ревізія: правка s2, а s1/s3 без кадру e у check.json → теж знімаються
     await stripEStills(storage, 2);
-    const engine3 = mockEngine();
+    const engine3 = movingEngine();
     await createCheckStage({ engine: engine3 })(
       makeCtx(storage, "check", { sceneIds: ["s2"] }, [], { rev: 2 }),
     );
@@ -281,10 +290,10 @@ describe("checkStage (мок RenderEngine)", () => {
 describe("fixStage (записані відповіді LLM)", () => {
   it("виправляє сцени паралельно за помилками check; новий код проходить AST-guard", async () => {
     const storage = await generated({ s1: ex["hook-photo"], s2: TS_BAD, s3: GUARD_BAD });
-    await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));
+    await createCheckStage({ engine: movingEngine() })(makeCtx(storage, "check", { sceneIds: null }));
     const recorded = (name: string) => readFileSync(path.join(FIXTURES, name), "utf8");
     const reply = (params: unknown) =>
-      userText(params).includes("Виправ сцену s2")
+      userText(params).includes("Repair scene s2")
         ? { text: recorded("fix-s2.txt") }
         : { text: recorded("fix-s3.txt") };
     const ctx = makeCtx(storage, "fix", { sceneIds: ["s2", "s3"], reason: "check" }, [reply, reply]);
@@ -292,10 +301,10 @@ describe("fixStage (записані відповіді LLM)", () => {
     expect(res.outputs.sceneIds.sort()).toEqual(["s2", "s3"]);
 
     const prompts = ctx.anthropic.calls.map((c) => userText(c.params));
-    const s2Prompt = prompts.find((p) => p.includes("Виправ сцену s2")) ?? "";
+    const s2Prompt = prompts.find((p) => p.includes("Repair scene s2")) ?? "";
     expect(s2Prompt).toMatch(/TS\d+:.*huge/);
     expect(s2Prompt).toContain('size="huge"');
-    const s3Prompt = prompts.find((p) => p.includes("Виправ сцену s3")) ?? "";
+    const s3Prompt = prompts.find((p) => p.includes("Repair scene s3")) ?? "";
     expect(s3Prompt).toMatch(/AST-guard[\s\S]*Date/);
 
     const rp = revPaths(PROJECT_ID, 1);
@@ -309,7 +318,7 @@ describe("fixStage (записані відповіді LLM)", () => {
     ]);
 
     // наступний check бачить виправлені сцени чистими
-    const res2 = await createCheckStage({ engine: mockEngine() })(
+    const res2 = await createCheckStage({ engine: movingEngine() })(
       makeCtx(storage, "check", { sceneIds: ["s2", "s3"] }),
     );
     expect(res2.outputs.failedScenes).toEqual([]);

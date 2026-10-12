@@ -8,7 +8,7 @@ import {
   t,
 } from "@adc/shared";
 import { fixtureProject } from "@adc/shared/fixtures";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type MachineState,
   nextStep,
@@ -465,10 +465,13 @@ describe("nextStep — directing: branches, fix and QA limits", () => {
   function directing(): MachineState {
     return state("directing", { branches: { video: "running", audio: "running" } });
   }
-  const advance = (s: MachineState, input: StepInput) => {
-    const r = nextStep(s, input, ctx());
+  const advance = (s: MachineState, input: StepInput, over: Partial<StepContext> = {}) => {
+    const r = nextStep(s, input, ctx(over));
     return { r, s: { project: r.state, pipe: r.pipe } as MachineState };
   };
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
 
   it("codegen → check(all) → qa(all) → video done; joins with audio → checkpoint 3", () => {
     let s = directing();
@@ -519,10 +522,11 @@ describe("nextStep — directing: branches, fix and QA limits", () => {
     expect(r.jobs).toEqual([expect.objectContaining({ stage: "qa", params: { sceneIds: null } })]);
   });
 
-  it("one QA round: fix(qa) → check → qa(changed only) → done regardless of verdict", () => {
+  it("qaMaxRounds: 1 — one QA round: fix(qa) → check → qa(changed only) → done regardless of verdict", () => {
     let s = directing();
     let r: StepResult;
-    ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1", "s3"] })));
+    const one = { qaMaxRounds: 1 };
+    ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1", "s3"] }), one));
     expect(r.jobs).toEqual([
       expect.objectContaining({ stage: "fix", params: { sceneIds: ["s1", "s3"], reason: "qa" } }),
     ]);
@@ -534,9 +538,69 @@ describe("nextStep — directing: branches, fix and QA limits", () => {
     expect(r.jobs).toEqual([expect.objectContaining({ stage: "check", params: { sceneIds: ["s1", "s3"] } })]);
     ({ r, s } = advance(s, running(s, "check", {}, { failedScenes: [], issueScenes: [] })));
     expect(r.jobs).toEqual([expect.objectContaining({ stage: "qa", params: { sceneIds: ["s1", "s3"] } })]);
-    ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1"] })));
+    ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1"] }), one));
     expect(stages(r)).toEqual([]);
     expect(r.state.branches.video).toBe("done");
+  });
+
+  it("qaMaxRounds: 2 — two rounds QA → fix, then checkpoint 3 even if QA still says fix", () => {
+    let s = state("directing", { branches: { video: "running", audio: "done" } });
+    let r: StepResult;
+    const two = { qaMaxRounds: 2 };
+    // коло 1
+    ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1", "s3"] }), two));
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "fix", params: { sceneIds: ["s1", "s3"], reason: "qa" } }),
+    ]);
+    expect(r.pipe.qaRounds).toBe(1);
+    ({ r, s } = advance(
+      s,
+      running(s, "fix", { sceneIds: ["s1", "s3"], reason: "qa" }, { sceneIds: ["s1", "s3"] }),
+      two,
+    ));
+    ({ r, s } = advance(s, running(s, "check", {}, { failedScenes: [], issueScenes: [] }), two));
+    expect(r.jobs).toEqual([expect.objectContaining({ stage: "qa", params: { sceneIds: ["s1", "s3"] } })]);
+    // коло 2: лише сцени, які щойно виправляли (s2 з попередніх зауважень не додається)
+    ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1", "s2"] }), two));
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "fix", params: { sceneIds: ["s1"], reason: "qa" } }),
+    ]);
+    expect(r.pipe.qaRounds).toBe(2);
+    expect(r.pipe.dirtyScenes).toEqual(["s1"]);
+    ({ r, s } = advance(s, running(s, "fix", { sceneIds: ["s1"], reason: "qa" }, { sceneIds: ["s1"] }), two));
+    ({ r, s } = advance(s, running(s, "check", {}, { failedScenes: [], issueScenes: [] }), two));
+    expect(r.jobs).toEqual([expect.objectContaining({ stage: "qa", params: { sceneIds: ["s1"] } })]);
+    // після двох кіл — чекпоінт 3, навіть якщо QA досі хоче fix
+    ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1"] }), two));
+    expect(stages(r)).toEqual([]);
+    expect(r.pipe.qaRounds).toBe(2);
+    expect(r.state.branches.video).toBe("done");
+    expect(r.state.status).toBe("awaiting_storyboard");
+    expect(r.effects).toContainEqual(
+      expect.objectContaining({ type: "checkpoint", checkpoint: "storyboard" }),
+    );
+  });
+
+  it("qaMaxRounds: 0 — no fix after QA; without ctx — Tuning from env (ADC_QA_MAX_ROUNDS)", () => {
+    const s = state("directing", { branches: { video: "running", audio: "done" } });
+    const qa = () => running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1"] });
+    const none = nextStep(s, qa(), ctx({ qaMaxRounds: 0 }));
+    expect(stages(none)).toEqual([]);
+    expect(none.state.status).toBe("awaiting_storyboard");
+
+    vi.stubEnv("ADC_QA_MAX_ROUNDS", "0");
+    expect(stages(nextStep(s, qa(), ctx()))).toEqual([]);
+    vi.stubEnv("ADC_QA_MAX_ROUNDS", "");
+    // дефолт Tuning — 2 кола: після одного кола ще є друге
+    const after1 = state(
+      "directing",
+      { branches: { video: "running", audio: "done" } },
+      { qaRounds: 1, videoPhase: "qa_fix", dirtyScenes: ["s1"] },
+    );
+    const r = nextStep(after1, running(after1, "qa", {}, { verdict: "fix", seriousScenes: ["s1"] }), ctx());
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "fix", params: { sceneIds: ["s1"], reason: "qa" } }),
+    ]);
   });
 
   it("QA ignores scenes already replaced by templates", () => {

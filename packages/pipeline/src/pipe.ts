@@ -11,8 +11,7 @@ import { z } from "zod";
 
 /** Максимум кіл фіксів компіляції/runtime на сцену. */
 export const MAX_FIX_ROUNDS = 2;
-/** Максимум кіл фіксів після QA. */
-export const MAX_QA_ROUNDS = 1;
+// Кількість кіл QA → fix — `Tuning.qaMaxRounds` (env `ADC_QA_MAX_ROUNDS`), див. `StepContext.qaMaxRounds`.
 
 /** Job, поставлений у чергу й ще не завершений (для відсіву застарілих/подвійних подій). */
 export const JobRecord = z.object({

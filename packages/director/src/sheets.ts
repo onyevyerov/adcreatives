@@ -8,7 +8,12 @@ import sharp, { type OverlayOptions } from "sharp";
  *   колонка на сцену, рядки за `STILL_PLAN` (e — 25%, a — 50%, b — 90%), підписи під кадрами.
  *   Ширина аркуша ≤ ~2400 px; зайві сцени — новим рядом.
  * - Зображення сцени для QA (`buildSceneImage`) — кадри e/a/b однієї сцени в одному форматі:
- *   9:16 і 1:1 у ряд, 16:9 у стовпчик; довша сторона ≤ `QA_IMAGE_MAX_SIDE`.
+ *   9:16 і 1:1 у ряд, 16:9 у стовпчик; довша сторона ≤ `QA_IMAGE_MAX_SIDE`. Запасний варіант,
+ *   коли аркуша стрічки немає (check.json до появи стрічки).
+ * - Аркуш стрічки сцени (`buildStripSheet`, `strips/<format>/<sceneId>.jpg`) — кадри сцени кожні
+ *   0.5 с (`stripFrames`) сіткою в межах `QA_IMAGE_MAX_SIDE`; його бачать арт-директор (qa) і fix.
+ * - Мініатюри для різниці кадрів (`diffThumb`) — сирі пікселі кадру стрічки, зменшеного до
+ *   `STRIP_DIFF_WIDTH` по ширині (автодетектор `static_hold`).
  */
 
 export interface SheetCell {
@@ -69,7 +74,7 @@ function placeholderSvg(width: number, height: number, note: string): Buffer {
 
 /** Кадр клітинки (або сіра перекреслена заглушка) + підпис під ним, з лівим верхнім кутом у (left, top). */
 async function cellLayers(
-  cell: SheetCell | undefined,
+  cell: Pick<SheetCell, "png" | "label" | "note"> | undefined,
   fallbackLabel: string,
   size: { width: number; height: number },
   left: number,
@@ -162,5 +167,83 @@ export async function buildSceneImage(
   return sharp({ create: { width: layout.width, height: layout.height, channels: 4, background: BG } })
     .composite(layers)
     .png()
+    .toBuffer();
+}
+
+/** Клітинка аркуша стрічки: кадр сцени і підпис. */
+export interface StripCell {
+  frame: number;
+  /** PNG кадру; null — кадр не відрендерився (сіра заглушка з `note`). */
+  png: Buffer | null;
+  label: string;
+  note?: string;
+}
+
+/** Розкладка аркуша стрічки: сітка `columns × rows` найбільших кадрів, що вміщаються в maxSide. */
+export function stripSheetLayout(
+  format: Format,
+  count: number,
+  maxSide = QA_IMAGE_MAX_SIDE,
+): {
+  columns: number;
+  rows: number;
+  frame: { width: number; height: number };
+  width: number;
+  height: number;
+} {
+  const full = FORMAT_SIZE[format];
+  const aspect = full.width / full.height;
+  const n = Math.max(1, count);
+  let best = { columns: 1, rows: n, w: 0 };
+  for (let columns = 1; columns <= n; columns++) {
+    const rows = Math.ceil(n / columns);
+    const maxW = (maxSide - GAP * (columns + 1)) / columns;
+    const maxH = (maxSide - GAP * (rows + 1)) / rows - LABEL_H;
+    const w = Math.floor(Math.min(full.width, maxW, maxH * aspect));
+    if (w > best.w) best = { columns, rows, w };
+  }
+  const w = Math.max(1, best.w);
+  const frame = { width: w, height: Math.max(1, Math.floor(w / aspect)) };
+  return {
+    columns: best.columns,
+    rows: best.rows,
+    frame,
+    width: GAP + best.columns * (frame.width + GAP),
+    height: GAP + best.rows * (frame.height + LABEL_H + GAP),
+  };
+}
+
+/** Аркуш стрічки однієї сцени в одному форматі: кадри в порядку `cells` зліва направо, рядами; JPEG. */
+export async function buildStripSheet(
+  format: Format,
+  cells: readonly StripCell[],
+  maxSide = QA_IMAGE_MAX_SIDE,
+): Promise<Buffer> {
+  const layout = stripSheetLayout(format, cells.length, maxSide);
+  const { frame } = layout;
+  const layers: OverlayOptions[] = [];
+  for (const [i, cell] of cells.entries()) {
+    const left = GAP + (i % layout.columns) * (frame.width + GAP);
+    const top = GAP + Math.floor(i / layout.columns) * (frame.height + LABEL_H + GAP);
+    layers.push(...(await cellLayers(cell, cell.label, frame, left, top)));
+  }
+  return sharp({ create: { width: layout.width, height: layout.height, channels: 3, background: BG } })
+    .composite(layers)
+    .jpeg({ quality: 85 })
+    .toBuffer();
+}
+
+/** Ширина мініатюри кадру стрічки для різниці сусідніх кадрів (`static_hold`). */
+export const STRIP_DIFF_WIDTH = 96;
+
+/** Сирі RGB-пікселі кадру, зменшеного до `STRIP_DIFF_WIDTH` по ширині (висота — за пропорціями формату). */
+export async function diffThumb(png: Buffer, format: Format): Promise<Buffer> {
+  const { width, height } = FORMAT_SIZE[format];
+  const h = Math.max(1, Math.round((STRIP_DIFF_WIDTH * height) / width));
+  return sharp(png)
+    .resize(STRIP_DIFF_WIDTH, h, { fit: "fill" })
+    .flatten({ background: { r: 0, g: 0, b: 0 } })
+    .removeAlpha()
+    .raw()
     .toBuffer();
 }
