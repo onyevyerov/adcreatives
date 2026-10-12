@@ -151,7 +151,7 @@ proof, CTA з лого), `device-reveal.tsx` (еталон девайсів) і 
 додавати можна лише необов'язкові пропси. Поведінка — `API.md`, розділ «Showing the product»; сигнатури —
 `API.generated.md`. Сумісно — лише додано експорти й необов'язкові пропси.
 
-- `Icon` + `IconName` / `ICON_NAMES` — 141 іконка lucide (усі 75 обов'язкових з §2.10 + загальновживані),
+- `Icon` + `IconName` / `ICON_NAMES` — 315 іконок lucide (усі 75 обов'язкових з §2.10 + загальновживані й нішеві: медицина, освіта, нерухомість, транспорт, їжа, спорт, пристрої, дії інтерфейсу),
   шляхи вбудовані як дані (`src/icons/`, ISC — `src/icons/LICENSE-lucide`); `draw` — `pathLength=1` + dasharray.
 - `numberIn(text)` — перше число тексту без знака (`findNumber`/`odometer` — внутрішні, `src/ui/number.ts`).
 - `CountUp`, `Ring`, `Bars` (`src/ui/data.tsx`); `UICard`, `Checkbox`, `Checklist`, `InputField`, `Cursor`
