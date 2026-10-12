@@ -94,6 +94,7 @@ describe("audioStage", () => {
         volume: 0.8,
         planHash: res.outputs.planHash,
       },
+      mix: null,
       sfx: [
         { cue: "whoosh", src: "sfx/whoosh.mp3", durationMs: 600, volume: 0.6 },
         { cue: "shimmer", src: "sfx/shimmer.mp3", durationMs: 1_200, volume: 0.6 },
