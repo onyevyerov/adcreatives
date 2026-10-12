@@ -138,9 +138,9 @@ export default function Scene() {
 `;
 
 describe("еталонні сцени (examples/*.tsx)", () => {
-  it("їх 4–6 (5 сцен-жанрів + еталон девайсів)", () => {
+  it("їх 4–7 (5 сцен-жанрів + еталон девайсів + еталон інтерфейсу)", () => {
     expect(sceneFiles.length).toBeGreaterThanOrEqual(4);
-    expect(sceneFiles.length).toBeLessThanOrEqual(6);
+    expect(sceneFiles.length).toBeLessThanOrEqual(7);
   });
 
   it("компілюються проти типів motion-kit без помилок", () => {
