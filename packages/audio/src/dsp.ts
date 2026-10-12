@@ -1,4 +1,4 @@
-/** Мінімальний фільтр для зведення (біквад RBJ), без залежностей. */
+/** Мінімальні фільтри для зведення (біквад RBJ), без залежностей. */
 
 /** Біквад-фільтр (transposed direct form II); коефіцієнти можна міняти на льоту. */
 export class Biquad {
@@ -19,6 +19,21 @@ export class Biquad {
     const a0 = 1 + alpha;
     this.b0 = (1 - cos) / 2 / a0;
     this.b1 = (1 - cos) / a0;
+    this.b2 = this.b0;
+    this.a1 = (-2 * cos) / a0;
+    this.a2 = (1 - alpha) / a0;
+    return this;
+  }
+
+  /** High-pass RBJ: зріз `cutoffHz`, добротність `q` (0.707 — Баттерворт). */
+  setHighpass(cutoffHz: number, sampleRate: number, q = Math.SQRT1_2): this {
+    const fc = Math.min(Math.max(cutoffHz, 1), sampleRate * 0.49);
+    const w0 = (2 * Math.PI * fc) / sampleRate;
+    const cos = Math.cos(w0);
+    const alpha = Math.sin(w0) / (2 * q);
+    const a0 = 1 + alpha;
+    this.b0 = (1 + cos) / 2 / a0;
+    this.b1 = -(1 + cos) / a0;
     this.b2 = this.b0;
     this.a1 = (-2 * cos) / a0;
     this.a2 = (1 - alpha) / a0;
