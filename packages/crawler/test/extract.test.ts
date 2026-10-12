@@ -1,8 +1,10 @@
 import { projectPaths, SiteData, StageError } from "@adc/shared";
-import { describe, expect, it } from "vitest";
+import { type Browser, chromium, type Page } from "playwright";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addressesFromJsonLd, emailsFromText, mergeContacts, phonesFromText } from "../src/contacts.ts";
 import { filterJsonLd } from "../src/crawl.ts";
 import { mergeDesign } from "../src/design.ts";
+import { EXPAND_MAX_CLICKS, expandCollapsed, extractPage } from "../src/inpage.ts";
 import { buildManualSiteData, guessLanguage } from "../src/manual.ts";
 import { createCrawlStage } from "../src/stage.ts";
 import { makeContext } from "./helpers/context.ts";
@@ -175,5 +177,97 @@ describe("ручний режим", () => {
     ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(StageError);
     expect((err as StageError).code).toBe("unsafe_url");
+  });
+});
+
+describe("розкриття згорнутого в сторінці (Playwright)", () => {
+  let browser: Browser;
+  let page: Page;
+
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true });
+  });
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  /** Сторінка з HTML без мережі; скрипти фікстури ігнорують синтетичні (не trusted) кліки. */
+  const open = async (body: string) => {
+    page = await browser.newPage();
+    await page.setContent(`<!doctype html><html><body>${body}</body></html>`);
+    return page;
+  };
+
+  it(`ліміт ${EXPAND_MAX_CLICKS} кліків на сторінку; шапка й посилання на інші сторінки не клікаються`, async () => {
+    const items = Array.from(
+      { length: 60 },
+      (_, i) =>
+        `<div class="qa"><button type="button" aria-expanded="false" data-a="Answer ${i + 1}.">Question ${i + 1}?</button></div>`,
+    ).join("");
+    const p = await open(`
+      <header><button type="button" aria-expanded="false" id="burger">Menu</button></header>
+      <main>
+        <h1>FAQ</h1>${items}
+        <p><a href="/other" aria-expanded="false" id="away">Other page</a></p>
+      </main>
+      <script>
+        window.clicks = [];
+        document.addEventListener("click", (e) => {
+          const btn = e.target.closest("button, a");
+          if (!btn || !e.isTrusted) return;
+          e.preventDefault();
+          window.clicks.push(btn.id || btn.textContent);
+          if (!btn.dataset.a) return;
+          btn.setAttribute("aria-expanded", "true");
+          const p = document.createElement("p");
+          p.textContent = btn.dataset.a;
+          btn.parentElement.append(p);
+        });
+      </script>`);
+    const res = await expandCollapsed(p, { step: 5, settle: 0 });
+    expect(res).toEqual({ details: 0, clicked: EXPAND_MAX_CLICKS, tabs: 0 });
+    const clicks: string[] = await p.evaluate("window.clicks");
+    expect(clicks).toHaveLength(EXPAND_MAX_CLICKS);
+    expect(clicks).not.toContain("burger");
+    expect(clicks).not.toContain("away");
+    const { text } = await extractPage(p, { withDesign: false });
+    expect(text).toContain("Question 40?\n\nAnswer 40.");
+    expect(text).not.toContain("Answer 41.");
+    expect(text).toContain("Question 60?");
+    await p.close();
+  });
+
+  it("вкладки рахуються в ліміт і початкова вкладка повертається", async () => {
+    const p = await open(`
+      <main>
+        <div role="tablist">
+          <button role="tab" aria-selected="true" aria-controls="panel" data-t="Panel A.">A</button>
+          <button role="tab" aria-selected="false" aria-controls="panel" data-t="Panel B.">B</button>
+          <button role="tab" aria-selected="false" aria-controls="panel" data-t="Panel C.">C</button>
+        </div>
+        <div role="tabpanel" id="panel"><p>Panel A.</p></div>
+      </main>
+      <script>
+        const tabs = document.querySelectorAll("[role=tab]");
+        for (const t of tabs)
+          t.addEventListener("click", (e) => {
+            if (!e.isTrusted) return;
+            for (const o of tabs) o.setAttribute("aria-selected", String(o === t));
+            document.getElementById("panel").innerHTML = "<p>" + t.dataset.t + "</p>";
+          });
+      </script>`);
+    // Дві вкладки + повернення початкової = 3 кліки; з лімітом 2 — одна вкладка й повернення.
+    expect(await expandCollapsed(p, { step: 5, settle: 0, maxClicks: 2 })).toEqual({
+      details: 0,
+      clicked: 0,
+      tabs: 1,
+    });
+    expect(await p.getAttribute("[aria-controls=panel][data-t='Panel A.']", "aria-selected")).toBe("true");
+    const { text } = await extractPage(p, { withDesign: false });
+    expect(text).toContain("B\n\nPanel B.");
+    expect(text).not.toContain("Panel C.");
+    expect(text).toContain("Panel A.");
+    await p.close();
   });
 });

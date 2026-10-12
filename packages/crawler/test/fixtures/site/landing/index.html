@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Northpeak — site audit</title>
+<style>
+  body{margin:0;font-family:Arial,sans-serif;background:#0b1020;color:#e8ecf5}
+  header.hero{padding:32px}
+  main{padding:32px}
+  .hero-visual{padding:16px;background:#141a2e}
+  .report-preview{padding:16px;background:#141a2e}
+  .card{display:flex;gap:8px}
+  .badge{display:inline-block;padding:2px 6px;background:#ff5c5c}
+  .faq-question{cursor:pointer;padding:8px 0}
+  .collapse{display:none}
+  .collapse.show{display:block}
+  .tabs .tab{display:inline-block;cursor:pointer;margin-right:8px}
+  .tabs .tab.active{font-weight:700}
+</style></head>
+<body>
+<!-- Шапка з h1 — перший екран (hero): її текст читається, меню — ні. -->
+<header class="hero">
+  <a href="/" class="logo">Northpeak</a>
+  <nav><a href="/features">Features</a><a href="/pricing">Pricing</a><a href="/blog">Blog</a></nav>
+  <h1>Audit your site in one line</h1>
+  <p>Find what slows your site down and get a plan.</p>
+  <!-- Декоративний мок інтерфейсу: видимий, але aria-hidden. -->
+  <div class="hero-visual" aria-hidden="true">
+    <div>audit — northpeak.example</div>
+    <div><span>Technical SEO</span> <span>92</span></div>
+    <div><span>Speed</span> <span>47/100</span></div>
+  </div>
+</header>
+<main>
+  <section>
+    <h2>How it works</h2>
+    <ul><li>Paste a link</li><li>Get the report in 15 minutes</li></ul>
+    <p>No installation needed.</p>
+  </section>
+
+  <section>
+    <h2>Sample report</h2>
+    <p>This is what you get after the audit.</p>
+    <!-- Мок звіту на лендингу: картка проблеми, оцінка, рядки плану. -->
+    <div class="report-preview">
+      <h3>Very slow loading on phones</h3>
+      <div class="card"><span class="badge">CRITICAL</span><span>Score 47/100</span></div>
+      <p>The main element takes more than 7 seconds to appear.</p>
+      <table><tr><td>Compress hero images</td><td>3 hours</td><td>● Done</td></tr><tr><td>Fix canonical tags</td><td>1 hour</td><td>To do</td></tr></table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Plans</h2>
+    <table><tr><th>Plan</th><th>Price</th></tr><tr><td>Starter</td><td>$19/mo</td></tr><tr><td>Agency</td><td>$99/mo</td></tr></table>
+  </section>
+
+  <!-- FAQ без ARIA: відповідь з'являється лише після справжнього (trusted) кліку; відкритий один пункт. -->
+  <section>
+    <h2>Frequently asked questions</h2>
+    <div class="faq-list">
+      <div class="faq-item open"><div class="faq-question" data-a="Yes, one audit per month is free.">Is there a free plan?</div><div class="faq-answer">Yes, one audit per month is free.</div></div>
+      <div class="faq-item"><div class="faq-question" data-a="Up to 15 minutes for 50 pages.">How long does an audit take?</div></div>
+      <div class="faq-item"><div class="faq-question" data-a="Speed, technical SEO, UX and competitors.">What do you check?</div></div>
+      <div class="faq-item"><div class="faq-question" data-a="Yes, the Agency plan adds your logo to every PDF.">Can I white-label reports?</div></div>
+      <p><a class="faq-more" href="/pricing">See all plans</a></p>
+    </div>
+  </section>
+
+  <!-- Згортання як у Bootstrap: тригер .collapsed без aria-expanded, панель наповнюється при кліку. -->
+  <section>
+    <h2>What we check</h2>
+    <div class="accordion" id="checks">
+      <div class="accordion-item">
+        <h3 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c1" data-text="Duplicate pages, canonical tags and redirects.">Technical SEO</button></h3>
+        <div id="c1" class="accordion-collapse collapse"></div>
+      </div>
+      <div class="accordion-item">
+        <h3 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c2" data-text="Largest element appears in more than 7 seconds.">Core Web Vitals</button></h3>
+        <div id="c2" class="accordion-collapse collapse"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Вкладки за класами, без role: вміст лише активної вкладки. -->
+  <section>
+    <h2>Products</h2>
+    <div class="product-tabs">
+      <div class="tabs">
+        <span class="tab active" data-t="Full audit of up to 50 pages.">Audit</span>
+        <span class="tab" data-t="Weekly checks of your key pages.">Monitor</span>
+        <span class="tab" data-t="White-label PDF for agencies.">Reports</span>
+      </div>
+      <div class="tab-content"><p>Full audit of up to 50 pages.</p></div>
+    </div>
+  </section>
+
+  <!-- Копії слайдів і бігучого рядка: дублікати тексту, не демо. -->
+  <section>
+    <h2>Customers say</h2>
+    <div class="testimonials">
+      <blockquote class="slide">Found 12 broken redirects in a minute.</blockquote>
+      <blockquote class="slide slick-cloned" aria-hidden="true">Found 12 broken redirects in a minute.</blockquote>
+    </div>
+    <div class="logos"><p>Trusted by 300 agencies</p><p>Used in 12 countries</p></div>
+    <div class="logos" aria-hidden="true"><p>Trusted by 300 agencies</p><p>Used in 12 countries</p></div>
+  </section>
+</main>
+<footer><p>Footer text that must not be in main text</p></footer>
+<script>
+  // Як частина віджетів: синтетичний el.click() (isTrusted = false) ігнорується.
+  for (const q of document.querySelectorAll(".faq-question")) {
+    q.addEventListener("click", (e) => {
+      if (!e.isTrusted) return;
+      for (const item of document.querySelectorAll(".faq-item")) {
+        item.classList.remove("open");
+        item.querySelector(".faq-answer")?.remove();
+      }
+      const item = q.parentElement;
+      item.classList.add("open");
+      const a = document.createElement("div");
+      a.className = "faq-answer";
+      a.textContent = q.dataset.a;
+      item.append(a);
+    });
+  }
+  for (const btn of document.querySelectorAll("[data-bs-toggle=collapse]")) {
+    btn.addEventListener("click", (e) => {
+      if (!e.isTrusted) return;
+      const panel = document.querySelector(btn.dataset.bsTarget);
+      const open = panel.classList.toggle("show");
+      btn.classList.toggle("collapsed", !open);
+      panel.innerHTML = open ? `<div class="accordion-body">${btn.dataset.text}</div>` : "";
+    });
+  }
+  const content = document.querySelector(".tab-content");
+  for (const tab of document.querySelectorAll(".tabs .tab")) {
+    tab.addEventListener("click", (e) => {
+      if (!e.isTrusted) return;
+      for (const t of document.querySelectorAll(".tabs .tab")) t.classList.toggle("active", t === tab);
+      content.innerHTML = `<p>${tab.dataset.t}</p>`;
+    });
+  }
+</script>
+</body></html>

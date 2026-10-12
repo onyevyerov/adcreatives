@@ -7,6 +7,10 @@ import type { Resolver } from "@adc/shared";
 import sharp from "sharp";
 
 export const FIXTURE_DIR = fileURLToPath(new URL("../fixtures/site", import.meta.url));
+/** Фікстура інтеграційних тестів (лише читання): той самий сайт, який бачить увесь пайплайн. */
+export const INTEGRATION_FIXTURE_DIR = fileURLToPath(
+  new URL("../../../../tests/integration/fixtures/site", import.meta.url),
+);
 
 export interface Hit {
   path: string;
@@ -84,7 +88,8 @@ async function buildImages(): Promise<Map<string, { body: Buffer; type: string }
 }
 
 /** Статичний сервер фікстур + «внутрішній» сервер на 127.0.0.1 для перевірки SSRF. */
-export async function startFixtureServers(): Promise<FixtureServers> {
+export async function startFixtureServers(opts: { root?: string } = {}): Promise<FixtureServers> {
+  const root = opts.root ?? FIXTURE_DIR;
   const images = await buildImages();
   const hits: Hit[] = [];
   const internalHits: string[] = [];
@@ -127,7 +132,7 @@ export async function startFixtureServers(): Promise<FixtureServers> {
       res.writeHead(200, { "content-type": img.type, "content-length": img.body.length }).end(img.body);
       return;
     }
-    const file = resolveFile(p);
+    const file = resolveFile(root, p);
     if (!file) {
       res.writeHead(404, { "content-type": "text/html" }).end("<h1>404</h1>");
       return;
@@ -161,12 +166,12 @@ export async function startFixtureServers(): Promise<FixtureServers> {
   };
 }
 
-function resolveFile(p: string): string | null {
+function resolveFile(root: string, p: string): string | null {
   const rel = p.replace(/^\/+/, "").replace(/\/+$/, "");
   if (rel.includes("..")) return null;
   const candidates = rel === "" ? ["index.html"] : [rel, `${rel}.html`, path.join(rel, "index.html")];
   for (const c of candidates) {
-    const full = path.join(FIXTURE_DIR, c);
+    const full = path.join(root, c);
     if (existsSync(full) && statSync(full).isFile()) return full;
   }
   return null;
