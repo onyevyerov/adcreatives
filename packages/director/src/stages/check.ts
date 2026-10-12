@@ -7,9 +7,11 @@ import {
   CheckReport,
   type Format,
   inputsHash,
+  LEGACY_ARRIVE_EVENT_ID,
   QaLogEntry,
   type RenderEngine,
   revPaths,
+  type Scene,
   STILL_PLAN,
   type Stage,
   type StageContext,
@@ -18,6 +20,7 @@ import {
   type Storage,
   sha256,
   stillFrames,
+  stripFrames,
 } from "@adc/shared";
 import { z } from "zod";
 import { loadCodegenContext } from "../context.ts";
@@ -41,13 +44,20 @@ import {
   type SceneLedger,
   writeLedger,
 } from "../ledger.ts";
-import { buildSheet, type SheetCell } from "../sheets.ts";
+import { buildSheet, buildStripSheet, diffThumb, type SheetCell, type StripCell } from "../sheets.ts";
 import { typecheckScenes } from "../typecheck.ts";
 
 /**
  * Стадія `check` (CPU, без LLM): типи сцен → бандл → стіли ScenePreview за `STILL_PLAN` (25%, 50% і
  * 90% сцени) у всіх обраних форматах з QA-режимом → `autoIssues` з логів `ADC_QA` → зведені аркуші →
  * `check.json`. Кадр `e` (25%) — перехідні стани появи: його `autoIssues` у звіт не йдуть, лише сам стіл.
+ *
+ * Крім стілів — стрічка сцени: кадри `stripFrames(duration, STRIP_STEP)` у кожному обраному форматі
+ * (`revPaths.strip`; кадр, що збігся зі стілом, копіюється) → аркуш стрічки `revPaths.stripSheet` для
+ * арт-директора і fix. Зі стрічки — автодетектор `static_hold` (кадр стоїть ≥ 1.5 с); з коду —
+ * `event_unused` (подія сцени не згадана в коді). Логи `ADC_QA` кадрів стрічки не беруться (там появи
+ * в процесі), але runtime-помилка на кадрі стрічки — помилка сцени (фінальний рендер на ній упаде).
+ * Шаблонні сцени стрічки не мають.
  *
  * `params.sceneIds` — які сцени знімати (null — усі). Типи перевіряються для всіх сцен (усі
  * потрапляють у бандл), записи інших сцен беруться з попереднього check.json цієї ревізії або
@@ -69,6 +79,158 @@ export type CheckMeta = z.infer<typeof CheckMeta>;
 
 const SCENE_FILE_IN_MESSAGE = /scenes[\\/](s\d{1,2})\.tsx/g;
 const MAX_BUNDLE_ATTEMPTS = 3;
+
+/** Версія логіки check у хеші входів: зміна детекторів чи стрічки — сцени знімаються заново. */
+const CHECK_LOGIC = "strip-v1";
+
+/** Крок стрічки кадрів сцени (15 кадрів = 0.5 с при 30 fps). */
+export const STRIP_STEP = 15;
+/** Скільки кадрів стрічки однієї сцени й формату рендеряться одночасно (браузер спільний, сторінки окремі). */
+export const STRIP_CONCURRENCY = 3;
+/** Мінімальна довжина серії майже однакових кадрів, що вважається `static_hold` (1.5 с при 30 fps). */
+export const STATIC_HOLD_MIN_FRAMES = 45;
+/** Те саме для фінальної сцени `cta`: лого з кнопкою може стояти довше (2.5 с). */
+export const STATIC_HOLD_MIN_FRAMES_FINAL_CTA = 75;
+/** Піксель мініатюри «змінився», якщо хоч один канал різниться більше ніж на стільки (0–255). */
+export const STATIC_PIXEL_DELTA = 12;
+/** Кадри «майже однакові», якщо змінилося не більше цієї частки пікселів мініатюри. */
+export const STATIC_CHANGED_RATIO = 0.002;
+
+/** Чи майже однакові дві мініатюри (`diffThumb`, RGB): змінилось ≤ `STATIC_CHANGED_RATIO` пікселів. */
+export function framesAlike(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length || a.length === 0) return false;
+  const limit = (a.length / 3) * STATIC_CHANGED_RATIO;
+  let changed = 0;
+  for (let i = 0; i + 2 < a.length; i += 3) {
+    if (
+      Math.abs((a[i] as number) - (b[i] as number)) > STATIC_PIXEL_DELTA ||
+      Math.abs((a[i + 1] as number) - (b[i + 1] as number)) > STATIC_PIXEL_DELTA ||
+      Math.abs((a[i + 2] as number) - (b[i + 2] as number)) > STATIC_PIXEL_DELTA
+    ) {
+      changed++;
+      if (changed > limit) return false;
+    }
+  }
+  return true;
+}
+
+export interface StaticHold {
+  /** Перший і останній кадр серії (локальні кадри сцени). */
+  from: number;
+  to: number;
+  /** `to − from`. */
+  frames: number;
+}
+
+/**
+ * Серії майже однакових кадрів стрічки довжиною ≥ `minFrames`. Кадр входить у серію, якщо він
+ * майже однаковий і з попереднім, і з першим кадром серії (повільний дрейф не накопичується).
+ */
+export function findStaticHolds(
+  frames: readonly number[],
+  thumbs: readonly Uint8Array[],
+  minFrames: number,
+): StaticHold[] {
+  const out: StaticHold[] = [];
+  let start = 0;
+  for (let i = 1; i <= frames.length; i++) {
+    const cur = thumbs[i];
+    const alike =
+      i < frames.length &&
+      cur !== undefined &&
+      framesAlike(thumbs[i - 1] as Uint8Array, cur) &&
+      framesAlike(thumbs[start] as Uint8Array, cur);
+    if (alike) continue;
+    const from = frames[start] as number;
+    const to = frames[i - 1] as number;
+    if (to - from >= minFrames) out.push({ from, to, frames: to - from });
+    start = i;
+  }
+  return out;
+}
+
+/** Поріг `static_hold` сцени: фінальна сцена `cta` — `STATIC_HOLD_MIN_FRAMES_FINAL_CTA`, решта — 45 кадрів. */
+export function staticHoldThreshold(scene: Pick<Scene, "purpose">, isLast: boolean): number {
+  return isLast && scene.purpose === "cta" ? STATIC_HOLD_MIN_FRAMES_FINAL_CTA : STATIC_HOLD_MIN_FRAMES;
+}
+
+const sec = (frames: number, fps: number) => (frames / fps).toFixed(1);
+
+/** AutoIssue `static_hold` з діапазоном кадрів серії. */
+export function staticHoldIssues(
+  holds: readonly StaticHold[],
+  args: { sceneId: string; format: Format; fps: number; threshold: number },
+): AutoIssue[] {
+  return holds.map((h) => ({
+    kind: "static_hold",
+    component: "strip",
+    detail:
+      `frames ${h.from}–${h.to} (${sec(h.from, args.fps)}–${sec(h.to, args.fps)} s) barely change: ` +
+      `${h.frames} frames in a row (threshold ${args.threshold})`,
+    value: h.frames,
+    frame: h.from,
+    sceneId: args.sceneId,
+    format: args.format,
+  }));
+}
+
+/** Чи трапляється `value` у коді рядковим літералом ("…", '…' або `…`). */
+function hasStringLiteral(code: string, value: string): boolean {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(["'\`])${escaped}\\1`).test(code);
+}
+
+/**
+ * Події сцени, чий id не трапляється в коді рядковим літералом (момент не прив'язаний до
+ * `eventFrame(props.scene, "id")`, а звук стоїть саме там). Legacy-подія "arrive" на кадрі 0
+ * (з `sfxCue`) — початок сцени, її не вимагаємо.
+ */
+export function unusedEvents(scene: Pick<Scene, "events">, code: string): Scene["events"] {
+  return scene.events.filter(
+    (e) => !(e.id === LEGACY_ARRIVE_EVENT_ID && e.at === 0) && !hasStringLiteral(code, e.id),
+  );
+}
+
+/** AutoIssue `event_unused` — по одній на подію (формат — перший обраний: код спільний для всіх). */
+export function eventUnusedIssues(
+  scene: Pick<Scene, "id" | "events">,
+  code: string,
+  format: Format,
+): AutoIssue[] {
+  return unusedEvents(scene, code).map((e) => ({
+    kind: "event_unused",
+    component: "Scene",
+    detail:
+      `event "${e.id}" (frame ${e.at}: ${e.what}) is not used in the scene code; ` +
+      `drive its moment with eventFrame(props.scene, "${e.id}")`,
+    frame: e.at,
+    sceneId: scene.id,
+    format,
+  }));
+}
+
+/** Копія аркуша стрічки версії сцени в журналі версій (поряд зі стілами версії). */
+export function versionStripSheet(
+  projectId: string,
+  rev: number,
+  sceneId: string,
+  v: number,
+  format: Format,
+): string {
+  return `${directorPaths(projectId, rev).root}/versions/${sceneId}/v${v}/${format}-strip.jpg`;
+}
+
+/** Виконує `fn` для кожного елемента, не більше `limit` одночасно. */
+async function inPool<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++] as T;
+      await fn(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
 
 function errorLogs(err: unknown): BrowserLog[] {
   const logs = (err as { logs?: unknown } | null)?.logs;
@@ -190,13 +352,17 @@ export async function rebuildSheets(
   return written;
 }
 
-/** Хеш входів стілів сцени: код, сцена, бренд, асети, формати, шаблонність, версія motion-kit. */
+/**
+ * Хеш входів стілів і стрічки сцени: код, сцена, бренд, асети, формати, шаблонність, чи сцена
+ * остання (поріг `static_hold`), версія motion-kit і логіки check.
+ */
 function sceneCheckHash(args: {
   code: string | null;
   sceneJson: unknown;
   job: Pick<PreparedJob, "brand" | "assets">;
   formats: readonly Format[];
   template: boolean;
+  isLast: boolean;
   contextHash: string;
 }): string {
   return inputsHash({
@@ -206,7 +372,9 @@ function sceneCheckHash(args: {
     assets: args.job.assets,
     formats: args.formats,
     template: args.template,
+    last: args.isLast,
     motionKit: args.contextHash,
+    logic: CHECK_LOGIC,
   });
 }
 
@@ -313,6 +481,7 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
 
     const contextHash = loadCodegenContext().hash;
     const hashes: Record<string, string> = {};
+    const lastId = allIds.at(-1);
     for (const scene of storyboard.scenes) {
       hashes[scene.id] = sceneCheckHash({
         code: code.get(scene.id) ?? null,
@@ -320,9 +489,16 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
         job,
         formats,
         template: templates.has(scene.id),
+        isLast: scene.id === lastId,
         contextHash,
       });
     }
+    /** Чи є в цій ревізії аркуші стрічки сцени в усіх форматах (шаблонним сценам стрічка не потрібна). */
+    const hasStripSheets = async (id: string): Promise<boolean> => {
+      if (templates.has(id)) return true;
+      for (const format of formats) if (!(await storage.exists(rp.stripSheet(format, id)))) return false;
+      return true;
+    };
 
     // Пропуск за хешем входів: стіли незмінених сцен — з ревізії-основи.
     const reusedScenes = new Set<string>();
@@ -344,10 +520,17 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
           const data = sceneData(baseReport, id);
           if (data.runtimeErrors.length || data.compileErrors.length) continue;
           const stills: StillRef[] = [];
-          // Старий звіт основи (лише a/b) не підходить — сцену знімаємо заново.
+          // Старий звіт основи (лише a/b або без стрічки) не підходить — сцену знімаємо заново.
           let ok =
             data.stills.length === formats.length * STILL_PLAN.length &&
             hasAllStills(data.stills, id, formats);
+          const baseRp = revPaths(projectId, base);
+          if (ok && !templates.has(id)) {
+            for (const format of formats) {
+              if (!(await storage.exists(baseRp.stripSheet(format, id)))) ok = false;
+            }
+          }
+          if (!ok) continue;
           for (const s of data.stills) {
             const dest = rp.still(s.format, s.sceneId, s.variant);
             if (!(await storage.exists(s.path))) {
@@ -359,18 +542,27 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
             stills.push({ ...s, path: dest });
           }
           if (!ok) continue;
+          if (!templates.has(id)) {
+            for (const format of formats) {
+              const dest = rp.stripSheet(format, id);
+              await storage.copy(baseRp.stripSheet(format, id), dest);
+              artifacts.add(dest);
+            }
+          }
           replaceSceneData(report, id, { ...data, compileErrors: [], stills }, false);
           reusedScenes.add(id);
         }
       }
     }
 
-    // Знімаємо цільові сцени, а також нецільові без повного набору стілів у цій ревізії (інакше аркуші,
-    // QA й чекпоінт 3 були б неповні — напр., сцена перенесена з основи, але її вхідні дані змінились,
-    // або check.json записаний до появи кадру `e`).
-    const stillsMissing = allIds.filter(
-      (id) => !targets.includes(id) && !reusedScenes.has(id) && !hasAllStills(report.stills, id, formats),
-    );
+    // Знімаємо цільові сцени, а також нецільові без повного набору стілів чи стрічки в цій ревізії
+    // (інакше аркуші, QA й чекпоінт 3 були б неповні — напр., сцена перенесена з основи, але її вхідні
+    // дані змінились, або check.json записаний до появи кадру `e` чи стрічки).
+    const stillsMissing: string[] = [];
+    for (const id of allIds) {
+      if (targets.includes(id) || reusedScenes.has(id)) continue;
+      if (!hasAllStills(report.stills, id, formats) || !(await hasStripSheets(id))) stillsMissing.push(id);
+    }
     const renderTargets = [...targets, ...stillsMissing].filter(
       (id) => !compileFailed.has(id) && !reusedScenes.has(id),
     );
@@ -418,10 +610,98 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
         }
       }
 
-      // ---------- 3. стіли ----------
+      // ---------- 3. стіли і стрічка ----------
       const toRender = renderTargets.filter((id) => !compileFailed.has(id));
-      const total = toRender.length * formats.length * STILL_PLAN.length;
+      const stripOf = (id: string, durationFrames: number) =>
+        templates.has(id) ? [] : stripFrames(durationFrames, STRIP_STEP);
+      const total = toRender.reduce((sum, id) => {
+        const scene = storyboard.scenes.find((s) => s.id === id);
+        const strip = scene ? stripOf(id, scene.durationFrames).length : 0;
+        return sum + formats.length * (STILL_PLAN.length + strip);
+      }, 0);
       let done = 0;
+      const tick = async () => {
+        done++;
+        await progress(ctx, "check", `Знімаю кадри сцен… ${done}/${total}`, done, total);
+      };
+      const renderOne = async (id: string, format: Format, frame: number, out: string) =>
+        engine.renderStill({
+          serveUrl: serveUrl as string,
+          composition: "ScenePreview",
+          inputProps: scenePreviewProps(job, id, format, templates.has(id)),
+          frame,
+          format,
+          out,
+          ...(ctx.signal ? { signal: ctx.signal } : {}),
+        });
+
+      /**
+       * Стрічка сцени у форматі: кадри (збіг зі стілом — копія), аркуш, `static_hold`. Помилка кадру —
+       * runtime-помилка сцени (перша за порядком кадрів), аркуш — із заглушками на місці таких кадрів.
+       */
+      const renderStrip = async (
+        scene: Scene,
+        format: Format,
+        frames: readonly number[],
+        stillKeys: ReadonlyMap<number, string>,
+        data: Omit<SceneCheckData, "checkedAt">,
+      ) => {
+        const id = scene.id;
+        const failures = new Map<number, string>();
+        await inPool(frames, STRIP_CONCURRENCY, async (frame) => {
+          const key = rp.strip(format, id, frame);
+          const still = stillKeys.get(frame);
+          try {
+            if (still) {
+              await storage.copy(still, key);
+            } else {
+              const out = storage.absPath(key);
+              await mkdir(path.dirname(out), { recursive: true });
+              await renderOne(id, format, frame, out);
+            }
+          } catch (err) {
+            if (ctx.signal?.aborted) throw err;
+            failures.set(frame, errorMessage(err));
+          }
+          await tick();
+        });
+        const cells: StripCell[] = [];
+        const thumbs: Uint8Array[] = [];
+        for (const frame of frames) {
+          const failed = failures.has(frame);
+          const png = failed ? null : await storage.read(rp.strip(format, id, frame));
+          cells.push({
+            frame,
+            png,
+            label: `${frame} · ${sec(frame, storyboard.fps)}s`,
+            note: "render error",
+          });
+          if (png && failures.size === 0) thumbs.push(await diffThumb(png, format));
+        }
+        const sheetKey = rp.stripSheet(format, id);
+        await storage.write(sheetKey, await buildStripSheet(format, cells));
+        artifacts.add(sheetKey);
+        const firstFailure = frames.find((f) => failures.has(f));
+        if (firstFailure !== undefined) {
+          data.runtimeErrors.push({
+            sceneId: id,
+            format,
+            frame: firstFailure,
+            message: failures.get(firstFailure) as string,
+          });
+          return;
+        }
+        const threshold = staticHoldThreshold(scene, id === lastId);
+        data.autoIssues.push(
+          ...staticHoldIssues(findStaticHolds(frames, thumbs, threshold), {
+            sceneId: id,
+            format,
+            fps: storyboard.fps,
+            threshold,
+          }),
+        );
+      };
+
       for (const id of toRender) {
         const scene = storyboard.scenes.find((s) => s.id === id);
         if (!scene || serveUrl === null) continue;
@@ -429,6 +709,7 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
           scene.durationFrames,
           STILL_PLAN.map((p) => p.fraction),
         );
+        const strip = stripOf(id, scene.durationFrames);
         const data: Omit<SceneCheckData, "checkedAt"> = {
           compileErrors: [],
           runtimeErrors: [],
@@ -436,6 +717,8 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
           stills: [],
         };
         for (const format of formats) {
+          const stillKeys = new Map<number, string>();
+          let stillFailed = false;
           for (const [i, { variant }] of STILL_PLAN.entries()) {
             const frame = frames[i] as number;
             // Кадр `e` — появи ще тривають (текст «вміщується», елемент за краєм): autoIssues не беремо.
@@ -445,26 +728,29 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
             const out = storage.absPath(key);
             await mkdir(path.dirname(out), { recursive: true });
             try {
-              const res = await engine.renderStill({
-                serveUrl,
-                composition: "ScenePreview",
-                inputProps: scenePreviewProps(job, id, format, templates.has(id)),
-                frame,
-                format,
-                out,
-                ...(ctx.signal ? { signal: ctx.signal } : {}),
-              });
+              const res = await renderOne(id, format, frame, out);
               data.autoIssues.push(...issuesOf(res.logs));
               data.stills.push({ sceneId: id, format, variant, frame, path: key });
+              stillKeys.set(frame, key);
               artifacts.add(key);
             } catch (err) {
               if (ctx.signal?.aborted) throw err;
+              stillFailed = true;
               data.autoIssues.push(...issuesOf(errorLogs(err)));
               data.runtimeErrors.push({ sceneId: id, format, frame, message: errorMessage(err) });
             }
-            done++;
-            await progress(ctx, "check", `Знімаю кадри сцен… ${done}/${total}`, done, total);
+            await tick();
           }
+          // Сцена вже падає на стілах цього формату — стрічка нічого не додасть.
+          if (stillFailed) {
+            done += strip.length;
+            continue;
+          }
+          if (strip.length > 0) await renderStrip(scene, format, strip, stillKeys, data);
+        }
+        const sceneCode = code.get(id);
+        if (!templates.has(id) && sceneCode) {
+          data.autoIssues.push(...eventUnusedIssues(scene, sceneCode, formats[0] as Format));
         }
         data.autoIssues = dedupeIssues(data.autoIssues);
         replaceSceneData(report, id, data, false);
@@ -511,6 +797,13 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
       for (const s of data.stills) {
         const copy = dp.versionStill(id, ver.v, s.format, s.variant);
         await storage.copy(s.path, copy);
+      }
+      // Аркуш стрічки версії — щоб qa, повертаючи кращу версію, повернув і її стрічку.
+      for (const format of new Set(data.stills.map((s) => s.format))) {
+        const sheet = rp.stripSheet(format, id);
+        if (await storage.exists(sheet)) {
+          await storage.copy(sheet, versionStripSheet(projectId, rev, id, ver.v, format));
+        }
       }
     }
     if (Object.keys(ledger.scenes).length) artifacts.add(await writeLedger(storage, projectId, rev, ledger));

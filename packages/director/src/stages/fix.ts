@@ -1,4 +1,5 @@
 import {
+  allowedScreenTexts,
   CheckReport,
   type Format,
   type ImageInput,
@@ -6,15 +7,14 @@ import {
   QaReport,
   readTuning,
   revPaths,
-  STILL_PLAN,
   type Stage,
   type StageContext,
   StageError,
   type Storage,
+  type Storyboard,
   type Tuning,
   t,
 } from "@adc/shared";
-import sharp from "sharp";
 import { type CodegenContext, contextVars, loadCodegenContext } from "../context.ts";
 import { parseSingleScene } from "../files.ts";
 import { formatViolations, guardScene } from "../guard.ts";
@@ -27,6 +27,7 @@ import {
   readOptional,
   readProject,
   readStoryboard,
+  readTemplateScenes,
 } from "../io.ts";
 import { writeScenesIndex } from "../job.ts";
 import {
@@ -35,9 +36,9 @@ import {
   readCurrentCode,
   readLedger,
   rejectedScenes,
+  type SceneLedger,
   writeLedger,
 } from "../ledger.ts";
-import { QA_IMAGE_MAX_SIDE } from "../sheets.ts";
 import { brandForCode } from "./codegen.ts";
 import { qaSceneImages } from "./qa.ts";
 import { assetsForPrompt } from "./storyboard.ts";
@@ -51,8 +52,6 @@ export interface FixStageDeps {
   tuning?: () => Tuning;
 }
 
-const FRAMES_LEGEND = STILL_PLAN.map((p) => Math.round(p.fraction * 100)).join("/");
-
 /** Кадри сцени для fix (`reason: "qa"`): зображення на формат і легенда до них. */
 export interface FixSceneImages {
   images: ImageInput[];
@@ -60,42 +59,61 @@ export interface FixSceneImages {
   legend: string[];
 }
 
-/** PNG → JPEG для image block, довша сторона ≤ `QA_IMAGE_MAX_SIDE` (як у QA). */
-async function toJpeg(png: Buffer): Promise<ImageInput> {
-  const data = await sharp(png)
-    .resize(QA_IMAGE_MAX_SIDE, QA_IMAGE_MAX_SIDE, { fit: "inside", withoutEnlargement: true })
-    .flatten({ background: { r: 255, g: 255, b: 255 } })
-    .jpeg({ quality: 85 })
-    .toBuffer();
-  return { mediaType: "image/jpeg", data };
-}
-
 /**
- * Кадри сцени, які бачив QA: на кожен обраний формат, для якого в `check.json` є стіли, — одне
- * зображення з кадрами 25/50/90% (той самий макет, що в QA). Формат без жодного стілу пропускається.
+ * Кадри сцени, які бачив QA: на кожен обраний формат, для якого в `check.json` є стіли, — аркуш
+ * стрічки сцени (кадри кожні 0.5 с), а без нього — кадри 25/50/90% (той самий вибір, що в QA).
+ * Формат без жодного стілу пропускається.
  */
 export async function fixSceneImages(
   storage: Storage,
   check: CheckReport,
   sceneId: string,
   formats: readonly Format[],
+  storyboard: Pick<Storyboard, "fps" | "scenes">,
+  paths: Pick<ReturnType<typeof revPaths>, "stripSheet">,
 ): Promise<FixSceneImages> {
-  const scene = await qaSceneImages(storage, check, [sceneId], formats);
+  const scene = await qaSceneImages(storage, check, [sceneId], formats, storyboard, paths);
   return {
-    images: await Promise.all(scene.map((img) => toJpeg(img.png))),
-    legend: scene.map(
-      (img, i) => `Image ${i + 1}: scene ${img.sceneId}, format ${img.format}, frames ${FRAMES_LEGEND}%`,
-    ),
+    images: scene.map((img) => img.image),
+    legend: scene.map((img, i) => `Image ${i + 1}: ${img.legend}`),
   };
 }
 
 /** Легенда зображень для `<problems>`: що на якому зображенні і як їх читати. */
 export function imagesLegend(legend: readonly string[]): string {
   return [
-    `Stills of the current code (images above; frames at ${FRAMES_LEGEND}% of the scene, left to right or top to bottom):`,
+    "Frames of the current code (images above): the strip shows the scene every 0.5 s, so you can see how it moves, where it stands still and when each text is readable.",
     ...legend.map((l) => `- ${l}`),
-    "The stills show the actual state; the QA remarks below say what to change.",
+    "The frames show the actual state; the remarks below say what to change.",
   ].join("\n");
+}
+
+/** Як блок `<file>` у codegen: `<file name="sN.tsx">…</file>`. */
+function fileBlock(sceneId: string, code: string): string {
+  return `<file name="${sceneId}.tsx">\n${code.trim()}\n</file>`;
+}
+
+/**
+ * Код усіх інших сцен фільму (контекст «тільки для читання») у порядку розкадровки: сусіди для
+ * match-cut, спільна мова фільму. Шаблонні сцени й версії, відхилені guard'ом, — без коду.
+ */
+export async function readonlyScenesFor(args: {
+  storage: Storage;
+  projectId: string;
+  rev: number;
+  ledger: SceneLedger;
+  storyboard: Pick<Storyboard, "scenes">;
+  sceneId: string;
+  templates: ReadonlySet<string>;
+}): Promise<string> {
+  const blocks: string[] = [];
+  for (const { id } of args.storyboard.scenes) {
+    if (id === args.sceneId || args.templates.has(id)) continue;
+    if (currentVersion(args.ledger, id)?.guardOk === false) continue;
+    const code = await readCurrentCode(args.storage, args.projectId, args.rev, args.ledger, id);
+    if (code) blocks.push(fileBlock(id, code));
+  }
+  return blocks.join("\n\n") || "(немає)";
 }
 
 /** Опис проблем сцени для промпта: помилки check (guard, типи, runtime) або зауваження QA + autoIssues. */
@@ -127,14 +145,14 @@ export function describeProblems(args: {
   if (reason === "qa") {
     const issues = qa?.issues.filter((i) => i.sceneId === sceneId) ?? [];
     if (issues.length) {
-      lines.push("Visual QA remarks (from the stills):");
+      lines.push("Art director's remarks (from the frame strip):");
       for (const i of issues)
         lines.push(`- [${i.severity}, ${i.format}, ${i.kind}] ${i.description} → fix: ${i.fix}`);
     }
   }
   const auto = check?.autoIssues.filter((i) => i.sceneId === sceneId) ?? [];
   if (auto.length) {
-    lines.push("Automatic checks in QA mode (motion-kit ADC_QA logs):");
+    lines.push("Automatic checks (motion-kit QA logs, the frame strip, the scene code):");
     for (const i of auto) {
       lines.push(
         `- [${i.format}, frame ${i.frame ?? "?"}] ${i.kind} in ${i.component}: ${i.detail}${i.value != null ? ` (value ${i.value})` : ""}`,
@@ -150,8 +168,11 @@ export function describeProblems(args: {
  * Стадія `fix`: окремий виклик моделі на кожну проблемну сцену (паралельно), на вході код сцени +
  * помилки або зауваження; новий код знову проходить AST-guard і стає новою версією сцени.
  * Ліміти кіл і заміну на TemplateScene вирішує оркестратор.
- * - `reason: "qa"` — модель бачить і кадри сцени (25/50/90% в обраних форматах, що є в `check.json`):
- *   зображення перед текстом, легенда — в `<problems>`. `reason: "check"` — без зображень.
+ * - Контекст фільму: код усіх інших сцен у `readonlyScenes` (сусіди для match-cut); змінюється лише своя.
+ * - Guard з `allowedTexts: allowedScreenTexts(scene, brand)` — тексти в кадрі лише з розкадровки.
+ * - `reason: "qa"` — модель бачить і аркуш стрічки сцени в кожному обраному форматі, що є в `check.json`
+ *   (запасний варіант — кадри 25/50/90%): зображення перед текстом, легенда — в `<problems>`.
+ *   `reason: "check"` — без зображень.
  * - Від двох викликів спершу один `llm.warm()` тими самими model / effort, потім паралельно: виклики
  *   читають кеш (prefix, system, а без зображень — і спільну частину user), а не пишуть його кожен.
  * - Effort: `check` — `Tuning.fixCheckEffort` (null → frontmatter), `qa` — frontmatter.
@@ -172,6 +193,7 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
     const storyboard = await readStoryboard(storage, projectId, rev);
     const manifest = await readAssets(storage, projectId);
     const formats = formatsOf(project);
+    const templates = new Set(await readTemplateScenes(storage, projectId, rev));
     const context = getContext();
     const ledger = await readLedger(storage, projectId, rev);
     const check = await readOptional(storage, rp.check, (v) => CheckReport.parse(v), logger);
@@ -202,7 +224,7 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
       let shots: FixSceneImages = { images: [], legend: [] };
       if (params.reason === "qa" && check) {
         try {
-          shots = await fixSceneImages(storage, check, sceneId, formats);
+          shots = await fixSceneImages(storage, check, sceneId, formats, storyboard, rp);
         } catch (err) {
           if (ctx.signal?.aborted) throw err;
           logger.warn("fix: не вдалося підготувати кадри сцени, фікс лише за текстом", {
@@ -219,7 +241,15 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
         formats: formats.join(", "),
         brand: brandForCode(brandFile),
         scene: scene ?? null,
-        readonlyScenes: "-",
+        readonlyScenes: await readonlyScenesFor({
+          storage,
+          projectId,
+          rev,
+          ledger,
+          storyboard,
+          sceneId,
+          templates,
+        }),
         concept: storyboard.concept,
         assets: assetsForPrompt(brandFile, manifest),
         code: code ?? "(no code: the previous generation returned nothing — write the scene from scratch)",
@@ -281,7 +311,14 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
       const rawKey = dp.raw(`fix-${sceneId}-a${ctx.attempt}-${Date.now()}`);
       await storage.write(rawKey, r.value.text);
       const code = parseSingleScene(r.value.text, sceneId);
-      const guard = code === null ? null : guardScene(code, { fileName: `${sceneId}.tsx` });
+      const scene = storyboard.scenes.find((s) => s.id === sceneId);
+      const guard =
+        code === null
+          ? null
+          : guardScene(code, {
+              fileName: `${sceneId}.tsx`,
+              ...(scene ? { allowedTexts: allowedScreenTexts(scene, brandFile) } : {}),
+            });
       const violations =
         code === null
           ? ["модель не повернула код сцени"]

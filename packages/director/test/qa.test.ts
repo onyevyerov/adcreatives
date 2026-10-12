@@ -1,9 +1,10 @@
+import { rmSync } from "node:fs";
 import { CheckReport, type LocalStorage, type QaIssue, QaReport, revPaths } from "@adc/shared";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { readLedger } from "../src/ledger.ts";
-import { QA_IMAGE_MAX_SIDE, sceneImageLayout } from "../src/sheets.ts";
-import { createCheckStage } from "../src/stages/check.ts";
+import { QA_IMAGE_MAX_SIDE, sceneImageLayout, stripSheetLayout } from "../src/sheets.ts";
+import { createCheckStage, versionStripSheet } from "../src/stages/check.ts";
 import { codegenStage } from "../src/stages/codegen.ts";
 import { fixStage } from "../src/stages/fix.ts";
 import { qaStage } from "../src/stages/qa.ts";
@@ -11,12 +12,12 @@ import {
   exampleSources,
   fileBlocks,
   makeCtx,
-  mockEngine,
   PROJECT_ID,
   seedProject,
   tmpStorage,
   userText,
 } from "./helpers.ts";
+import { movingEngine, sceneIdOf } from "./strip-engine.ts";
 
 const ex = exampleSources();
 
@@ -62,12 +63,12 @@ async function checked(seed: Parameters<typeof seedProject>[1] = {}): Promise<Lo
       { text: fileBlocks({ s3: ex["cta-logo"] }) },
     ]),
   );
-  await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));
+  await createCheckStage({ engine: movingEngine() })(makeCtx(storage, "check", { sceneIds: null }));
   return storage;
 }
 
 describe("qaStage", () => {
-  it("зображення сцен зі scope × форматів, детермінований вердикт, вибір кращої версії сцени", async () => {
+  it("аркуші стрічки сцен зі scope × форматів, концепт і задум у промпті, детермінований вердикт, вибір кращої версії", async () => {
     const storage = tmpStorage();
     await seedProject(storage);
     await codegenStage(
@@ -77,7 +78,7 @@ describe("qaStage", () => {
         { text: fileBlocks({ s3: ex["cta-logo"] }) },
       ]),
     );
-    await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));
+    await createCheckStage({ engine: movingEngine() })(makeCtx(storage, "check", { sceneIds: null }));
 
     // QA №1: s2 — одне major, s1 — minor; зауваження для невідомої сцени відкидається
     const ctx1 = makeCtx(storage, "qa", { sceneIds: null }, [
@@ -91,21 +92,35 @@ describe("qaStage", () => {
     ]);
     const r1 = await qaStage(ctx1);
     const call = ctx1.anthropic.calls[0]?.params;
-    // scope (3 сцени) × формати (vertical, square); кожне ≤ ліміту vision
+    // scope (3 сцени) × формати (vertical, square) — аркуші стрічки; кожен ≤ ліміту vision
     const sizes = await imageSizes(call);
     expect(sizes).toHaveLength(6);
     for (const s of sizes) expect(Math.max(s.width, s.height)).toBeLessThanOrEqual(QA_IMAGE_MAX_SIDE);
-    // 9:16 і 1:1 — кадри в ряд (ширше, ніж вище)
+    // s1: 150 кадрів → 10 кадрів стрічки; s3: 165 → 11
     expect(sizes[0]).toEqual({
-      width: sceneImageLayout("vertical").width,
-      height: sceneImageLayout("vertical").height,
+      width: stripSheetLayout("vertical", 10).width,
+      height: stripSheetLayout("vertical", 10).height,
     });
-    expect(sizes.every((s) => s.width > s.height)).toBe(true);
+    expect(sizes[5]).toEqual({
+      width: stripSheetLayout("square", 11).width,
+      height: stripSheetLayout("square", 11).height,
+    });
     const text = userText(call);
-    expect(text).toContain("Image 1: scene s1, format vertical, frames 25/50/90%");
-    expect(text).toContain("Image 2: scene s1, format square, frames 25/50/90%");
-    expect(text).toContain("Image 6: scene s3, format square, frames 25/50/90%");
-    expect(text).toContain("Перевір сцени: s1, s2, s3");
+    expect(text).toContain(
+      "Image 1: scene s1, format vertical, strip of 10 frames every 15 frames (0.5 s), left to right, top to bottom: 15, 30, 45, 60, 75, 90, 105, 120, 135, 149",
+    );
+    expect(text).toContain("Image 2: scene s1, format square, strip of 10 frames");
+    expect(text).toContain("Image 6: scene s3, format square, strip of 11 frames");
+    expect(text).not.toContain("25/50/90%");
+    expect(text).toContain("Check scenes: s1, s2, s3");
+    // арт-директор бачить концепт, задум, тексти й моменти сцен (з секундами)
+    expect(text).toContain('"concept": "Ранок у «Зерні»: від зерна до чашки"');
+    expect(text).toContain('"motionIntent": "ціна виїжджає знизу, акцент кольором"');
+    expect(text).toContain('"text": "Спешелті еспресо з молоком"');
+    expect(text).toMatch(/"id": "price-hit",\s*"at": 30,\s*"atSec": 1,/);
+    expect(text).toContain('"sound": "impact"');
+    // автоперевірки з коду (event_unused) — у промпті
+    expect(text).toContain('"kind": "event_unused"');
     expect(r1.outputs).toEqual({ verdict: "fix", seriousScenes: ["s2"] });
 
     // fix s2 за зауваженнями QA → check s2 → QA №2 оцінює нову версію гірше
@@ -114,7 +129,10 @@ describe("qaStage", () => {
     ]);
     await fixStage(fixCtx);
     expect(userText(fixCtx.anthropic.calls[0]?.params)).toContain("s2: проблема → fix: зменшити заголовок");
-    await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: ["s2"] }));
+    // нова версія s2 «стоїть» — її стрічка відрізняється від стрічки версії 1
+    await createCheckStage({
+      engine: movingEngine({ frozen: (o) => (sceneIdOf(o) === "s2" ? 15 : null) }),
+    })(makeCtx(storage, "check", { sceneIds: ["s2"] }));
     const ctx2 = makeCtx(storage, "qa", { sceneIds: ["s2"] }, [
       {
         json: {
@@ -125,10 +143,10 @@ describe("qaStage", () => {
       },
     ]);
     const r2 = await qaStage(ctx2);
-    expect(userText(ctx2.anthropic.calls[0]?.params)).toContain("Перевір сцени: s2.");
+    expect(userText(ctx2.anthropic.calls[0]?.params)).toContain("Check scenes: s2.");
     // повторний QA після fix — лише зображення сцени зі scope
     expect(callImages(ctx2.anthropic.calls[0]?.params)).toHaveLength(2);
-    expect(userText(ctx2.anthropic.calls[0]?.params)).toContain("Image 2: scene s2, format square");
+    expect(userText(ctx2.anthropic.calls[0]?.params)).toContain("Image 2: scene s2, format square, strip");
     expect(userText(ctx2.anthropic.calls[0]?.params)).not.toContain("scene s1");
 
     // лишилась перша версія s2 (1 серйозне < 2)
@@ -143,17 +161,25 @@ describe("qaStage", () => {
       ["s2", "major"],
     ]);
     expect(r2.outputs).toEqual({ verdict: "fix", seriousScenes: ["s2"] });
-    // check.json відновлено для версії 1
+    // check.json відновлено для версії 1, як і аркуші стрічки
     const check = await storage.readJson(rp.check, (v) => CheckReport.parse(v));
     expect(check.stills.filter((s) => s.sceneId === "s2")).toHaveLength(6);
+    for (const format of ["vertical", "square"] as const) {
+      const sheet = await storage.read(rp.stripSheet(format, "s2"));
+      expect(sheet.equals(await storage.read(versionStripSheet(PROJECT_ID, 1, "s2", 1, format)))).toBe(true);
+      expect(sheet.equals(await storage.read(versionStripSheet(PROJECT_ID, 1, "s2", 2, format)))).toBe(false);
+    }
   });
 
-  it("16:9 — кадри стовпчиком у межах ліміту; старий check.json без кадру e — заглушка замість кадру", async () => {
+  it("без аркуша стрічки (старий check.json) — кадри 25/50/90%: 16:9 стовпчиком, без кадру e — заглушка", async () => {
     const storage = await checked({ project: { formats: ["vertical", "landscape"] } });
     const rp = revPaths(PROJECT_ID, 1);
     const check = await storage.readJson(rp.check, (v) => CheckReport.parse(v));
-    // старий формат check.json: лише a/b
+    // старий формат check.json: лише a/b і без стрічки для s1
     await storage.writeJson(rp.check, { ...check, stills: check.stills.filter((s) => s.variant !== "e") });
+    for (const format of ["vertical", "landscape"] as const) {
+      rmSync(storage.absPath(rp.stripSheet(format, "s1")));
+    }
     const ctx = makeCtx(storage, "qa", { sceneIds: ["s1", "s3"] }, [
       { json: { verdict: "pass", issues: [], summary: "" } },
     ]);
@@ -169,7 +195,12 @@ describe("qaStage", () => {
     expect(sizes[0]?.width).toBeGreaterThan(sizes[0]?.height ?? 0);
     expect(sizes[1]).toEqual({ width: landscape.width, height: landscape.height });
     expect(landscape.height).toBeGreaterThan(landscape.width);
-    expect(userText(call)).toContain("Image 4: scene s3, format landscape, frames 25/50/90%");
+    expect(userText(call)).toContain("Image 1: scene s1, format vertical, frames 25/50/90%");
+    expect(userText(call)).toContain("Image 4: scene s3, format landscape, strip of 11 frames");
+    expect(sizes[3]).toEqual({
+      width: stripSheetLayout("landscape", 11).width,
+      height: stripSheetLayout("landscape", 11).height,
+    });
     expect(sceneImageLayout("square").inRow).toBe(true);
   });
 
@@ -183,7 +214,7 @@ describe("qaStage", () => {
         { text: fileBlocks({ s3: ex["cta-logo"] }) },
       ]),
     );
-    await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));
+    await createCheckStage({ engine: movingEngine() })(makeCtx(storage, "check", { sceneIds: null }));
     const res = await qaStage(
       makeCtx(storage, "qa", { sceneIds: null }, [
         { json: { verdict: "fix", issues: [issue("s3", "minor")], summary: "" } },

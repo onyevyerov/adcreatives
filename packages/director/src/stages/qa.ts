@@ -12,7 +12,9 @@ import {
   type StageContext,
   StageError,
   type Storage,
+  type Storyboard,
   sha256,
+  stripFrames,
 } from "@adc/shared";
 import sharp from "sharp";
 import { z } from "zod";
@@ -31,14 +33,14 @@ import {
 import { writeScenesIndex } from "../job.ts";
 import { readLedger, rejectedScenes, type SceneLedger, type SceneVersion, writeLedger } from "../ledger.ts";
 import { buildSceneImage, QA_IMAGE_MAX_SIDE, type SheetCell } from "../sheets.ts";
-import { rebuildSheets, replaceSceneData } from "./check.ts";
+import { rebuildSheets, replaceSceneData, STRIP_STEP, versionStripSheet } from "./check.ts";
 
 export const QA_PROMPT = "qa";
 
 export const QaMeta = z.object({ inputsHash: z.string() });
 
-/** Зображення сцени для image block: JPEG, довша сторона ≤ `QA_IMAGE_MAX_SIDE`. */
-async function sceneImage(png: Buffer): Promise<ImageInput> {
+/** Зображення для image block: JPEG, довша сторона ≤ `QA_IMAGE_MAX_SIDE`. */
+export async function toQaJpeg(png: Buffer): Promise<ImageInput> {
   const data = await sharp(png)
     .resize(QA_IMAGE_MAX_SIDE, QA_IMAGE_MAX_SIDE, { fit: "inside", withoutEnlargement: true })
     .flatten({ background: { r: 255, g: 255, b: 255 } })
@@ -47,36 +49,70 @@ async function sceneImage(png: Buffer): Promise<ImageInput> {
   return { mediaType: "image/jpeg", data };
 }
 
-/** Кадри e/a/b сцени в одному форматі для QA (порядок — `STILL_PLAN`). */
+/** Зображення сцени в одному форматі для QA і fix. */
 export interface QaSceneImage {
   sceneId: string;
   format: Format;
-  /** PNG з `buildSceneImage`. */
-  png: Buffer;
-  /** Хеші стілів у порядку `STILL_PLAN` (null — кадру немає) — для хешу входів. */
-  stills: Array<string | null>;
+  /** `strip` — аркуш стрічки сцени; `stills` — запасні кадри 25/50/90% (аркуша стрічки немає). */
+  kind: "strip" | "stills";
+  /** JPEG, довша сторона ≤ `QA_IMAGE_MAX_SIDE`. */
+  image: ImageInput;
+  /** Хеш вмісту зображення — для хешу входів. */
+  hash: string;
+  /** Що на зображенні (без номера «Image k»). */
+  legend: string;
+}
+
+const FRAMES_LEGEND = STILL_PLAN.map((p) => Math.round(p.fraction * 100)).join("/");
+
+/** Легенда аркуша стрічки: кадри і як читати підписи. */
+export function stripLegend(sceneId: string, format: Format, durationFrames: number, fps: number): string {
+  const frames = stripFrames(durationFrames, STRIP_STEP);
+  const step = Math.round((STRIP_STEP / fps) * 10) / 10;
+  return (
+    `scene ${sceneId}, format ${format}, strip of ${frames.length} frames every ${STRIP_STEP} frames ` +
+    `(${step} s), left to right, top to bottom: ${frames.join(", ")}; label = frame · seconds from scene start`
+  );
 }
 
 /**
- * Зображення для QA: на кожну сцену зі scope і кожен формат — одне зображення з кадрами e/a/b.
- * Сцена/формат без жодного стілу (помилка рендера) пропускається; відсутній окремий кадр (напр.,
- * check.json без `e`) — сіра перекреслена клітинка.
+ * Зображення для QA: на кожну сцену зі scope і кожен формат — аркуш стрічки (`revPaths.stripSheet`),
+ * а якщо його немає (check.json до появи стрічки) або формат має runtime-помилку — одне зображення з
+ * кадрами e/a/b. Сцена/формат без жодного стілу (помилка рендера) пропускається; відсутній окремий
+ * кадр (напр., check.json без `e`) — сіра перекреслена клітинка.
  */
 export async function qaSceneImages(
   storage: Storage,
   check: CheckReport,
   scope: readonly string[],
   formats: readonly Format[],
+  storyboard: Pick<Storyboard, "fps" | "scenes">,
+  paths: Pick<ReturnType<typeof revPaths>, "stripSheet">,
 ): Promise<QaSceneImage[]> {
   const out: QaSceneImage[] = [];
   for (const sceneId of scope) {
+    const scene = storyboard.scenes.find((s) => s.id === sceneId);
     for (const format of formats) {
+      const own = check.stills.filter((s) => s.sceneId === sceneId && s.format === format);
+      if (own.length === 0) continue;
+      const failed = check.runtimeErrors.some((e) => e.sceneId === sceneId && e.format === format);
+      const sheetKey = paths.stripSheet(format, sceneId);
+      if (scene && !failed && (await storage.exists(sheetKey))) {
+        const data = await storage.read(sheetKey);
+        out.push({
+          sceneId,
+          format,
+          kind: "strip",
+          image: await toQaJpeg(data),
+          hash: sha256(data),
+          legend: stripLegend(sceneId, format, scene.durationFrames, storyboard.fps),
+        });
+        continue;
+      }
       const cells: SheetCell[] = [];
       const stills: Array<string | null> = [];
       for (const { variant, fraction } of STILL_PLAN) {
-        const still = check.stills.find(
-          (s) => s.sceneId === sceneId && s.format === format && s.variant === variant,
-        );
+        const still = own.find((s) => s.variant === variant);
         const png = still && (await storage.exists(still.path)) ? await storage.read(still.path) : null;
         stills.push(png ? sha256(png) : null);
         cells.push({
@@ -88,13 +124,56 @@ export async function qaSceneImages(
         });
       }
       if (stills.every((h) => h === null)) continue;
-      out.push({ sceneId, format, png: await buildSceneImage(format, cells), stills });
+      out.push({
+        sceneId,
+        format,
+        kind: "stills",
+        image: await toQaJpeg(await buildSceneImage(format, cells)),
+        hash: sha256(stills.join("|")),
+        legend: `scene ${sceneId}, format ${format}, frames ${FRAMES_LEGEND}%`,
+      });
     }
   }
   return out;
 }
 
-const FRAMES_LEGEND = STILL_PLAN.map((p) => Math.round(p.fraction * 100)).join("/");
+const round = (x: number, digits: number) => Math.round(x * 10 ** digits) / 10 ** digits;
+
+/**
+ * Скорочений storyboard для арт-директора: концепт, а по сцені — задум (`motionIntent`), тексти
+ * в кадрі (`items`) і моменти (`events`) з кадрами й секундами від початку сцени.
+ */
+export function qaStoryboard(storyboard: Storyboard, templates: ReadonlySet<string>) {
+  const { fps } = storyboard;
+  const lastId = storyboard.scenes.at(-1)?.id;
+  return {
+    concept: storyboard.concept,
+    hook: storyboard.hook,
+    fps,
+    scenes: storyboard.scenes.map((s) => ({
+      id: s.id,
+      purpose: s.purpose,
+      final: s.id === lastId,
+      durationSec: round(s.durationFrames / fps, 1),
+      durationFrames: s.durationFrames,
+      text: { headline: s.text.headline, sub: s.text.sub },
+      items: s.items.map((i) => ({ id: i.id, role: i.role, text: i.text, group: i.group })),
+      events: s.events.map((e) => ({
+        id: e.id,
+        at: e.at,
+        atSec: round(e.at / fps, 2),
+        what: e.what,
+        sound: e.sound?.cue ?? null,
+        textIds: e.textIds,
+      })),
+      layoutIntent: s.layoutIntent,
+      motionIntent: s.motionIntent,
+      transitionIn: s.transitionIn,
+      assetIds: s.assetIds,
+      template: templates.has(s.id),
+    })),
+  };
+}
 
 export interface RollbackResult {
   /** sceneId → номер версії, до якої повернулись. */
@@ -157,6 +236,13 @@ export async function keepBestVersions(args: {
         written.push(s.path);
       }
     }
+    for (const format of new Set(best.check.stills.map((s) => s.format))) {
+      const copy = versionStripSheet(projectId, rev, id, best.v, format);
+      if (await storage.exists(copy)) {
+        await storage.copy(copy, rp.stripSheet(format, id));
+        written.push(rp.stripSheet(format, id));
+      }
+    }
     replaceSceneData(check, id, best.check, true);
     issues = [...issues.filter((i) => i.sceneId !== id), ...best.qa.issues];
     entry.current = best.v;
@@ -166,8 +252,10 @@ export async function keepBestVersions(args: {
 }
 
 /**
- * Стадія `qa`: зображення сцен зі scope (кадри 25/50/90% у кожному обраному форматі) + autoIssues →
+ * Стадія `qa` (арт-директор): аркуші стрічки сцен зі scope (кадри кожні 0.5 с у кожному обраному
+ * форматі; запасний варіант — кадри 25/50/90%) + концепт, задум, тексти й моменти сцен + autoIssues →
  * `qa.json`. Сцени поза scope моделі не показуються — повторний QA після fix дешевший.
+ * Вердикт — кодом: лишились major/critical → fix.
  */
 export function createQaStage(): Stage<"qa"> {
   return async (ctx: StageContext<"qa">) => {
@@ -199,7 +287,7 @@ export function createQaStage(): Stage<"qa"> {
         : null);
 
     await progress(ctx, "qa", "Перевіряю кадри…");
-    const images = await qaSceneImages(storage, check, scope, formats);
+    const images = await qaSceneImages(storage, check, scope, formats, storyboard, rp);
     if (scope.length > 0 && images.length === 0) {
       throw new StageError(
         "qa: немає стілів сцен для перевірки",
@@ -213,22 +301,8 @@ export function createQaStage(): Stage<"qa"> {
       language: project?.language ?? brandFile.identity.language,
       formats: formats.filter((f) => images.some((img) => img.format === f)).join(", ") || "(немає)",
       scope: scope.join(", ") || "(немає)",
-      sheetsLegend:
-        images
-          .map(
-            (img, i) =>
-              `Image ${i + 1}: scene ${img.sceneId}, format ${img.format}, frames ${FRAMES_LEGEND}%`,
-          )
-          .join("\n") || "(немає зображень)",
-      storyboard: storyboard.scenes.map((s) => ({
-        id: s.id,
-        purpose: s.purpose,
-        durationSec: Math.round((s.durationFrames / storyboard.fps) * 10) / 10,
-        text: s.text,
-        layoutIntent: s.layoutIntent,
-        assetIds: s.assetIds,
-        template: templates.has(s.id),
-      })),
+      sheetsLegend: images.map((img, i) => `Image ${i + 1}: ${img.legend}`).join("\n") || "(немає зображень)",
+      storyboard: qaStoryboard(storyboard, templates),
       palette: brandFile.palette,
       logo: { type: brandFile.logo.type, textFallback: brandFile.logo.textFallback },
       autoIssues,
@@ -236,7 +310,7 @@ export function createQaStage(): Stage<"qa"> {
     };
     const promptHash = ctx.prompts.load(QA_PROMPT, vars).hash;
     const hash = inputsHash({
-      images: images.map((img) => [img.sceneId, img.format, img.stills]),
+      images: images.map((img) => [img.sceneId, img.format, img.kind, img.hash]),
       autoIssues,
       scope,
       vars: { ...vars, autoIssues: null },
@@ -268,7 +342,7 @@ export function createQaStage(): Stage<"qa"> {
     } else {
       try {
         const res = await ctx.llm.structured(QA_PROMPT, vars, QaReport, {
-          images: await Promise.all(images.map((img) => sceneImage(img.png))),
+          images: images.map((img) => img.image),
           ...(ctx.signal ? { signal: ctx.signal } : {}),
         });
         report = res.data;
