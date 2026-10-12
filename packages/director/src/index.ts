@@ -5,7 +5,8 @@
  * fixStage, qaStage, reviseStage. Для рендер-стадії воркера — prepareRenderJob.
  * Чисті хелпери: normalizeStoryboard, verifyClaims, guardScene, typecheckScenes.
  * Для стадії `author` (`@adc/author`) — без зміни реалізацій: guard/typecheck, авто-перевірки й
- * аркуші check, контекст і бренд codegen, журнал версій, реєстр сцен, розбір файлових блоків.
+ * аркуші check, контекст і бренд codegen, журнал версій, реєстр сцен, розбір файлових блоків,
+ * читання артефактів ревізії, аркуш стрічки і JPEG для vision (хвиля 2: лише реекспорт).
  */
 
 export { extractClaims, verifyClaims } from "./claims.ts";
@@ -20,7 +21,19 @@ export {
   type GuardViolation,
   guardScene,
 } from "./guard.ts";
-export { directorPaths } from "./io.ts";
+export {
+  baseRevOf,
+  directorPaths,
+  formatsOf,
+  llmStageError,
+  progress,
+  readAssets,
+  readCurrentBrandKit,
+  readOptional,
+  readProject,
+  readStoryboard,
+  readTemplateScenes,
+} from "./io.ts";
 export {
   type PreparedJob,
   type PrepareRenderJobOptions,
@@ -31,8 +44,10 @@ export {
 } from "./job.ts";
 export {
   addVersion,
+  carryScene,
   currentVersion,
   type NewVersion,
+  readCurrentCode,
   readLedger,
   rejectedScenes,
   type SceneLedger,
@@ -40,6 +55,7 @@ export {
   writeLedger,
 } from "./ledger.ts";
 export { checkCopy, type NormalizeResult, normalizeStoryboard, type TextIssue } from "./normalize.ts";
+export { buildStripSheet, QA_IMAGE_MAX_SIDE, type StripCell } from "./sheets.ts";
 export {
   type CheckStageDeps,
   collectAutoIssues,
@@ -50,7 +66,7 @@ export {
 } from "./stages/check.ts";
 export { brandForCode, type CodegenStageDeps, codegenStage, createCodegenStage } from "./stages/codegen.ts";
 export { createFixStage, type FixStageDeps, fixStage } from "./stages/fix.ts";
-export { createQaStage, keepBestVersions, qaStage } from "./stages/qa.ts";
+export { createQaStage, keepBestVersions, qaStage, stripLegend, toQaJpeg } from "./stages/qa.ts";
 export { createReviseStage, type RevisionRecord, reviseStage } from "./stages/revise.ts";
-export { createStoryboardStage, storyboardStage } from "./stages/storyboard.ts";
+export { assetsForPrompt, createStoryboardStage, storyboardStage } from "./stages/storyboard.ts";
 export { type SceneTypeError, type TypecheckResult, typecheckScenes } from "./typecheck.ts";

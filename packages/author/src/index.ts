@@ -2,16 +2,19 @@
  * `@adc/author` — агентний режим генерації (стадія `author`): один агент пише сцени, рендерить
  * стрипи, дивиться їх і править сам у межах бюджету (ТЗ 2026-10-12 «паритет із роликом», блок C1).
  *
- * Скелет Кроку 0: воркер уже реєструє `authorStage`, оркестратор її ще не ставить.
+ * Воркер реєструє `authorStage` (Крок 0); оркестратор ставить її замість `codegen`, коли
+ * `ADC_GENERATION_MODE=agent` (блок C2). Далі `check` → `qa` → `fix` працюють як після codegen.
  */
 
-import { type Stage, StageError } from "@adc/shared";
-
-export const authorStage: Stage<"author"> = async () => {
-  throw new StageError(
-    "стадія author ще не реалізована",
-    "author_not_implemented",
-    "Агентний режим генерації ще не готовий — увімкніть звичайний (ADC_GENERATION_MODE=pipeline).",
-    false,
-  );
-};
+export { type AuthorLimits, authorLimits, createDeadline, stopReason } from "./budget.ts";
+export type { AuthorSession, EngineSource } from "./session.ts";
+export {
+  AUTHOR_PROMPT,
+  AuthorReport,
+  type AuthorStageDeps,
+  authorReportKey,
+  authorStage,
+  createAuthorStage,
+} from "./stage.ts";
+export { authorLogKey, authorTools } from "./tools/index.ts";
+export { audioEventsTable } from "./tools/meta.ts";

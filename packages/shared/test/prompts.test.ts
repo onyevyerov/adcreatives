@@ -57,6 +57,7 @@ describe("prompts", () => {
     expect(names.sort()).toEqual(
       [
         "audio-plan",
+        "author",
         "brandkit",
         "brandkit-patch",
         "chat-intent",

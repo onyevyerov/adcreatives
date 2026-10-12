@@ -36,6 +36,7 @@ export const STAGE_LABELS = {
   "brandkit-patch": "Правки бренд-кіту",
   storyboard: "Сценарій",
   codegen: "Генерація сцен",
+  author: "Генерація сцен (агент)",
   check: "Перевірка сцен",
   fix: "Виправлення сцен",
   qa: "Контроль якості",

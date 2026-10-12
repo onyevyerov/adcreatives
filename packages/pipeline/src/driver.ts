@@ -75,8 +75,12 @@ export interface PipelineDriverDeps {
   now?: () => Date;
   /** Писати репліку клієнта в стрім (`role: "user"`). Дефолт false — це робить API. */
   echoUserMessages?: boolean;
-  /** Перемикачі (`speculativeRender`); дефолт — `readTuning()` з env на кожен крок. */
-  tuning?: () => Pick<Tuning, "speculativeRender">;
+  /**
+   * Перемикачі (`speculativeRender`, `generationMode`); дефолт — `readTuning()` з env на кожен крок.
+   * Режим генерації читається на кожен крок, тож зміна `ADC_GENERATION_MODE` діє з наступного старту
+   * режисури (поточна ревізія доходить тим самим шляхом: обробник `author` не залежить від env).
+   */
+  tuning?: () => Pick<Tuning, "speculativeRender"> & Partial<Pick<Tuning, "generationMode">>;
 }
 
 export interface PipelineDriverImpl extends PipelineDriver {
@@ -236,7 +240,9 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
 
   async function buildContext(state: MachineState, input: StepInput): Promise<StepContext> {
     const ctx: StepContext = { now: now().toISOString() };
-    if (tuning().speculativeRender) ctx.speculativeRender = true;
+    const tun = tuning();
+    if (tun.speculativeRender) ctx.speculativeRender = true;
+    if (tun.generationMode === "agent") ctx.generationMode = "agent";
     if (input.kind !== "command") return ctx;
     const { project } = state;
     const cmd = input.command;
