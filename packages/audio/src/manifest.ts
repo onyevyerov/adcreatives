@@ -8,6 +8,7 @@ import {
 import {
   MUSIC_FADE_OUT_MS,
   MUSIC_VOLUME,
+  PUBLIC_MIX_FILE,
   PUBLIC_MUSIC_FILE,
   publicSfxFile,
   SFX_VOLUME,
@@ -18,9 +19,14 @@ export interface ManifestInput {
   music: { planHash: string; durationMs: number } | null;
   /** Бібліотека SFX ревізії: cue → тривалість. */
   sfx: Array<{ cue: string; durationMs: number }>;
+  /** Готове зведення `soundtrack.wav`; null — зведення немає (хост грає music і sfx, як раніше). */
+  mix?: { durationMs: number } | null;
 }
 
-/** `rev/<n>/audio.json`: музика + бібліотека SFX; шляхи — відносно `video/public/`. */
+/**
+ * `rev/<n>/audio.json`: музика + бібліотека SFX + зведення; шляхи — відносно `video/public/`.
+ * `music` лишається і при зведенні: за ним шукається трек для повторного використання.
+ */
 export function buildAudioManifest(input: ManifestInput): AudioManifest {
   const timeline = computeTimeline(input.storyboard);
   return {
@@ -33,7 +39,7 @@ export function buildAudioManifest(input: ManifestInput): AudioManifest {
           planHash: input.music.planHash,
         }
       : null,
-    mix: null,
+    mix: input.mix ? { src: PUBLIC_MIX_FILE, durationMs: input.mix.durationMs } : null,
     sfx: input.sfx.map((s) => ({
       cue: s.cue,
       src: publicSfxFile(s.cue),
@@ -45,8 +51,8 @@ export function buildAudioManifest(input: ManifestInput): AudioManifest {
 }
 
 export interface AudioPlacement {
-  kind: "music" | "sfx";
-  /** cue для SFX, "music" для музики. */
+  kind: "mix" | "music" | "sfx";
+  /** cue для SFX, "music" для музики, "mix" для зведення. */
   cue: string;
   sceneId: string | null;
   src: string;
@@ -59,9 +65,10 @@ export interface AudioPlacement {
 }
 
 /**
- * Розміщення звуку на таймлайні (те, що робить хост за `scene.sfxCue`), як чиста функція:
- * музика з кадру 0 до кінця ролика з fade-out (трек довший і підрізається);
- * SFX — за спільним правилом `computeSfxPlacements` із `@adc/shared` (те саме, що в хості).
+ * Розміщення звуку на таймлайні (те, що робить хост), як чиста функція.
+ * Є зведення — лише воно, з кадру 0 на весь ролик, без власних fade і гучності.
+ * Інакше (старий `audio.json`): музика з кадру 0 до кінця ролика з fade-out (трек довший
+ * і підрізається); SFX — за спільним правилом `computeSfxPlacements` із `@adc/shared`.
  */
 export function computeAudioPlacements(
   storyboard: Pick<Storyboard, "fps" | "scenes">,
@@ -69,6 +76,19 @@ export function computeAudioPlacements(
 ): AudioPlacement[] {
   const timeline = computeTimeline(storyboard);
   const fps = timeline.fps;
+  if (manifest.mix) {
+    return [
+      {
+        kind: "mix",
+        cue: "mix",
+        sceneId: null,
+        src: manifest.mix.src,
+        from: 0,
+        durationInFrames: timeline.totalFrames,
+        volume: 1,
+      },
+    ];
+  }
   const out: AudioPlacement[] = [];
   if (manifest.music) {
     out.push({

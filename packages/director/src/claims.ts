@@ -2,9 +2,10 @@ import type { BrandKit, Claim, ClaimKind, ClaimsReport, Fact, Storyboard } from 
 
 /**
  * `verifyClaims(storyboard, brandkit)` — програмна перевірка тверджень у текстах сцен (розділ «Факти»):
- * кожне число (ціна, відсоток, кількість, дата/час, телефон) і кожен маркер переваги чи обіцянки
- * («№1», «найкращий», «гарантія», «best», «guarantee» …, списки для uk і en) має знаходитися
- * у `facts[]` бренд-кіта або в контактах/графіку. Непідтверджене → `unverified[]`.
+ * headline, sub і кожен `items[].text`. Кожне число (ціна, відсоток, кількість, дата/час, телефон)
+ * і кожен маркер переваги чи обіцянки («№1», «найкращий», «гарантія», «best», «guarantee» …, списки
+ * для uk і en) має знаходитися у `facts[]` бренд-кіта, у контактах/графіку або дослівно в тексті
+ * сайту (`siteText`, `matchedSite`). Непідтверджене → `unverified[]`.
  */
 
 /** Твердження, знайдене в тексті (до звірки). */
@@ -198,6 +199,33 @@ export interface VerifyClaimsOptions {
   now?: Date;
   /** Версія бренд-кіта для звіту (дефолт — `brandkit.version` або 0). */
   brandkitVersion?: number;
+  /** Стиснений текст сайту (`brandkit/site-text.txt`): твердження, знайдене в ньому дослівно, — підтверджене. */
+  siteText?: string | null;
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Пошук фрагмента твердження в тексті сайту дослівно: без урахування регістру, будь-які пробіли
+ * (зокрема нерозривні) і варіанти тире рівноцінні, по межах слова — «2000» не знаходиться в «20000».
+ */
+export function siteMatcher(siteText: string | null | undefined): (fragment: string) => boolean {
+  const hay = (siteText ?? "").replace(/[\u00A0\u202F\u2009]/g, " ");
+  if (!hay.trim()) return () => false;
+  const cache = new Map<string, boolean>();
+  return (fragment) => {
+    const key = fragment.trim();
+    if (!key) return false;
+    const hit = cache.get(key);
+    if (hit !== undefined) return hit;
+    const body = key
+      .split(/\s+/)
+      .map((w) => escapeRe(w).replace(/[-–—−]/g, "[-–—−]"))
+      .join("\\s+");
+    const found = new RegExp(`${NB}${body}${NA}`, "iu").test(hay);
+    cache.set(key, found);
+    return found;
+  };
 }
 
 export function verifyClaims(
@@ -221,28 +249,43 @@ export function verifyClaims(
     brandkit.contacts.website,
   ]);
 
+  const onSite = siteMatcher(opts.siteText);
+
   const verified: Claim[] = [];
   const unverified: Claim[] = [];
   for (const scene of storyboard.scenes) {
-    const preferred = new Set(scene.factIds);
-    const order = [...facts.filter((f) => preferred.has(f.id)), ...facts.filter((f) => !preferred.has(f.id))];
-    for (const field of ["headline", "sub"] as const) {
-      const text = scene.text[field];
+    const texts: Array<{ field: Claim["field"]; itemId: string | null; text: string; factIds: string[] }> = [
+      { field: "headline", itemId: null, text: scene.text.headline, factIds: scene.factIds },
+      { field: "sub", itemId: null, text: scene.text.sub ?? "", factIds: scene.factIds },
+      ...(scene.items ?? []).map((i) => ({
+        field: "item" as const,
+        itemId: i.id,
+        text: i.text,
+        factIds: [...(i.factIds ?? []), ...scene.factIds],
+      })),
+    ];
+    for (const { field, itemId, text, factIds } of texts) {
       if (!text) continue;
+      const preferred = new Set(factIds);
+      const order = [
+        ...facts.filter((f) => preferred.has(f.id)),
+        ...facts.filter((f) => !preferred.has(f.id)),
+      ];
       for (const c of extractClaims(text)) {
         const fact = order.find((f) => matches(c, factCorpus.get(f.id) as Corpus)) ?? null;
         const matchedContact = fact === null && matches(c, contacts);
+        const matchedSite = fact === null && !matchedContact && onSite(c.text);
         const claim: Claim = {
           sceneId: scene.id,
           field,
-          itemId: null,
+          itemId,
           text: c.text,
           kind: c.kind,
           factId: fact?.id ?? null,
           matchedContact,
-          matchedSite: false,
+          matchedSite,
         };
-        (fact || matchedContact ? verified : unverified).push(claim);
+        (fact || matchedContact || matchedSite ? verified : unverified).push(claim);
       }
     }
   }

@@ -18,6 +18,7 @@ import {
   type ProjectState,
   type ProjectStatus,
   projectPaths,
+  readTuning,
   type StageDoneEvent,
   type StageJob,
   type StageName,
@@ -32,7 +33,6 @@ import {
   isIoStage,
   type JobRecord,
   MAX_FIX_ROUNDS,
-  MAX_QA_ROUNDS,
   type PipeState,
   type RevisionAt,
 } from "./pipe.ts";
@@ -79,6 +79,11 @@ export interface StepContext {
    * рендер кожного формату стартує до «Затвердити», а звичайний рендер потім його перевикористовує.
    */
   speculativeRender?: boolean;
+  /**
+   * `Tuning.qaMaxRounds`: скільки кіл QA → fix до чекпоінта 3 (0 — без фіксів після QA).
+   * Не задано — `readTuning().qaMaxRounds` з env (`ADC_QA_MAX_ROUNDS`, дефолт 2).
+   */
+  qaMaxRounds?: number;
 }
 
 export type Effect =
@@ -757,8 +762,13 @@ function onFixDone(d: Draft, ev: StageDoneOk<"fix">, job: JobRecord): void {
 
 function onQaDone(d: Draft, ev: StageDoneOk<"qa">): void {
   const pipe = d.pipe;
-  if (pipe.videoPhase === "build" && ev.outputs.verdict === "fix" && pipe.qaRounds < MAX_QA_ROUNDS) {
-    const targets = uniq(ev.outputs.seriousScenes).filter((s) => !pipe.templateScenes.includes(s));
+  const maxRounds = d.ctx.qaMaxRounds ?? readTuning().qaMaxRounds;
+  if (ev.outputs.verdict === "fix" && pipe.qaRounds < maxRounds) {
+    // Наступні кола — лише по сценах, які щойно виправляли (QA бачив лише їх).
+    const targets = uniq(ev.outputs.seriousScenes).filter(
+      (s) =>
+        !pipe.templateScenes.includes(s) && (pipe.videoPhase === "build" || pipe.dirtyScenes.includes(s)),
+    );
     if (targets.length > 0) {
       pipe.qaRounds += 1;
       pipe.videoPhase = "qa_fix";
@@ -767,7 +777,7 @@ function onQaDone(d: Draft, ev: StageDoneOk<"qa">): void {
       return;
     }
   }
-  // Що лишилось після одного кола — попередження на чекпоінті 3.
+  // Що лишилось після останнього кола — попередження на чекпоінті 3.
   videoDone(d);
 }
 

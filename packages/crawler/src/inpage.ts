@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import type { Page } from "playwright";
 
 /**
@@ -9,30 +8,16 @@ import type { Page } from "playwright";
  */
 
 let inpageSource: string | null = null;
-let readabilitySource: string | null = null;
 
 function inpage(): string {
   inpageSource ??= readFileSync(new URL("./inpage/inpage.js", import.meta.url), "utf8");
   return inpageSource;
 }
 
-function readability(): string {
-  if (readabilitySource === null) {
-    const require = createRequire(import.meta.url);
-    readabilitySource = readFileSync(require.resolve("@mozilla/readability/Readability.js"), "utf8");
-  }
-  return readabilitySource;
-}
-
-function call(fn: string, args: unknown = null, withReadability = false): string {
-  const loadReadability = withReadability
-    ? `if (!globalThis.__adcReadability) { (function () { var module; ${readability()}\n; globalThis.__adcReadability = Readability; })(); }`
-    : "";
+function call(fn: string, args: unknown = null): string {
   return `(async () => {
     if (!globalThis.__adc) { ${inpage()}\n }
-    ${loadReadability}
     const args = ${JSON.stringify(args)};
-    ${withReadability ? "if (args) args.Readability = globalThis.__adcReadability;" : ""}
     return await globalThis.__adc.${fn}(args);
   })()`;
 }
@@ -84,6 +69,26 @@ export interface RawPage {
   docHeight: number;
 }
 
+export interface ExpandResult {
+  /** Скільки `<details>` відкрито. */
+  details: number;
+  /** Скільки кліків по `[aria-expanded="false"]`. */
+  clicked: number;
+  /** Скільки вкладок `[role="tab"]` активовано. */
+  tabs: number;
+}
+
+export interface ExpandOptions {
+  /** Максимум кліків по розкривачках (дефолт 40). */
+  maxClicks?: number;
+  /** Максимум вкладок (дефолт 40). */
+  maxTabs?: number;
+  /** Пауза після кожного кліку перед знімком регіону, мс (дефолт 80; для вкладок — удвічі більша). */
+  step?: number;
+  /** Пауза після всіх кліків, мс (дефолт 400). */
+  settle?: number;
+}
+
 export const dismissConsent = (page: Page): Promise<number> => page.evaluate(call("dismissConsent"));
 export const hideOverlays = (page: Page): Promise<number> => page.evaluate(call("hideOverlays"));
 export const autoScroll = (
@@ -92,5 +97,8 @@ export const autoScroll = (
 ): Promise<number> => page.evaluate(call("autoScroll", opts));
 export const waitForFonts = (page: Page, timeoutMs = 3000): Promise<boolean> =>
   page.evaluate(call("waitForFonts", timeoutMs));
+/** Розкриває згорнутий зміст (FAQ-акордеони, `<details>`, вкладки) перед `extractPage`. */
+export const expandCollapsed = (page: Page, opts: ExpandOptions = {}): Promise<ExpandResult> =>
+  page.evaluate(call("expand", opts));
 export const extractPage = (page: Page, opts: { withDesign?: boolean } = {}): Promise<RawPage> =>
-  page.evaluate(call("extract", { withDesign: opts.withDesign ?? true }, true));
+  page.evaluate(call("extract", { withDesign: opts.withDesign ?? true }));

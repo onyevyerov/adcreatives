@@ -24,6 +24,7 @@ import {
   REQUIRED_NEGATIVE_STYLES,
   REQUIRED_POSITIVE_STYLES,
 } from "./constants.ts";
+import { parseKey } from "./key.ts";
 import type { Sanitizer } from "./sanitize.ts";
 import type { StandardCueLibrary } from "./sfx.ts";
 
@@ -51,6 +52,8 @@ export const AudioPlanDraft = z.object({
       }),
     ),
   }),
+  /** Одна тональність треку («A minor»): у неї ж зведення строїть pop/ding/shimmer. */
+  key: z.string().nullable().default(null),
   promptFallback: z.string(),
   sfx: z.array(
     z.object({
@@ -144,10 +147,21 @@ function ensureIncluded(list: string[], required: readonly string[]): string[] {
   return [...list, ...required.filter((r) => !have.has(r.toLowerCase()))];
 }
 
-function energyStyles(energy: number): string[] {
-  if (energy < 0.35) return ["calm", "sparse arrangement", "soft dynamics"];
-  if (energy < 0.7) return ["steady groove", "building energy"];
-  return ["energetic", "full arrangement", "driving rhythm"];
+/**
+ * Стилі чанка, коли модель їх не дала. Однакові для всіх чанків: генератор план аранжування
+ * однаково ігнорує, а арку (вступ / брейкдаун) робить зведення, тож трек має бути рівним.
+ */
+function steadyStyles(): string[] {
+  return ["steady groove", "full arrangement", "kick on every beat"];
+}
+
+const BPM_STYLE = /\b\d{2,3}\s*bpm\b/i;
+
+/** Темп у глобальних стилях — рівно `musicBrief.bpm` (інший темп зламав би сітку долей). */
+function withBriefTempo(styles: string[], bpm: number): string[] {
+  const tempo = `${bpm} BPM`;
+  const rest = styles.filter((s) => !BPM_STYLE.test(s) || s.toLowerCase() === tempo.toLowerCase());
+  return rest.some((s) => s.toLowerCase() === tempo.toLowerCase()) ? rest : [...rest, tempo];
 }
 
 export interface NormalizeOptions {
@@ -160,7 +174,8 @@ export interface NormalizeOptions {
 /**
  * Доводить чернетку LLM до валідного `AudioPlan` кодом:
  * межі й тривалості чанків — з таймлайну; стилі очищені від назв; "instrumental" і
- * ["vocals","lyrics"] гарантовані; contextAdherence "high"; SFX — стандартні з бібліотеки
+ * ["vocals","lyrics"] гарантовані; темп — рівно `musicBrief.bpm`; розпізнана тональність — у `key`
+ * і в глобальних стилях; contextAdherence "high"; SFX — стандартні з бібліотеки
  * і до 3 кастомних з тривалістю 0.5–1.5 с.
  */
 export function normalizeAudioPlan(draft: AudioPlanDraft, opts: NormalizeOptions): AudioPlan {
@@ -172,6 +187,10 @@ export function normalizeAudioPlan(draft: AudioPlanDraft, opts: NormalizeOptions
   if (positiveGlobal.length === 0) {
     positiveGlobal = sanitizer.styles([brief.genre, ...brief.instrumentation, `${brief.bpm} BPM`]);
   }
+  // Одна тональність: розпізнана — у плані (для висоти подій) і в стилях генератора.
+  const trackKey = draft.key && parseKey(draft.key) ? sanitizer.text(draft.key.trim()) || null : null;
+  positiveGlobal = withBriefTempo(positiveGlobal, brief.bpm);
+  if (trackKey) positiveGlobal = ensureIncluded(positiveGlobal, [trackKey]);
   positiveGlobal = ensureIncluded(positiveGlobal, REQUIRED_POSITIVE_STYLES);
   // "instrumental" не може бути серед негативних.
   const negativeGlobal = ensureIncluded(
@@ -192,7 +211,7 @@ export function normalizeAudioPlan(draft: AudioPlanDraft, opts: NormalizeOptions
       ...(section ? { section } : {}),
       sceneIds: sk.sceneIds,
       durationMs: sk.durationMs,
-      positiveStyles: positive.length > 0 ? positive : energyStyles(sk.energy),
+      positiveStyles: positive.length > 0 ? positive : steadyStyles(),
       negativeStyles: sanitizer.styles(match?.negativeStyles ?? []).filter((s) => !/instrumental/i.test(s)),
       contextAdherence: "high",
     };
@@ -228,6 +247,7 @@ export function normalizeAudioPlan(draft: AudioPlanDraft, opts: NormalizeOptions
 
   return AudioPlan.parse({
     compositionPlan: { positiveGlobalStyles: positiveGlobal, negativeGlobalStyles: negativeGlobal, chunks },
+    key: trackKey,
     promptFallback,
     sfx,
   });

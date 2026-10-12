@@ -1,4 +1,4 @@
-import { createPromptLoader } from "@adc/shared";
+import { AudioPlan, createPromptLoader, SoundCue } from "@adc/shared";
 import { fixtureBrandKit, fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { computeChunkLayout } from "../src/chunks.ts";
@@ -11,7 +11,7 @@ import {
   toCompositionPlan,
 } from "../src/plan.ts";
 import { brandTerms, createSanitizer } from "../src/sanitize.ts";
-import { loadStandardCues, parseSfxCues } from "../src/sfx.ts";
+import { loadSfxLibrary, loadStandardCues, parseSfxCues, parseSfxLibrary } from "../src/sfx.ts";
 import { draftFor } from "./helpers.ts";
 
 const brand = {
@@ -62,6 +62,48 @@ describe("sfx-cues.md", () => {
   it("parser rejects a file without all standard cues", () => {
     expect(() => parseSfxCues("- whoosh (0.6 s): air")).toThrow(/немає cue/);
   });
+
+  it("бібліотека подій: усі 10 SoundCue × 3 варіанти, тексти різні, ≥ 0.5 с", () => {
+    const library = loadSfxLibrary(createPromptLoader());
+    expect(Object.keys(library).sort()).toEqual([...SoundCue.options].sort());
+    const texts = new Set<string>();
+    for (const [cue, variants] of Object.entries(library)) {
+      expect(variants, cue).toHaveLength(3);
+      for (const def of variants) {
+        expect(def.durationSeconds, cue).toBeGreaterThanOrEqual(0.5);
+        expect(def.text, cue).toMatch(/no silence at the beginning/);
+        expect(def.text, cue).toMatch(/\bdry\b/);
+        texts.add(def.text);
+      }
+    }
+    expect(texts.size).toBe(30);
+    // Legacy-шлях sfxCue бере варіант 1 тих самих cue.
+    for (const [cue, def] of Object.entries(standardCues)) {
+      expect(def).toEqual(library[cue as keyof typeof library][0]);
+    }
+  });
+
+  it("формат рядка: `cue.N` — варіант N; без номера — варіант 1 (старий формат)", () => {
+    const lines = SoundCue.options.map((c) => `- ${c} (0.5 s): ${c} one`);
+    const lib = parseSfxLibrary(
+      [...lines, "- pop.3 (0.7 s): pop three", "- pop.2 (0.6 s): pop two"].join("\n"),
+    );
+    expect(lib.pop).toEqual([
+      { text: "pop one", durationSeconds: 0.5 },
+      { text: "pop two", durationSeconds: 0.6 },
+      { text: "pop three", durationSeconds: 0.7 },
+    ]);
+    expect(lib.slam).toEqual([{ text: "slam one", durationSeconds: 0.5 }]);
+    // Старий файл (8 cue без номерів) — валідний для legacy-шляху, але не для бібліотеки подій.
+    const legacy = lines.filter((l) => !/ (slam|ding) /.test(l)).join("\n");
+    expect(parseSfxCues(legacy).pop).toEqual({ text: "pop one", durationSeconds: 0.5 });
+    expect(() => parseSfxLibrary(legacy)).toThrow(/немає cue ding, slam|немає cue slam, ding/);
+    expect(() => parseSfxLibrary([...lines, "- pop.1 (0.5 s): again"].join("\n"))).toThrow(/двічі/);
+    // Мінімум API — 0.5 с.
+    expect(
+      parseSfxLibrary(lines.join("\n").replace("pop (0.5 s)", "pop (0.2 s)")).pop[0]?.durationSeconds,
+    ).toBe(0.5);
+  });
 });
 
 describe("normalizeAudioPlan", () => {
@@ -88,6 +130,35 @@ describe("normalizeAudioPlan", () => {
     expect(plan.compositionPlan.positiveGlobalStyles).toContain("instrumental");
     expect(plan.compositionPlan.negativeGlobalStyles).toEqual(["vocals", "lyrics"]);
     expect(planTrackMs(plan)).toBe(layout.trackMs);
+  });
+
+  it("темп — рівно musicBrief.bpm; одна розпізнана тональність — у key і в стилях", () => {
+    const draft = draftFor(layout, { key: "F# minor" });
+    draft.compositionPlan.positiveGlobalStyles = ["lo-fi hip hop", "95 BPM", "rhodes"];
+    const plan = normalizeAudioPlan(draft, {
+      layout,
+      storyboard: fixtureStoryboard,
+      sanitizer,
+      standardCues,
+    });
+    expect(plan.key).toBe("F# minor");
+    expect(plan.compositionPlan.positiveGlobalStyles).toEqual([
+      "lo-fi hip hop",
+      "rhodes",
+      "85 BPM",
+      "F# minor",
+      "instrumental",
+    ]);
+    const vague = normalizeAudioPlan(draftFor(layout, { key: "warm and cozy" }), {
+      layout,
+      storyboard: fixtureStoryboard,
+      sanitizer,
+      standardCues,
+    });
+    expect(vague.key).toBeNull();
+    // Старий план без key парситься (key: null → пентатоніка ля мінору у зведенні).
+    const { key: _drop, ...old } = plan;
+    expect(AudioPlan.parse(old).key).toBeNull();
   });
 
   it("strips brand and artist names from styles and the fallback prompt", () => {
@@ -147,7 +218,12 @@ describe("normalizeAudioPlan", () => {
       standardCues,
     });
     expect(plan.sfx).toEqual([
-      { cue: "whoosh", text: standardCues.whoosh.text, durationSeconds: 0.6, custom: false },
+      {
+        cue: "whoosh",
+        text: standardCues.whoosh.text,
+        durationSeconds: standardCues.whoosh.durationSeconds,
+        custom: false,
+      },
       { cue: "custom-1", text: "cup clink on table", durationSeconds: 1.5, custom: true },
       { cue: "custom-2", text: "espresso machine hiss", durationSeconds: 0.5, custom: true },
     ]);

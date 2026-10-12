@@ -165,6 +165,8 @@ globalThis.__adc = (() => {
         !(isHeaderLike && !cookieLike && r.height < vh * 0.25)
       ) {
         el.style.setProperty("display", "none", "important");
+        // Текст cookie-банерів і чатів не належить до змісту сторінки.
+        if (cookieLike || chatLike) el.setAttribute("data-adc-hidden", "");
         hidden++;
       }
     }
@@ -567,46 +569,415 @@ globalThis.__adc = (() => {
     return out;
   }
 
-  const EXCLUDE =
-    "header, footer, nav, aside, [role='banner'], [role='contentinfo'], [role='navigation'], script, style, noscript, template, [aria-hidden='true']";
+  // ---------- текст сторінки ----------
 
-  /** Текст без шапки/футера: усі текстові блоки поза навігацією. */
-  function fallbackText() {
-    const parts = [];
-    const seen = new Set();
-    for (const el of document.body.querySelectorAll(
-      "h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, dd, dt, td, th, address",
-    )) {
-      if (el.closest(EXCLUDE)) continue;
-      if (el.querySelector("p, li, h1, h2, h3, h4")) continue;
-      const t = clean(el.innerText, 2000);
-      if (t.length < 2 || seen.has(t)) continue;
-      seen.add(t);
-      parts.push(t);
+  const MAX_TEXT = 20000;
+
+  /** Теги без тексту для читача. */
+  const SKIP_TAGS = new Set([
+    "SCRIPT",
+    "STYLE",
+    "NOSCRIPT",
+    "TEMPLATE",
+    "SVG",
+    "CANVAS",
+    "IFRAME",
+    "OBJECT",
+    "EMBED",
+    "VIDEO",
+    "AUDIO",
+    "SELECT",
+    "OPTION",
+    "DATALIST",
+    "TEXTAREA",
+    "INPUT",
+    "IMG",
+    "PICTURE",
+    "MAP",
+    "HEAD",
+  ]);
+
+  /** Блокові теги — для елементів без computed style (приховані, display: none). */
+  const BLOCK_TAGS = new Set([
+    "ADDRESS",
+    "ARTICLE",
+    "ASIDE",
+    "BLOCKQUOTE",
+    "BODY",
+    "CAPTION",
+    "DD",
+    "DETAILS",
+    "DIALOG",
+    "DIV",
+    "DL",
+    "DT",
+    "FIELDSET",
+    "FIGCAPTION",
+    "FIGURE",
+    "FOOTER",
+    "FORM",
+    "HEADER",
+    "HGROUP",
+    "HR",
+    "LEGEND",
+    "LI",
+    "MAIN",
+    "NAV",
+    "OL",
+    "P",
+    "PRE",
+    "SECTION",
+    "SUMMARY",
+    "TABLE",
+    "TBODY",
+    "TD",
+    "TFOOT",
+    "TH",
+    "THEAD",
+    "TR",
+    "UL",
+  ]);
+
+  const CHROME_ROLES = new Set(["navigation", "banner", "contentinfo"]);
+
+  /** Шапка, навігація, футер, бічна колонка. header/footer усередині main/article/section — частина змісту. */
+  const isChrome = (el) => {
+    const tag = el.tagName;
+    if (tag === "NAV" || tag === "ASIDE") return true;
+    if (CHROME_ROLES.has(el.getAttribute("role"))) return true;
+    return (tag === "HEADER" || tag === "FOOTER") && !el.parentElement?.closest("main, article, section");
+  };
+
+  /** Піддерево не дає тексту: службові теги, шапка/футер, aria-hidden, сховані нами банери й чати. */
+  const skipText = (el) =>
+    SKIP_TAGS.has(el.tagName.toUpperCase()) ||
+    isChrome(el) ||
+    el.getAttribute("aria-hidden") === "true" ||
+    el.hasAttribute("data-adc-hidden");
+
+  /** Елемент лежить у шапці/футері/навігації, діалозі або схованому нами оверлеї. */
+  const inChrome = (el) => {
+    for (let node = el; node && node !== document.body; node = node.parentElement) {
+      if (isChrome(node) || node.hasAttribute("data-adc-hidden")) return true;
+      if (
+        node.tagName === "DIALOG" ||
+        node.getAttribute("role") === "dialog" ||
+        node.getAttribute("aria-modal") === "true"
+      )
+        return true;
     }
-    return parts.join("\n");
+    return false;
+  };
+
+  const headingLevel = (el) => {
+    if (/^H[1-6]$/.test(el.tagName)) return Number(el.tagName[1]);
+    if (el.getAttribute("role") === "heading") {
+      const level = Number.parseInt(el.getAttribute("aria-level") || "2", 10);
+      return level >= 1 && level <= 6 ? level : 2;
+    }
+    return 0;
+  };
+
+  /**
+   * Як елемент ділить текст: "block" — окремий рядок, "spaced" — inline-block/inline-flex
+   * (сусіди відокремлюються пробілом, щоб не склеїлись слова), "inline" — потік тексту.
+   * Для прихованих елементів computed style немає — тоді за тегом.
+   */
+  const flowOf = (el) => {
+    let display = "";
+    try {
+      display = getComputedStyle(el).display;
+    } catch {
+      display = "";
+    }
+    if (!display || display === "none") return BLOCK_TAGS.has(el.tagName) ? "block" : "inline";
+    if (display === "contents" || display === "inline") return "inline";
+    if (display.startsWith("inline") || display.startsWith("ruby")) return "spaced";
+    return "block";
+  };
+
+  /**
+   * Знімки розкритого змісту (вкладки, акордеони з одним відкритим пунктом), зроблені
+   * в `expand`. Запис виводиться один раз: там, де обхід уперше дійде до регіону, або одразу
+   * після тригера (вкладка, кнопка питання), якщо регіону вже немає в DOM.
+   */
+  const snapshots = { byAnchor: new Map(), byRegion: new Map() };
+
+  const remember = (map, el, entry) => {
+    const list = map.get(el);
+    if (list) list.push(entry);
+    else map.set(el, [entry]);
+  };
+
+  /**
+   * Блоковий текст піддерева в порядку документа: заголовок — рядок `## …` (кількість `#` —
+   * рівень), абзаци, пункти списків і блоки — окремі рядки, рядок таблиці — `клітинка | клітинка`.
+   * Між блоками завжди перенос рядка, тож тексти сусідніх блоків не склеюються.
+   */
+  function blockLines(root, opts) {
+    const lines = [];
+    const useSnapshots = opts?.snapshots === true;
+    const limit = opts?.limit ?? MAX_TEXT;
+    let buf = "";
+    let size = 0;
+    let visited = 0;
+
+    const push = (line) => {
+      lines.push(line);
+      size += line.length + 1;
+    };
+    const flush = () => {
+      const t = buf.replace(/\s+/g, " ").trim();
+      buf = "";
+      if (t) push(t);
+    };
+    const emit = (entries) => {
+      if (!entries) return;
+      for (const entry of entries) {
+        if (entry.done) continue;
+        entry.done = true;
+        flush();
+        for (const line of entry.lines) push(line);
+      }
+    };
+    /** Текст елемента одним рядком (заголовок, клітинка таблиці). */
+    const flat = (el) =>
+      blockLines(el, { limit: 2000, childrenOnly: true }).join(" ").replace(/\s+/g, " ").trim();
+
+    const walk = (node) => {
+      if (size > limit || ++visited > 40000) return;
+      if (node.nodeType === 3) {
+        buf += node.data;
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      const el = node;
+      if (useSnapshots) emit(snapshots.byRegion.get(el));
+      if (skipText(el)) return;
+      if (el.tagName === "BR") {
+        flush();
+        return;
+      }
+      const level = headingLevel(el);
+      if (level) {
+        flush();
+        const t = flat(el);
+        if (t) push(`${"#".repeat(level)} ${t}`);
+      } else if (el.tagName === "TR") {
+        flush();
+        const cells = Array.from(el.children)
+          .filter((c) => (c.tagName === "TD" || c.tagName === "TH") && !skipText(c))
+          .map(flat)
+          .filter(Boolean);
+        if (cells.length) push(cells.join(" | "));
+      } else {
+        const flow = flowOf(el);
+        if (flow === "block") flush();
+        else if (flow === "spaced") buf += " ";
+        for (const child of el.childNodes) walk(child);
+        if (flow === "block") flush();
+        else if (flow === "spaced") buf += " ";
+      }
+      if (useSnapshots) emit(snapshots.byAnchor.get(el));
+    };
+
+    if (opts?.childrenOnly) for (const child of root.childNodes) walk(child);
+    else walk(root);
+    flush();
+    return lines;
   }
 
-  function mainText(Readability) {
-    const fallback = fallbackText();
-    let readable = "";
-    if (Readability) {
+  /** Основний текст сторінки без шапки/футера/навігації, з розкритими вкладками й акордеонами. */
+  function mainText() {
+    const lines = blockLines(document.body, { snapshots: true });
+    // Решта знімків, чиї регіон і тригер зникли з DOM.
+    for (const list of snapshots.byAnchor.values())
+      for (const entry of list) {
+        if (entry.done) continue;
+        entry.done = true;
+        lines.push(...entry.lines);
+      }
+    const out = [];
+    const seen = new Set();
+    let size = 0;
+    for (const line of lines) {
+      if (!/[\p{L}\p{N}]/u.test(line)) continue;
+      // Повтори (мобільна й десктопна версії блоку, знімок і живий DOM) — один раз; короткі
+      // мітки на кшталт «$10» чи «Так» можуть законно повторюватись у різних картках.
+      if (line.length >= 4) {
+        if (seen.has(line)) continue;
+        seen.add(line);
+      } else if (out.at(-1) === line) continue;
+      out.push(line);
+      size += line.length + 1;
+      if (size > MAX_TEXT) break;
+    }
+    return out.join("\n").slice(0, MAX_TEXT);
+  }
+
+  // ---------- розкриття згорнутого ----------
+
+  /** Тригер веде на іншу сторінку або відправляє форму — не клікаємо. */
+  const leavesPage = (el) => {
+    const link = el.closest("a[href]");
+    if (link) {
+      const href = (link.getAttribute("href") || "").trim();
+      if (href && !href.startsWith("#") && !/^javascript:/i.test(href)) return true;
+    }
+    if (el.tagName === "BUTTON" && el.form && (el.getAttribute("type") || "submit") !== "button") return true;
+    return el.tagName === "INPUT";
+  };
+
+  /** Кнопка-розкривачка змісту: видима, поза шапкою/футером/діалогами, не меню й не перехід. */
+  const isExpander = (el) => {
+    if (inChrome(el) || leavesPage(el) || !isVisible(el)) return false;
+    const role = el.getAttribute("role");
+    if (role === "tab" || role === "combobox" || role === "menuitem" || role === "option") return false;
+    const popup = el.getAttribute("aria-haspopup");
+    return !popup || popup === "false";
+  };
+
+  const controlled = (el) => {
+    for (const id of (el.getAttribute("aria-controls") || "").split(/\s+/)) {
+      const target = id ? document.getElementById(id) : null;
+      if (target) return target;
+    }
+    return null;
+  };
+
+  /** Регіон, який відкриває тригер: aria-controls або найближчий предок із текстом, ширшим за тригер. */
+  const regionOf = (el) => {
+    const target = controlled(el);
+    if (target) return target;
+    const own = (el.textContent || "").trim().length;
+    let node = el.parentElement;
+    for (let i = 0; node && node !== document.body && i < 3; i++, node = node.parentElement) {
+      const len = (node.textContent || "").trim().length;
+      if (len > own + 1) return len <= 4000 ? node : null;
+    }
+    return null;
+  };
+
+  /** Активна панель вкладки: aria-controls або видимий [role=tabpanel] поруч зі списком вкладок. */
+  const panelOf = (tab, list) => {
+    const target = controlled(tab);
+    if (target) return target;
+    let scope = list.parentElement;
+    for (let i = 0; scope && i < 4; i++, scope = scope.parentElement) {
+      const panel = Array.from(scope.querySelectorAll("[role='tabpanel']")).find(isVisible);
+      if (panel) return panel;
+      if (scope === document.body) break;
+    }
+    return null;
+  };
+
+  /** Знімок тексту регіону після кліку на тригер. */
+  const snapshot = (anchor, region) => {
+    if (!region) return;
+    const lines = blockLines(region, { limit: 6000 });
+    if (!lines.length) return;
+    const entry = { lines, done: false };
+    remember(snapshots.byAnchor, anchor, entry);
+    remember(snapshots.byRegion, region, entry);
+  };
+
+  /** Повна послідовність подій кліку: частина бібліотек (Radix Tabs) слухає mousedown, а не click. */
+  const press = (el) => {
+    const init = { bubbles: true, cancelable: true, view: window, button: 0 };
+    const pointer = (type) => {
       try {
-        const doc = document.cloneNode(true);
-        for (const el of doc.querySelectorAll("header, footer, nav, [role='banner'], [role='contentinfo']"))
-          el.remove();
-        const parsed = new Readability(doc, { charThreshold: 100 }).parse();
-        readable = (parsed?.textContent || "")
-          .replace(/[ \t ]+/g, " ")
-          .replace(/\s*\n\s*/g, "\n")
-          .trim();
+        el.dispatchEvent(new PointerEvent(type, { ...init, pointerType: "mouse", isPrimary: true }));
       } catch {
-        readable = "";
+        // PointerEvent недоступний — лишаються mouse-події
+      }
+    };
+    pointer("pointerdown");
+    el.dispatchEvent(new MouseEvent("mousedown", init));
+    try {
+      el.focus({ preventScroll: true });
+    } catch {
+      // ігноруємо
+    }
+    pointer("pointerup");
+    el.dispatchEvent(new MouseEvent("mouseup", init));
+    el.click();
+  };
+
+  /**
+   * Розкриває згорнутий зміст перед збором тексту: `<details>` → open; кліки по
+   * `[aria-expanded="false"]` поза шапкою/навігацією/футером (≤ maxClicks, без переходів на інші
+   * сторінки); кожну вкладку `[role="tab"]` активує по черзі й знімає текст її панелі.
+   * Після кліку — коротка пауза і знімок регіону (акордеон з одним відкритим пунктом закриє
+   * попередню відповідь), наприкінці — пауза `settle`, поки домалюється зміст.
+   */
+  async function expand(opts) {
+    const maxClicks = opts?.maxClicks ?? 40;
+    const maxTabs = opts?.maxTabs ?? 40;
+    const step = opts?.step ?? 80;
+    const settle = opts?.settle ?? 400;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const scrollY = window.scrollY;
+    let details = 0;
+    let clicked = 0;
+    let tabs = 0;
+
+    for (const d of document.body.querySelectorAll("details:not([open])")) {
+      if (inChrome(d)) continue;
+      d.open = true;
+      details++;
+    }
+
+    const triggers = Array.from(document.body.querySelectorAll("[aria-expanded='false']"))
+      .filter(isExpander)
+      .slice(0, maxClicks);
+    for (const el of triggers) {
+      // Сусідній клік міг уже розкрити цей пункт або прибрати його з DOM.
+      if (!el.isConnected || el.getAttribute("aria-expanded") !== "false") continue;
+      try {
+        el.click();
+      } catch {
+        continue;
+      }
+      clicked++;
+      await sleep(step);
+      snapshot(el, regionOf(el));
+    }
+
+    const groups = new Map();
+    for (const tab of document.body.querySelectorAll("[role='tab']")) {
+      if (inChrome(tab) || leavesPage(tab) || !isVisible(tab)) continue;
+      const list = tab.closest("[role='tablist']") || tab.parentElement;
+      if (!list) continue;
+      if (!groups.has(list)) groups.set(list, []);
+      groups.get(list).push(tab);
+    }
+    for (const [list, group] of groups) {
+      if (group.length < 2) continue;
+      const initial = group.find((t) => t.getAttribute("aria-selected") === "true");
+      for (const tab of group) {
+        if (tabs >= maxTabs) break;
+        try {
+          press(tab);
+        } catch {
+          continue;
+        }
+        tabs++;
+        await sleep(step * 2);
+        snapshot(tab, panelOf(tab, list));
+      }
+      // Повертаємо вкладку за замовчуванням — скриншот має показати сторінку такою, як її бачить відвідувач.
+      if (initial?.isConnected) {
+        try {
+          press(initial);
+        } catch {
+          // ігноруємо
+        }
       }
     }
-    // На лендингах Readability інколи бере лише один блок — тоді краще повний текст.
-    const text = readable.length >= fallback.length * 0.5 ? readable : fallback;
-    return text.slice(0, 20000);
+
+    if (details || clicked || tabs) await sleep(settle);
+    window.scrollTo(0, scrollY);
+    return { details, clicked, tabs };
   }
 
   function extract(opts) {
@@ -700,7 +1071,7 @@ globalThis.__adc = (() => {
       nav,
       links,
       hreflang,
-      text: mainText(opts?.Readability),
+      text: mainText(),
       contacts: { phones, emails, socials, addresses, bodyText: clean(document.body?.innerText, 50000) },
       design: opts?.withDesign === false ? null : design(),
       images: images(),
@@ -708,5 +1079,5 @@ globalThis.__adc = (() => {
     };
   }
 
-  return { dismissConsent, hideOverlays, autoScroll, waitForFonts, extract };
+  return { dismissConsent, hideOverlays, autoScroll, waitForFonts, expand, extract };
 })();

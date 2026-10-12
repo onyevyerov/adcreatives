@@ -17,7 +17,8 @@ export type GuardRule =
   | "forbidden_tag"
   | "dangerous_html"
   | "url_string"
-  | "default_export";
+  | "default_export"
+  | "screen_text";
 
 export interface GuardViolation {
   rule: GuardRule;
@@ -141,10 +142,79 @@ export interface GuardOptions {
   /** Для повідомлень. */
   fileName?: string;
   /**
-   * Точні рядки, які сцена може показати в кадрі (`allowedScreenTexts`). Перевірка — у B5;
-   * поки параметр ігнорується.
+   * Точні рядки, які сцена може показати в кадрі (`allowedScreenTexts`: headline, sub, `items[].text`,
+   * `cta.text`). Задано — кожен текст-літерал у кадрі з літерою чи цифрою (JSXText, рядок дитиною
+   * JSX `{"…"}`, рядок у текстовому пропі `text`/`title`/`label`/`buttonLabel`/`placeholder`, рядки
+   * в `items={[…]}`) має дослівно збігатися з одним із них або бути його підрядком; інакше —
+   * `screen_text`. Пунктуація й символи без літер і цифр (`•`, `—`, `→`, `%`) дозволені.
+   * Не задано — тексти не перевіряються.
    */
   allowedTexts?: readonly string[];
+}
+
+/** Пропи компонентів, рядок у яких іде в кадр як текст. */
+const TEXT_PROPS: ReadonlySet<string> = new Set(["text", "title", "label", "buttonLabel", "placeholder"]);
+/** Пропи-списки текстів (`Checklist items={[…]}`). */
+const TEXT_LIST_PROPS: ReadonlySet<string> = new Set(["items"]);
+const HAS_LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
+const APOSTROPHES = /[\u2019\u02BC\u2018`\u00B4]/g;
+
+/** Порівнювана форма тексту: NFC, апострофи, згорнуті пробіли (як JSX згортає переноси в JSXText). */
+export function normalizeScreenText(text: string): string {
+  return text.normalize("NFC").replace(APOSTROPHES, "'").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Рядкові літерали виразу, які потраплять у кадр: сам літерал, гілки `?:`, правий операнд
+ * `&&`/`||`/`??`, статичні частини шаблонного рядка.
+ */
+function shownStrings(expr: ts.Expression | undefined, out: ts.Node[]): void {
+  if (!expr) return;
+  if (ts.isParenthesizedExpression(expr)) {
+    shownStrings(expr.expression, out);
+    return;
+  }
+  if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) {
+    out.push(expr);
+    return;
+  }
+  if (ts.isTemplateExpression(expr)) {
+    out.push(expr.head);
+    for (const span of expr.templateSpans) out.push(span.literal);
+    return;
+  }
+  if (ts.isConditionalExpression(expr)) {
+    shownStrings(expr.whenTrue, out);
+    shownStrings(expr.whenFalse, out);
+    return;
+  }
+  if (
+    ts.isBinaryExpression(expr) &&
+    (expr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+      expr.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+      expr.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
+  ) {
+    shownStrings(expr.right, out);
+    if (expr.operatorToken.kind !== ts.SyntaxKind.AmpersandAmpersandToken) shownStrings(expr.left, out);
+  }
+}
+
+function isJsxChild(node: ts.Node): boolean {
+  const p = node.parent;
+  return !!p && (ts.isJsxElement(p) || ts.isJsxFragment(p));
+}
+
+function literalText(node: ts.Node): string {
+  if (
+    ts.isStringLiteral(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node) ||
+    ts.isTemplateHead(node) ||
+    ts.isTemplateMiddle(node) ||
+    ts.isTemplateTail(node) ||
+    ts.isJsxText(node)
+  )
+    return node.text;
+  return "";
 }
 
 /** Перевіряє код сцени. */
@@ -185,6 +255,25 @@ export function guardScene(code: string, opts: GuardOptions = {}): GuardResult {
   }
 
   let hasDefaultExport = false;
+
+  // ---------- тексти в кадрі ----------
+  const allowed = opts.allowedTexts?.map(normalizeScreenText).filter(Boolean) ?? null;
+  const checkShown = (node: ts.Node) => {
+    if (allowed === null) return;
+    const text = normalizeScreenText(literalText(node));
+    if (!HAS_LETTER_OR_DIGIT.test(text)) return;
+    if (allowed.some((a) => a.includes(text))) return;
+    add(
+      "screen_text",
+      `текст «${text.slice(0, 60)}» не з розкадровки: у кадрі дозволено лише headline, sub, items[].text і cta.text сцени дослівно — беріть їх з props.scene / props.brand.cta`,
+      node,
+    );
+  };
+  const checkShownExpr = (expr: ts.Expression | undefined) => {
+    const found: ts.Node[] = [];
+    shownStrings(expr, found);
+    for (const n of found) checkShown(n);
+  };
 
   const checkModule = (spec: ts.Expression, node: ts.Node): string | null => {
     if (!ts.isStringLiteralLike(spec)) {
@@ -333,8 +422,21 @@ export function guardScene(code: string, opts: GuardOptions = {}): GuardResult {
         );
       }
     }
+    if (ts.isJsxText(node) && !node.containsOnlyTriviaWhiteSpaces) checkShown(node);
+    if (ts.isJsxExpression(node) && isJsxChild(node)) checkShownExpr(node.expression);
     if (ts.isJsxAttribute(node)) {
       const name = propertyNameText(node.name);
+      const init = node.initializer;
+      if (name && TEXT_PROPS.has(name) && init) {
+        if (ts.isStringLiteral(init)) checkShown(init);
+        else if (ts.isJsxExpression(init)) checkShownExpr(init.expression);
+      }
+      if (name && TEXT_LIST_PROPS.has(name) && init && ts.isJsxExpression(init)) {
+        const list = init.expression;
+        if (list && ts.isArrayLiteralExpression(list)) {
+          for (const el of list.elements) if (!ts.isSpreadElement(el)) checkShownExpr(el);
+        }
+      }
       if (name === "dangerouslySetInnerHTML")
         add("dangerous_html", "dangerouslySetInnerHTML заборонено", node);
       if (name === "style" && node.initializer && ts.isStringLiteral(node.initializer)) {

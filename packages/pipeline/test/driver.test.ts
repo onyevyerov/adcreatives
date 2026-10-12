@@ -69,6 +69,8 @@ describe("driver — happy path through three checkpoints", () => {
       ]);
     }
     expect(h.messages().at(-1)).toContain("⚠");
+    // Тексти items сцени — під її рядком.
+    expect(h.messages().at(-1)).toContain("· Спешелті еспресо з молоком · 75 грн · -10%");
 
     // «Затвердити» записує непідтверджене як факт клієнта.
     await h.approve(1);
@@ -389,6 +391,14 @@ describe("driver — failures, duplicates, deferred messages, restart", () => {
 });
 
 describe("driver — fix/QA limits → template scenes", () => {
+  // Одне коло QA → fix (дефолт `Tuning.qaMaxRounds` — 2; два кола перевіряє machine.test.ts).
+  beforeEach(() => {
+    vi.stubEnv("ADC_QA_MAX_ROUNDS", "1");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("scene failing after 2 fix rounds becomes TemplateScene; one QA round; shown at checkpoint 3", async () => {
     const h = new Harness({
       behaviors: {

@@ -99,7 +99,8 @@ interface AssetRef { src: string; width: number; height: number; focal: { x: num
 ## Еталонні сцени
 
 `packages/motion-kit/examples/*.tsx` — 5 сцен-жанрів (hook з фото, оффер із ціною, типографічна сцена,
-proof, CTA з лого) і `device-reveal.tsx` (еталон девайсів). Компілюються в тестах і підставляються
+proof, CTA з лого), `device-reveal.tsx` (еталон девайсів) і `ui-demo.tsx` (еталон прийомів інтерфейсу:
+поле → скан → список із галочками + лічильник; тексти з `items`, моменти через `eventFrame`). Компілюються в тестах і підставляються
 в промпт `codegen` як зразки (через спільний префікс `prompts/motion-reference.md`).
 
 ## Зміни після Кроку 0 (B3, хвиля 1)
@@ -143,3 +144,33 @@ proof, CTA з лого) і `device-reveal.tsx` (еталон девайсів). 
 
 Префікс codegen: examples + `API.md` + `API.generated.md` зросли на ~14 % (80 384 → 91 936 байт).
 Посилання на девайси в `prompts/codegen.md` — окремо (B2b, хвиля 2).
+
+## Прийоми інтерфейсу й даних (ТЗ якості відео, B2)
+
+Контракт — `docs/superpowers/specs/2026-10-09-video-quality-tz.md`, §2.10: назви й мінімальні пропси заморожені,
+додавати можна лише необов'язкові пропси. Поведінка — `API.md`, розділ «Showing the product»; сигнатури —
+`API.generated.md`. Сумісно — лише додано експорти й необов'язкові пропси.
+
+- `Icon` + `IconName` / `ICON_NAMES` — 315 іконок lucide (усі 75 обов'язкових з §2.10 + загальновживані й нішеві: медицина, освіта, нерухомість, транспорт, їжа, спорт, пристрої, дії інтерфейсу),
+  шляхи вбудовані як дані (`src/icons/`, ISC — `src/icons/LICENSE-lucide`); `draw` — `pathLength=1` + dasharray.
+- `numberIn(text)` — перше число тексту без знака (`findNumber`/`odometer` — внутрішні, `src/ui/number.ts`).
+- `CountUp`, `Ring`, `Bars` (`src/ui/data.tsx`); `UICard`, `Checkbox`, `Checklist`, `InputField`, `Cursor`
+  (`src/ui/widgets.tsx`); `ScanLine`, `Flash`, `Glow`, `Strike` (`src/ui/effects.tsx`); реекспорт `eventFrame`.
+- Необов'язкові пропси понад §2.10: `CountUp.easing`; `Ring.total/durationFrames/track/style`;
+  `Bars.max/color/highlight/gap/style`; `UICard.title/icon/width`; `Checkbox.style`;
+  `Checklist.checkAt/fontSize/color/checkColor/style`; `InputField.fontSize/style`; `Cursor.size/style`;
+  `ScanLine.color/trail`; `Glow.startFrame/style`; `Strike.angle/dim/style`. `Cursor.clickAt` приймає
+  також масив кадрів (`number | readonly number[]`) — розширення типу, старі виклики з числом сумісні.
+- Текст у `CountUp` і `InputField` іде через внутрішній блок `TextBlock` (той самий, що й у `FitText`;
+  новий внутрішній проп `glyphs` підміняє символи без зміни розкладки — одометр і друк), QA-логи —
+  з `component` `CountUp` / `InputField`; у `Checklist`, `UICard` (заголовок) і кнопці `InputField` — `FitText`.
+- `color` нових прийомів — роль палітри або CSS-колір (`paint()`), дефолти — з теми.
+- Фікс `highlight` (`TextBlock`): одна плашка на фразу `emphasis` у рядку (`emphasisPhrases` у `text/layout.ts`),
+  відступ 0.1 em вліво, вправо й униз від бокса слів (виносні елементи не торкаються краю).
+
+Інваріанти (перевіряє `test/ui.test.tsx`): той самий кадр → та сама розмітка для кожного прийому;
+`Checkbox` до `checkedAt` без галочки; `CountUp` з кадру `startFrame + durationFrames` — рівно `text`;
+невідома `IconName` — помилка типу (`@ts-expect-error` у тесті під `tsc`); `highlight` — один прямокутник
+на фразу; `ui-demo` рендериться в трьох форматах, а без потрібної події падає з помилкою `eventFrame`.
+
+Префікс codegen: examples + `API.md` + `API.generated.md` зросли на ~36 % (91 936 → 125 292 байти).

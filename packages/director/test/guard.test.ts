@@ -1,5 +1,7 @@
+import { allowedScreenTexts } from "@adc/shared";
+import { fixtureBrandKit, fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
-import { guardScene } from "../src/guard.ts";
+import { guardScene, normalizeScreenText } from "../src/guard.ts";
 import { exampleSources } from "./helpers.ts";
 
 const rules = (code: string) => guardScene(code).violations.map((v) => v.rule);
@@ -96,5 +98,96 @@ describe("guardScene", () => {
     const res = guardScene(scene(`const d = Date.now();\nreturn <div>{d}</div>;`));
     expect(res.ok).toBe(false);
     expect(res.violations[0]).toMatchObject({ rule: "forbidden_global", line: 4 });
+  });
+
+  describe("allowedTexts: тексти в кадрі лише з розкадровки", () => {
+    const offer = fixtureStoryboard.scenes[1];
+    if (!offer) throw new Error("фікстура без s2");
+    const allowed = allowedScreenTexts(offer, fixtureBrandKit);
+    const texts = (code: string, list: readonly string[] = allowed) =>
+      guardScene(code, { allowedTexts: list })
+        .violations.filter((v) => v.rule === "screen_text")
+        .map((v) => v.message);
+
+    it.each(Object.entries(exampleSources()))("еталон %s проходить з текстами сцени", (_name, code) => {
+      expect(guardScene(code, { allowedTexts: allowed }).violations).toEqual([]);
+    });
+
+    it("відхиляє вигаданий текст; пропускає дані сцени і символи", () => {
+      expect(texts(scene(`return <div>Найкращий сервіс</div>;`))).toHaveLength(1);
+      expect(texts(scene(`return <div>Найкращий сервіс</div>;`))[0]).toMatch(/Найкращий сервіс/);
+      expect(texts(scene(`return <div>{props.scene.items[0].text}</div>;`))).toEqual([]);
+      expect(texts(scene(`return <span>•</span>;`))).toEqual([]);
+      expect(texts(scene(`return <p>{"—"} {"→"} %</p>;`))).toEqual([]);
+      expect(texts(scene(`return <div>{props.brand.cta.text}</div>;`))).toEqual([]);
+    });
+
+    it("дослівний збіг або підрядок; пробіли й переноси JSXText згортаються", () => {
+      expect(texts(scene(`return <div>Капучино — 75 грн</div>;`))).toEqual([]);
+      expect(texts(scene(`return <div>75 грн</div>;`))).toEqual([]);
+      expect(texts(scene(`return <div>\n      Спешелті   еспресо\n      з молоком\n    </div>;`))).toEqual(
+        [],
+      );
+      expect(texts(scene(`return <div>{"-10%"}</div>;`))).toEqual([]);
+      expect(texts(scene(`return <div>80 грн</div>;`))).toHaveLength(1);
+      expect(texts(scene(`return <div>{"Капучино"}</div>;`))).toEqual([]);
+      expect(texts(scene(`return <div>{"Лате"}</div>;`))).toHaveLength(1);
+      // апостроф і NFC
+      expect(normalizeScreenText("З\u2019їжте  \n тут")).toBe("З'їжте тут");
+      expect(texts(scene(`return <div>З'їжте</div>;`), ["З\u2019їжте тут"])).toEqual([]);
+    });
+
+    it("рядки-діти у виразах, шаблонах і текстових пропах", () => {
+      expect(
+        texts(scene(`return <div>{props.scene.text.sub ? props.scene.text.sub : "Скоро"}</div>;`)),
+      ).toHaveLength(1);
+      expect(texts(scene(`return <div>{props.scene.text.sub ?? "Скоро"}</div>;`))).toHaveLength(1);
+      // шаблонний рядок дитиною JSX: перевіряються його статичні частини
+      const tpl = (tail: string) => scene(`const n = 5; return <div>{\`\${n} ${tail}\`}</div>;`);
+      expect(texts(tpl("відгуків"))).toHaveLength(1);
+      expect(texts(tpl("грн"))).toEqual([]);
+      expect(
+        texts(
+          scene(
+            `return <Headline text="Найкращий сервіс" />;`,
+            `import { Headline } from "@adc/motion-kit";`,
+          ),
+        ),
+      ).toHaveLength(1);
+      expect(
+        texts(
+          scene(
+            `return <InputField text={"webreport.io"} placeholder="Введіть адресу" typeStart={0} width={600} />;`,
+            `import { InputField } from "@adc/motion-kit";`,
+          ),
+        ),
+      ).toHaveLength(2);
+      expect(
+        texts(
+          scene(
+            `return <Checklist items={["75 грн", "Безкоштовно"]} startFrame={0} width={600} />;`,
+            `import { Checklist } from "@adc/motion-kit";`,
+          ),
+        ),
+      ).toHaveLength(1);
+      // не-текстові пропи й рядки поза кадром не перевіряються
+      expect(
+        texts(
+          scene(
+            `const role = "number"; return <Icon name="shield-check" size={80} color="accent" />;`,
+            `import { Icon } from "@adc/motion-kit";`,
+          ),
+        ),
+      ).toEqual([]);
+      expect(
+        texts(scene(`return <div style={{ fontFamily: "Inter" }}>{props.scene.text.headline}</div>;`)),
+      ).toEqual([]);
+    });
+
+    it("без allowedTexts — тексти не перевіряються; порожній список — заборонено будь-який", () => {
+      expect(rules(scene(`return <div>Найкращий сервіс</div>;`))).toEqual([]);
+      expect(texts(scene(`return <div>Будь-що</div>;`), [])).toHaveLength(1);
+      expect(texts(scene(`return <div>•</div>;`), [])).toEqual([]);
+    });
   });
 });

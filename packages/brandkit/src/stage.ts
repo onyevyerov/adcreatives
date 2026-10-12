@@ -56,7 +56,7 @@ function llmToStageError(err: unknown, what: string): never {
   throw err;
 }
 
-/** Стадія `brandkit`: site.json + assets.json → brandkit/v<k>.json (перша — v1). */
+/** Стадія `brandkit`: site.json + assets.json → brandkit/v<k>.json (перша — v1) і brandkit/site-text.txt. */
 export function createBrandkitStage(opts: BrandkitStageOptions = {}): Stage<"brandkit"> {
   const now = opts.now ?? (() => new Date());
   return async (ctx: StageContext<"brandkit">) => {
@@ -117,7 +117,9 @@ export function createBrandkitStage(opts: BrandkitStageOptions = {}): Stage<"bra
     });
     const key = paths.brandkit(version);
     await storage.writeJson(key, file);
-    artifacts.unshift(key);
+    // Той самий текст сайту, що бачив бренд-кіт, — для сценариста (storyboard) і перевірки тверджень.
+    await storage.write(paths.siteText, input.siteText);
+    artifacts.unshift(key, paths.siteText);
     if (fin.fixes.length) ctx.logger.info("brandkit: програмні виправлення", { fixes: fin.fixes });
 
     return {

@@ -1,3 +1,4 @@
+import { compressSiteText } from "@adc/brandkit";
 import {
   type Asset,
   type BrandKit,
@@ -6,9 +7,11 @@ import {
   type Format,
   inputsHash,
   type ProjectState,
+  projectPaths,
   revPaths,
   SceneId,
   SceneText,
+  SiteData,
   type Stage,
   type StageContext,
   type Storage,
@@ -33,9 +36,17 @@ import { type NormalizeResult, normalizeStoryboard, type TextIssue } from "../no
 export const STORYBOARD_PROMPT = "storyboard";
 export const STORYBOARD_COPYFIX_PROMPT = "storyboard-copyfix";
 
-/** Відповідь `storyboard-copyfix`: нові тексти лише проблемних сцен (поля — як `Scene.text`). */
+/**
+ * Відповідь `storyboard-copyfix`: нові тексти лише проблемних сцен (поля — як `Scene.text`)
+ * і нові тексти лише тих `items`, що порушили ліміт (за id пункту).
+ */
 export const StoryboardCopyfix = z.object({
-  scenes: z.array(SceneText.extend({ id: SceneId })),
+  scenes: z.array(
+    SceneText.extend({
+      id: SceneId,
+      items: z.array(z.object({ id: z.string(), text: z.string() })).default([]),
+    }),
+  ),
 });
 export type StoryboardCopyfix = z.infer<typeof StoryboardCopyfix>;
 
@@ -160,10 +171,12 @@ export function copyfixVars(
           headline: s.text.headline,
           sub: s.text.sub,
           emphasis: s.text.emphasis,
+          items: s.items.map((i) => ({ id: i.id, role: i.role, text: i.text, factIds: i.factIds })),
           factIds: s.factIds,
           limits,
-          issues: own.map(({ field, format, kind, actual, limit }) => ({
+          issues: own.map(({ field, itemId, format, kind, actual, limit }) => ({
             field,
+            ...(itemId ? { itemId } : {}),
             format,
             kind,
             actual,
@@ -175,7 +188,10 @@ export function copyfixVars(
   };
 }
 
-/** Нові тексти лише для `sceneIds`; решта сцен і полів розкадровки — ті самі об'єкти. */
+/**
+ * Нові тексти лише для `sceneIds`; у `items` — лише текст наявних пунктів (id, роль, група, події ті самі).
+ * Решта сцен і полів розкадровки — ті самі об'єкти.
+ */
 export function mergeCopyfix(
   sb: Storyboard,
   fix: StoryboardCopyfix,
@@ -186,9 +202,28 @@ export function mergeCopyfix(
     ...sb,
     scenes: sb.scenes.map((scene) => {
       const f = byId.get(scene.id);
-      return f ? { ...scene, text: { headline: f.headline, sub: f.sub, emphasis: f.emphasis } } : scene;
+      if (!f) return scene;
+      const texts = new Map((f.items ?? []).filter((i) => i.text.trim()).map((i) => [i.id, i.text]));
+      return {
+        ...scene,
+        text: { headline: f.headline, sub: f.sub, emphasis: f.emphasis },
+        items: texts.size
+          ? scene.items.map((i) => (texts.has(i.id) ? { ...i, text: texts.get(i.id) as string } : i))
+          : scene.items,
+      };
     }),
   };
+}
+
+/**
+ * Текст сайту, який бачив бренд-кіт (`brandkit/site-text.txt`). Старі проєкти без файла —
+ * те саме стиснення з `crawl/site.json`; немає й його — порожній рядок.
+ */
+export async function readSiteText(storage: Storage, projectId: string): Promise<string> {
+  const paths = projectPaths(projectId);
+  if (await storage.exists(paths.siteText)) return storage.readText(paths.siteText);
+  const site = await readOptional(storage, paths.site, (v) => SiteData.parse(v));
+  return site ? compressSiteText(site).text : "";
 }
 
 async function storyboardInputs(storage: Storage, projectId: string, paramsDuration: number | null) {
@@ -198,11 +233,12 @@ async function storyboardInputs(storage: Storage, projectId: string, paramsDurat
   const formats = formatsOf(project);
   const language = project?.language ?? brandFile.identity.language;
   const durationSeconds = paramsDuration ?? project?.durationSeconds ?? null;
-  return { project, brandFile, manifest, formats, language, durationSeconds };
+  const siteText = await readSiteText(storage, projectId);
+  return { project, brandFile, manifest, formats, language, durationSeconds, siteText };
 }
 
 function briefHash(input: Awaited<ReturnType<typeof storyboardInputs>>, promptHash: string): string {
-  const { brandFile, manifest, formats, language, durationSeconds, project } = input;
+  const { brandFile, manifest, formats, language, durationSeconds, project, siteText } = input;
   const { createdAt: _c, version: _v, origin: _o, fixes: _f, ...brand } = brandFile;
   return inputsHash({
     brand,
@@ -211,6 +247,7 @@ function briefHash(input: Awaited<ReturnType<typeof storyboardInputs>>, promptHa
     formats,
     language,
     durationSeconds,
+    site: siteText,
     prompt: promptHash,
   });
 }
@@ -225,13 +262,14 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
     await progress(ctx, "storyboard", t("scriptProgress"));
 
     const input = await storyboardInputs(storage, projectId, ctx.params.durationSeconds);
-    const { brandFile, manifest, formats, language, durationSeconds: duration } = input;
+    const { brandFile, manifest, formats, language, durationSeconds: duration, siteText } = input;
     const assetIds = knownAssetIds(brandFile, manifest);
 
     const vars = {
       language,
       formats: formats.join(", "),
       durationRule: durationRule(duration),
+      site: siteText.trim() || "(текст сайту недоступний — працюй з <brand> і <facts>)",
       brand: brandForScript(brandFile),
       facts: brandFile.facts,
       assets: assetsForPrompt(brandFile, manifest),
@@ -256,7 +294,7 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
         await storage.copy(bp.claims, rp.claims);
         await storage.copy(directorPaths(projectId, base).storyboardMeta, dp.storyboardMeta);
         const sb = await storage.readJson(rp.storyboard, (v) => Storyboard.parse(v));
-        const claims = verifyClaims(sb, brandFile, { now: now() });
+        const claims = verifyClaims(sb, brandFile, { now: now(), siteText });
         ctx.logger.info("розкадровку взято з попередньої ревізії", { base });
         return {
           artifacts: [rp.storyboard, rp.claims],
@@ -327,7 +365,7 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
       }
     }
 
-    const claims = verifyClaims(result.storyboard, brandFile, { now: now() });
+    const claims = verifyClaims(result.storyboard, brandFile, { now: now(), siteText });
     await storage.writeJson(rp.storyboard, result.storyboard);
     await storage.writeJson(rp.claims, claims);
     const meta: StoryboardMeta = {

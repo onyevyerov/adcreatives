@@ -26,6 +26,8 @@ export interface BrandkitInput {
   /** Номер на контакт-листі → assetId. */
   sheetNumbers: Map<number, string>;
   screenshotKeys: string[];
+  /** Стиснений текст сайту (`<page>…</page>`), який пішов у промпт; стадія пише його в `brandkit/site-text.txt`. */
+  siteText: string;
   textTokens: number;
   textTruncated: boolean;
 }
@@ -135,6 +137,7 @@ export async function buildBrandkitInput(
     sheet,
     sheetNumbers,
     screenshotKeys,
+    siteText: text.text,
     textTokens: text.tokens,
     textTruncated: text.truncated,
   };

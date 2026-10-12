@@ -17,8 +17,9 @@ import {
 const ex = exampleSources();
 const CODE: Record<string, string> = { s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] };
 
-/** Стадія з `Tuning` з цього env (дефолти — погоджена конфігурація: fanout, high / high). */
-const stageWith = (env: Record<string, string> = {}) => createCodegenStage({ tuning: () => readTuning(env) });
+/** Стадія у режимі `fanout` (відкат через env) з `Tuning` з цього env (решта — дефолти: high / high). */
+const stageWith = (env: Record<string, string> = {}) =>
+  createCodegenStage({ tuning: () => readTuning({ ADC_CODEGEN_MODE: "fanout", ...env }) });
 const fanoutStage = stageWith();
 /** Решта сцен на нижчому effort, ніж anchor — щоб тести розрізняли виклики. */
 const mediumRestStage = stageWith({ ADC_CODEGEN_REST_EFFORT: "medium" });

@@ -173,6 +173,60 @@ describe("crawlSite на фікстурі", () => {
   });
 });
 
+describe("текст сторінки: розкриття згорнутого і блоки", () => {
+  let text = "";
+
+  beforeAll(async () => {
+    const res = await crawlSite(`${servers.origin}/faq/`, {
+      ...net,
+      storage: tmpStorage(),
+      projectId: "p5",
+      maxPages: 1,
+    });
+    text = res.site.pages[0]?.text ?? "";
+  }, 60_000);
+
+  const lines = () => text.split("\n");
+
+  it("відповіді FAQ-акордеона, що рендеряться лише після кліку (один відкритий пункт), є в тексті", () => {
+    expect(text).toContain("Так, щодня з 8:00 до 21:00 без вихідних.");
+    expect(text).toContain("Безкоштовна доставка від 500 грн у межах центру.");
+    expect(text).toContain("Так, можна оплатити карткою або Apple Pay.");
+    // Порядок документа: питання — одразу перед своєю відповіддю.
+    const l = lines();
+    expect(l[l.indexOf("Чи є доставка?") + 1]).toBe("Безкоштовна доставка від 500 грн у межах центру.");
+  });
+
+  it("<details> відкрито, усі вкладки (mousedown, вміст лише активної) зібрано", () => {
+    expect(text).toContain("Столик тримаємо 15 хвилин після початку броні.");
+    expect(text).toContain("Еспресо, американо, капучино.");
+    expect(text).toContain("Круасани з мигдалем щоранку.");
+    expect(text).toContain("Сирники зі сметаною до 12:00.");
+    const l = lines();
+    expect(l[l.indexOf("Випічка") + 1]).toBe("Круасани з мигдалем щоранку.");
+  });
+
+  it("блоки — окремі рядки: заголовки з #, пункти списків, рядки таблиць через |, без склеєних слів", () => {
+    expect(lines()).toEqual(
+      expect.arrayContaining([
+        "# Питання й відповіді",
+        "### Audit",
+        "Комплексний аудит кав'ярні за 3 дні",
+        "Нове Хіт",
+        "Обсмажування",
+        "Перший крок",
+        "Другий крок",
+        "Тариф | Ціна",
+        "Starter | $10/міс",
+        "Pro | $40/міс",
+      ]),
+    );
+    expect(text).not.toMatch(/AuditКомплексний|НовеХіт|ХітОбсмажування|крокДругий/);
+    expect(text).not.toContain("Footer text");
+    expect(text).not.toContain("Про нас");
+  });
+});
+
 describe("безпека й збої", () => {
   it("блокує редирект на 127.0.0.1 і не доходить до внутрішнього сервісу", async () => {
     const hitsBefore = servers.internalHits.length;

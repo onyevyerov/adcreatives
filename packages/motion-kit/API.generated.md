@@ -21,6 +21,8 @@ export type { BrandKit, MotionPersonality, Palette } from "@adc/shared/schemas/b
 export type { Format } from "@adc/shared/schemas/common";
 export type { AutoIssueKind, QaLogEntry } from "@adc/shared/schemas/qa";
 export type { Scene, ScenePurpose, Storyboard } from "@adc/shared/schemas/storyboard";
+/** Локальний кадр події сцени (`props.scene.events`); невідомий id — помилка рендеру. */
+export { eventFrame } from "@adc/shared/timeline";
 export type { AssetRef, AudioManifest, MainProps, ScenePreviewProps, SceneProps, } from "@adc/shared/types/video";
 export { averageColor, contrastRatio, isDark, minContrastFor, mix, parseColor, readableOn, relativeLuminance, withAlpha, } from "./color.ts";
 export { Breathe, useBeat } from "./devices/motion.tsx";
@@ -30,14 +32,19 @@ export { type FontInfo, type FontPlan, fontStack, planFont, pruneFontInfo } from
 export { FORMAT_SIZE, type FormatInfo, formatFromSize, formatInfoFor, isInsideRect, type Rect, SAFE_MARGINS, SafeArea, sizeForFormat, useFormat, } from "./format.tsx";
 export { MusicTrack, musicVolumeAt, Sfx } from "./host/audio.tsx";
 export { firstAvailableAsset, TEMPLATE_VARIANTS, TemplateScene, type TemplateVariant, templateVariantFor, } from "./host/TemplateScene.tsx";
+export { ICON_NAMES, Icon, type IconName } from "./icons/Icon.tsx";
 export { Backdrop, type BackdropProps } from "./media/Backdrop.tsx";
 export { BrandImage, type BrandImageProps, coverScale, type KenBurns, type Mask, UPSCALE_LIMIT, } from "./media/BrandImage.tsx";
 export { Logo, type LogoProps } from "./media/Logo.tsx";
 export { defaultStagger, type EasingFn, easings, progress, type SpringConfig, springFor, springs, } from "./motion.ts";
 export { parseQaLog, QaProvider, qaLog, useQaEnabled } from "./qa.tsx";
 export { Body, CTAButton, FitText, Headline, KineticText, Pill, type TextAlign, type TextPreset, } from "./text/components.tsx";
-export { type FitResult, fitText, type Measurer, markEmphasis, normalizeWord, splitWords, wrapWords, } from "./text/layout.ts";
+export { emphasisPhrases, type FitResult, fitText, type Measurer, markEmphasis, normalizeWord, splitWords, wrapWords, } from "./text/layout.ts";
 export { AssetsProvider, bodyWeight, buildTheme, headingWeight, SceneDurationProvider, type Theme, ThemeProvider, useAssets, useBrand, useTheme, } from "./theme.tsx";
+export { Bars, CountUp, Ring, type TextStyleProps } from "./ui/data.tsx";
+export { Flash, Glow, ScanLine, Strike } from "./ui/effects.tsx";
+export { numberIn } from "./ui/number.ts";
+export { Checkbox, Checklist, Cursor, type CursorPoint, InputField, UICard } from "./ui/widgets.tsx";
 ```
 
 ## Формат і safe-зона
@@ -266,9 +273,20 @@ export declare function CTAButton(props: {
 `src/text/TextBlock`
 
 ```ts
-import { type CSSProperties } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 export type TextPreset = "rise" | "fade" | "scale" | "highlight" | "typewriter";
 export type TextAlign = "left" | "center" | "right";
+/**
+ * Внутрішнє (CountUp, InputField): як намалювати символ тексту з індексом `index`, не змінюючи
+ * розкладки. `ch` — інший символ на тому ж місці, `hidden` — символ тримає місце, але невидимий,
+ * `before`/`after` — вузли нульової ширини поруч (каретка).
+ */
+export interface Glyph {
+    ch?: string;
+    hidden?: boolean;
+    before?: ReactNode;
+    after?: ReactNode;
+}
 export interface TextBlockProps {
     text: string;
     maxLines: number;
@@ -286,6 +304,8 @@ export interface TextBlockProps {
     by?: "word" | "line";
     startFrame?: number;
     stagger?: number;
+    /** Внутрішнє: підміна символів за індексом у `text` (null — символ як є). */
+    glyphs?: (index: number) => Glyph | null;
     /** Назва компонента для QA-логів. */
     component: string;
 }
@@ -454,6 +474,393 @@ export declare function readableOn(background: string, palette?: {
 }): string;
 ```
 
+## Девайси: useBeat, Breathe
+
+`src/devices/motion`
+
+```ts
+import type { CSSProperties, ReactNode } from "react";
+import { type EasingFn, type SpringConfig } from "../motion.ts";
+/** 0→1 від кадру `at`: пружина бренду або progress за `duration` (clamp). */
+export declare function useBeat(at: number, opts?: {
+    duration?: number;
+    easing?: EasingFn;
+    config?: SpringConfig;
+}): number;
+/** Шар на весь кадр, що «дихає» з `startFrame` (масштаб і зсув по косинусу). */
+export declare function Breathe(props: {
+    startFrame?: number;
+    period?: number;
+    amount?: number;
+    drift?: number;
+    style?: CSSProperties;
+    children?: ReactNode;
+}): import("react").JSX.Element;
+```
+
+## Девайси: ColorField, ClipReveal
+
+`src/devices/reveal`
+
+```ts
+import type { Palette } from "@adc/shared/schemas/brandkit";
+import type { CSSProperties, ReactNode } from "react";
+import { type EasingFn } from "../motion.ts";
+export type Side = "left" | "right" | "top" | "bottom";
+/** Поле кольору палітри: wipe / split / push кадру. */
+export declare function ColorField(props: {
+    mode?: "wipe" | "split" | "push";
+    color?: keyof Palette;
+    from?: Side;
+    startFrame?: number;
+    duration?: number;
+    /** 0–1. */
+    cover?: number;
+    exitFrame?: number;
+    easing?: EasingFn;
+    children?: ReactNode;
+}): import("react").JSX.Element;
+/** Відкриває дітей через clip-path. */
+export declare function ClipReveal(props: {
+    shape?: "inset" | "circle" | "polygon";
+    from?: Side | "center";
+    startFrame?: number;
+    duration?: number;
+    easing?: EasingFn;
+    style?: CSSProperties;
+    children?: ReactNode;
+}): import("react").JSX.Element;
+```
+
+## Девайси: DrawPath, MorphShape
+
+`src/devices/shape`
+
+```ts
+import type { Palette } from "@adc/shared/schemas/brandkit";
+import { type CSSProperties, type ReactNode } from "react";
+import { type EasingFn } from "../motion.ts";
+/** SVG-лінія, що малюється (evolvePath). */
+export declare function DrawPath(props: {
+    d: string;
+    width: number;
+    height: number;
+    viewBox?: string;
+    color?: keyof Palette;
+    strokeWidth?: number;
+    startFrame?: number;
+    duration?: number;
+    easing?: EasingFn;
+    /** Може виходити за safe-зону (без QA-перевірки). */
+    bleed?: boolean;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+/** Ключовий стан MorphShape, px. */
+export interface MorphKey {
+    /** Старт переходу в цей стан; дефолт — старт попереднього + duration. */
+    at?: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    radius?: number;
+    color?: keyof Palette;
+}
+/** Заокруглена форма між ключовими станами. */
+export declare function MorphShape(props: {
+    keys: MorphKey[];
+    duration?: number;
+    easing?: EasingFn;
+    /** Може виходити за safe-зону (без QA-перевірки). */
+    bleed?: boolean;
+    style?: CSSProperties;
+    children?: ReactNode;
+}): import("react").JSX.Element;
+```
+
+## Іконки: Icon
+
+`src/icons/Icon`
+
+```ts
+import type { CSSProperties } from "react";
+import { ICON_NAMES, type IconName } from "./names.ts";
+export { ICON_NAMES, type IconName };
+/** Іконка lucide (вбудовані шляхи, сітка 24×24); `draw` 0..1 — промальовування штрихів. */
+export declare function Icon(props: {
+    name: IconName;
+    size: number;
+    color?: string;
+    strokeWidth?: number;
+    draw?: number;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+```
+
+## Іконки: назви (IconName)
+
+`src/icons/names`
+
+```ts
+/**
+ * Назви вбудованих іконок lucide (union-тип IconName).
+ * Дані — з lucide-react 0.462.0 (https://lucide.dev, ліцензія ISC — див. LICENSE-lucide поруч):
+ * сітка 24×24, штрихи; circle/rect/line/polyline/polygon/ellipse переведені в еквівалентні шляхи `d`.
+ * Згенеровано одноразово; щоб додати іконку — допиши назву в ICON_NAMES і її шляхи в ICON_PATHS.
+ */
+export declare const ICON_NAMES: readonly ["check", "x", "alert-triangle", "alert-circle", "info", "shield-check", "lock", "search", "globe", "link", "mouse-pointer-2", "settings", "bell", "plus", "minus", "arrow-right", "arrow-up-right", "chevron-right", "refresh-cw", "download", "upload", "play", "file-text", "file-check", "clipboard-list", "list-checks", "bar-chart-3", "pie-chart", "trending-up", "trending-down", "gauge", "target", "layers", "layout-grid", "clock", "timer", "calendar", "zap", "rocket", "dollar-sign", "percent", "tag", "credit-card", "wallet", "gift", "shopping-cart", "shopping-bag", "package", "truck", "users", "user", "message-circle", "mail", "phone", "star", "heart", "thumbs-up", "award", "sparkles", "map-pin", "building-2", "home", "store", "coffee", "utensils", "car", "scissors", "dumbbell", "stethoscope", "graduation-cap", "camera", "smartphone", "monitor", "code", "bot", "circle-check", "circle-x", "check-check", "arrow-left", "arrow-down", "arrow-up", "chevron-down", "mouse-pointer-click", "eye", "image", "video", "music", "mic", "headphones", "send", "share-2", "cloud", "database", "server", "wifi", "activity", "line-chart", "sliders-horizontal", "filter", "hourglass", "languages", "badge-check", "banknote", "piggy-bank", "hand-coins", "receipt", "calculator", "briefcase", "handshake", "lightbulb", "megaphone", "trophy", "crown", "flag", "key", "fingerprint", "scan", "qr-code", "bug", "puzzle", "smile", "box", "flame", "leaf", "sun", "moon", "plane", "bike", "paw-print", "baby", "shirt", "gem", "palette", "brush", "wrench", "hammer", "bed", "pizza", "wine", "cake", "flower-2", "pill", "syringe", "heart-pulse", "brain", "thermometer", "bandage", "hospital", "microscope", "book-open", "book", "notebook-pen", "pencil", "pen-tool", "school", "library", "presentation", "laptop", "tablet", "printer", "watch", "battery-charging", "plug", "cpu", "keyboard", "tv", "gamepad-2", "headset", "building", "factory", "hotel", "bath", "sofa", "armchair", "key-round", "door-open", "warehouse", "tent", "mountain", "tree-palm", "plane-takeoff", "train-front", "bus", "ship", "map", "compass", "navigation", "route", "luggage", "ticket", "fuel", "car-front", "landmark", "coins", "scale", "stamp", "calendar-check", "calendar-clock", "calendar-days", "alarm-clock", "history", "user-plus", "user-check", "users-round", "contact", "id-card", "circle-user", "trash-2", "square-pen", "copy", "save", "folder", "folder-open", "archive", "inbox", "paperclip", "external-link", "log-in", "log-out", "maximize-2", "move", "rotate-ccw", "repeat", "shuffle", "infinity", "loader", "ellipsis", "menu", "toggle-right", "list", "list-ordered", "table", "kanban", "layout-dashboard", "mouse", "hand", "pointer", "scan-line", "circle-dot", "square-check", "circle-plus", "ban", "shield", "shield-alert", "eye-off", "lock-open", "bell-ring", "message-square", "messages-square", "at-sign", "hash", "share", "rss", "bluetooth", "signal", "droplet", "droplets", "snowflake", "cloud-rain", "wind", "umbrella", "recycle", "trees", "sprout", "earth", "apple", "beef", "fish", "salad", "soup", "croissant", "ice-cream-cone", "cup-soda", "beer", "chef-hat", "cooking-pot", "egg", "carrot", "cherry", "glasses", "sparkle", "wand-sparkles", "footprints", "shopping-basket", "medal", "music-2", "party-popper", "film", "clapperboard", "mic-vocal", "newspaper", "sticker", "badge-percent", "badge-dollar-sign", "gavel", "dog", "cat", "bird", "heart-handshake", "hand-heart", "life-buoy", "construction", "hard-hat", "drill", "paintbrush", "paint-roller", "ruler", "plug-zap", "bot-message-square", "mail-check", "phone-call", "thumbs-down", "sunrise", "moon-star", "flower"];
+/** Назва іконки lucide; невідома назва — помилка типу. */
+export type IconName = (typeof ICON_NAMES)[number];
+```
+
+## Іконки: шляхи (дані lucide)
+
+`src/icons/paths`
+
+```ts
+/**
+ * Шляхи вбудованих іконок lucide.
+ * Дані — з lucide-react 0.462.0 (https://lucide.dev, ліцензія ISC — див. LICENSE-lucide поруч):
+ * сітка 24×24, штрихи; circle/rect/line/polyline/polygon/ellipse переведені в еквівалентні шляхи `d`.
+ * Згенеровано одноразово; щоб додати іконку — допиши назву в ICON_NAMES і її шляхи в ICON_PATHS.
+ */
+import type { IconName } from "./names.ts";
+/** Шляхи SVG кожної іконки (viewBox 0 0 24 24, штрих без заливки). */
+export declare const ICON_PATHS: Readonly<Record<IconName, readonly string[]>>;
+```
+
+## Числа з текстів: numberIn
+
+`src/ui/number`
+
+```ts
+/**
+ * Числа в текстах сцени: перше число рядка (для графіків і лічильника) і «одометр» —
+ * проміжне значення, записане символ у символ на місці кінцевого числа.
+ * Чисті функції — працюють і в браузері, і в Node.
+ */
+/** Число, знайдене в тексті. */
+export interface NumberMatch {
+    value: number;
+    /** Індекс першого символу числа в тексті. */
+    start: number;
+    /** Індекс після останнього символу. */
+    end: number;
+    /** Цифр після десяткового розділювача. */
+    decimals: number;
+}
+/**
+ * Перше число в тексті, без знака. «1 200», «1,200», «1.200» — тисяча двісті; «4,9» і «4.9» — 4.9;
+ * «0.125» — дріб. Немає цифр → null.
+ */
+export declare function findNumber(text: string): NumberMatch | null;
+/** Перше число в тексті: `"~50 перевірок"` → 50, `"від $300–2000"` → 300, без цифр → null. */
+export declare function numberIn(text: string): number | null;
+/** Символ числа-одометра: цифра чи розділювач на місці символу кінцевого числа. */
+export interface OdometerChar {
+    ch: string;
+    /** Провідний нуль чи розділювач перед ним: тримає місце, але невидимий. */
+    hidden: boolean;
+}
+/**
+ * Значення `value` (0 ≤ value ≤ кінцеве), записане у форму кінцевого числа `final` (рядок із тексту):
+ * стільки ж символів, ті самі розділювачі на тих самих місцях, зайві провідні цифри — приховані
+ * нулі. Тож розкладка тексту не змінюється, поки лічильник біжить.
+ */
+export declare function odometer(final: string, value: number, decimals: number): OdometerChar[];
+```
+
+## Дані: CountUp, Ring, Bars
+
+`src/ui/data`
+
+```ts
+import { type CSSProperties, type ReactNode } from "react";
+import { type EasingFn } from "../motion.ts";
+import { type TextAlign } from "../text/TextBlock.tsx";
+/** Оформлення тексту прийому (усе необов'язкове; розміри — px). */
+export interface TextStyleProps {
+    /** Дефолт залежить від компонента. */
+    maxFontSize?: number;
+    minFontSize?: number;
+    maxLines?: number;
+    /** Ширина блока тексту, дефолт — ширина safe-зони. */
+    width?: number;
+    font?: "heading" | "body";
+    weight?: number;
+    color?: string;
+    align?: TextAlign;
+    style?: CSSProperties;
+}
+/** Лічильник: перше число в `text` біжить від 0 до свого значення; з `startFrame + durationFrames` — рівно `text`. */
+export declare function CountUp(props: {
+    text: string;
+    startFrame: number;
+    durationFrames: number;
+    easing?: EasingFn;
+} & TextStyleProps): import("react").JSX.Element;
+/** Кільцева діаграма: сегменти — частки `value / total` кола, малюються по черзі; `children` — у центрі. */
+export declare function Ring(props: {
+    segments: {
+        value: number;
+        color?: string;
+    }[];
+    startFrame: number;
+    stagger?: number;
+    size: number;
+    thickness?: number;
+    children?: ReactNode;
+    total?: number;
+    durationFrames?: number;
+    /** Колір доріжки під сегментами; дефолт — primary з прозорістю 0.15. */
+    track?: string;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+/** Стовпчики у масштабі `max`, ростуть по черзі пружиною бренду. */
+export declare function Bars(props: {
+    values: number[];
+    startFrame: number;
+    stagger?: number;
+    width: number;
+    height: number;
+    direction?: "vertical" | "horizontal";
+    max?: number;
+    color?: string;
+    /** Індекс стовпчика, виділеного кольором accent. */
+    highlight?: number;
+    /** Частка кроку між стовпчиками, 0..0.9 (дефолт 0.3). */
+    gap?: number;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+```
+
+## Інтерфейс: UICard, Checkbox, Checklist, InputField, Cursor
+
+`src/ui/widgets`
+
+```ts
+import { type CSSProperties, type ReactNode } from "react";
+import type { IconName } from "../icons/names.ts";
+/** Картка інтерфейсу на `surface`, заходить пружиною бренду; `title` — через FitText. */
+export declare function UICard(props: {
+    startFrame: number;
+    children: ReactNode;
+    accent?: string;
+    style?: CSSProperties;
+    title?: string;
+    icon?: IconName;
+    /** px; дефолт — ширина safe-зони (потрібна для підгонки заголовка). */
+    width?: number;
+}): import("react").JSX.Element;
+/** Чекбокс: до `checkedAt` порожній, з `checkedAt` — заливка й галочка. */
+export declare function Checkbox(props: {
+    checkedAt: number;
+    size: number;
+    color?: string;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+/** Список із галочками: рядки заходять по черзі, галочки ставляться о `checkFrom + i × checkStagger` або `checkAt[i]`. */
+export declare function Checklist(props: {
+    items: string[];
+    startFrame: number;
+    stagger?: number;
+    checkFrom?: number;
+    checkStagger?: number;
+    width: number;
+    /** Точні кадри галочок по пунктах (мають пріоритет над checkFrom/checkStagger). */
+    checkAt?: number[];
+    fontSize?: number;
+    /** Колір тексту, дефолт textOnLight. */
+    color?: string;
+    /** Колір чекбоксів, дефолт accent. */
+    checkColor?: string;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+/** Поле вводу: placeholder → друк `text` з `typeStart` → натиск кнопки о `pressAt`. */
+export declare function InputField(props: {
+    text: string;
+    placeholder?: string;
+    typeStart: number;
+    framesPerChar?: number;
+    buttonLabel?: string;
+    pressAt?: number;
+    width: number;
+    icon?: IconName;
+    fontSize?: number;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+/** Ключова точка курсора: позиція вістря (px, у найближчому позиційованому предку) на кадрі. */
+export interface CursorPoint {
+    x: number;
+    y: number;
+    frame: number;
+}
+/** Курсор миші: рух між точками `path`, клік о `clickAt`. */
+export declare function Cursor(props: {
+    path: CursorPoint[];
+    clickAt?: number | readonly number[];
+    size?: number;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+```
+
+## Ефекти: ScanLine, Flash, Glow, Strike
+
+`src/ui/effects`
+
+```ts
+import type { CSSProperties, ReactNode } from "react";
+/** Світна скан-лінія від `from` до `to` px з `startFrame` за `durationFrames`. */
+export declare function ScanLine(props: {
+    startFrame: number;
+    durationFrames: number;
+    from: number;
+    to: number;
+    axis?: "x" | "y";
+    thickness?: number;
+    color?: string;
+    trail?: number;
+}): import("react").JSX.Element | null;
+/** Спалах на весь кадр о `at`, згасає за `durationFrames`. */
+export declare function Flash(props: {
+    at: number;
+    durationFrames?: number;
+    color?: string;
+    strength?: number;
+}): import("react").JSX.Element | null;
+/** Світіння навколо `children`; `pulse` — дихає. */
+export declare function Glow(props: {
+    children: ReactNode;
+    strength?: number;
+    color?: string;
+    pulse?: boolean;
+    startFrame?: number;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+/** Закреслення `children` лінією з `at` за `durationFrames`. */
+export declare function Strike(props: {
+    at: number;
+    durationFrames?: number;
+    color?: string;
+    thickness?: number;
+    children: ReactNode;
+    angle?: number;
+    dim?: number;
+    style?: CSSProperties;
+}): import("react").JSX.Element;
+```
+
+## Колір прийому (внутрішнє)
+
+`src/ui/paint`
+
+```ts
+import type { Palette } from "@adc/shared/schemas/brandkit";
+import type { Theme } from "../theme.tsx";
+/** Колір прийому: роль палітри (`"accent"`, `"surface"`…) → колір теми; інший рядок — CSS-колір як є. */
+export declare function paint(theme: Theme, color: string | undefined, fallback: keyof Palette): string;
+```
+
 ## QA-режим (лише хост)
 
 `src/qa`
@@ -523,12 +930,19 @@ export declare function TemplateScene(props: SceneProps & {
 import type { AudioManifest } from "@adc/shared/types/video";
 /** Гучність музики з fade-out наприкінці ролика (чиста функція від кадру). */
 export declare function musicVolumeAt(frame: number, totalFrames: number, fadeOutFrames: number, volume: number): number;
-/** Лише для хоста: музика ролика з fade-out наприкінці; довший трек підрізається. */
+/**
+ * Лише для хоста: звук ролика. Є готове зведення (`audio.mix`) — грає лише його, як є:
+ * музика, події, дакінг, fade-out і мастер уже всередині. Інакше (старий `audio.json`) —
+ * музика з fade-out наприкінці; довший трек підрізається.
+ */
 export declare function MusicTrack(props: {
     audio: AudioManifest;
     totalFrames: number;
 }): import("react").JSX.Element | null;
-/** Лише для хоста: SFX за cue з бібліотеки ревізії, з кадру `from` (глобального). */
+/**
+ * Лише для хоста: SFX за cue з бібліотеки ревізії, з кадру `from` (глобального).
+ * При зведенні (`audio.mix`) події вже в `soundtrack.wav` — нічого не грає.
+ */
 export declare function Sfx(props: {
     cue: string;
     audio: AudioManifest;
@@ -642,6 +1056,12 @@ export declare function fitSingleLine(input: SingleLineFitInput): SingleLineFitR
 /** Нормалізація слова для порівняння з emphasis: регістр і пунктуація по краях. */
 export declare function normalizeWord(word: string): string;
 /**
+ * Номер збігу фрази emphasis для кожного слова (паралельно `words`; null — слово не в emphasis).
+ * Слова одного збігу мають той самий номер, різні збіги (і повтори тієї ж фрази) — різні;
+ * слово, що вже належить збігу, не переходить в інший.
+ */
+export declare function emphasisPhrases(words: readonly string[], emphasis: readonly string[] | undefined): Array<number | null>;
+/**
  * Позначає слова, що входять у фрази emphasis (фраза з кількох слів — послідовність).
  * Повертає масив прапорців паралельно `words`.
  */
@@ -662,108 +1082,4 @@ import { type Measurer } from "./layout.ts";
  * Поза браузером — приблизний вимірювач.
  */
 export declare function createMeasurer(fontFamily: string, fontWeight: number, letterSpacingEm?: number): Measurer;
-```
-
-## devices/motion
-
-`src/devices/motion`
-
-```ts
-import type { CSSProperties, ReactNode } from "react";
-import { type EasingFn, type SpringConfig } from "../motion.ts";
-/** 0→1 від кадру `at`: пружина бренду або progress за `duration` (clamp). */
-export declare function useBeat(at: number, opts?: {
-    duration?: number;
-    easing?: EasingFn;
-    config?: SpringConfig;
-}): number;
-/** Шар на весь кадр, що «дихає» з `startFrame` (масштаб і зсув по косинусу). */
-export declare function Breathe(props: {
-    startFrame?: number;
-    period?: number;
-    amount?: number;
-    drift?: number;
-    style?: CSSProperties;
-    children?: ReactNode;
-}): import("react").JSX.Element;
-```
-
-## devices/reveal
-
-`src/devices/reveal`
-
-```ts
-import type { Palette } from "@adc/shared/schemas/brandkit";
-import type { CSSProperties, ReactNode } from "react";
-import { type EasingFn } from "../motion.ts";
-export type Side = "left" | "right" | "top" | "bottom";
-/** Поле кольору палітри: wipe / split / push кадру. */
-export declare function ColorField(props: {
-    mode?: "wipe" | "split" | "push";
-    color?: keyof Palette;
-    from?: Side;
-    startFrame?: number;
-    duration?: number;
-    /** 0–1. */
-    cover?: number;
-    exitFrame?: number;
-    easing?: EasingFn;
-    children?: ReactNode;
-}): import("react").JSX.Element;
-/** Відкриває дітей через clip-path. */
-export declare function ClipReveal(props: {
-    shape?: "inset" | "circle" | "polygon";
-    from?: Side | "center";
-    startFrame?: number;
-    duration?: number;
-    easing?: EasingFn;
-    style?: CSSProperties;
-    children?: ReactNode;
-}): import("react").JSX.Element;
-```
-
-## devices/shape
-
-`src/devices/shape`
-
-```ts
-import type { Palette } from "@adc/shared/schemas/brandkit";
-import { type CSSProperties, type ReactNode } from "react";
-import { type EasingFn } from "../motion.ts";
-/** SVG-лінія, що малюється (evolvePath). */
-export declare function DrawPath(props: {
-    d: string;
-    width: number;
-    height: number;
-    viewBox?: string;
-    color?: keyof Palette;
-    strokeWidth?: number;
-    startFrame?: number;
-    duration?: number;
-    easing?: EasingFn;
-    /** Може виходити за safe-зону (без QA-перевірки). */
-    bleed?: boolean;
-    style?: CSSProperties;
-}): import("react").JSX.Element;
-/** Ключовий стан MorphShape, px. */
-export interface MorphKey {
-    /** Старт переходу в цей стан; дефолт — старт попереднього + duration. */
-    at?: number;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    radius?: number;
-    color?: keyof Palette;
-}
-/** Заокруглена форма між ключовими станами. */
-export declare function MorphShape(props: {
-    keys: MorphKey[];
-    duration?: number;
-    easing?: EasingFn;
-    /** Може виходити за safe-зону (без QA-перевірки). */
-    bleed?: boolean;
-    style?: CSSProperties;
-    children?: ReactNode;
-}): import("react").JSX.Element;
 ```

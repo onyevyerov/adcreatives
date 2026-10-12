@@ -12,6 +12,8 @@ export type { BrandKit, MotionPersonality, Palette } from "@adc/shared/schemas/b
 export type { Format } from "@adc/shared/schemas/common";
 export type { AutoIssueKind, QaLogEntry } from "@adc/shared/schemas/qa";
 export type { Scene, ScenePurpose, Storyboard } from "@adc/shared/schemas/storyboard";
+/** Локальний кадр події сцени (`props.scene.events`); невідомий id — помилка рендеру. */
+export { eventFrame } from "@adc/shared/timeline";
 export type {
   AssetRef,
   AudioManifest,
@@ -54,6 +56,7 @@ export {
   type TemplateVariant,
   templateVariantFor,
 } from "./host/TemplateScene.tsx";
+export { ICON_NAMES, Icon, type IconName } from "./icons/Icon.tsx";
 export { Backdrop, type BackdropProps } from "./media/Backdrop.tsx";
 export {
   BrandImage,
@@ -85,6 +88,7 @@ export {
   type TextPreset,
 } from "./text/components.tsx";
 export {
+  emphasisPhrases,
   type FitResult,
   fitText,
   type Measurer,
@@ -105,3 +109,7 @@ export {
   useBrand,
   useTheme,
 } from "./theme.tsx";
+export { Bars, CountUp, Ring, type TextStyleProps } from "./ui/data.tsx";
+export { Flash, Glow, ScanLine, Strike } from "./ui/effects.tsx";
+export { numberIn } from "./ui/number.ts";
+export { Checkbox, Checklist, Cursor, type CursorPoint, InputField, UICard } from "./ui/widgets.tsx";

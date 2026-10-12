@@ -1,12 +1,18 @@
 import {
+  beatFrames,
   computeTimeline,
   FORMATS,
   type Format,
+  LEGACY_ARRIVE_EVENT_ID,
   MAX_TOTAL_FRAMES,
   MIN_SCENE_FRAMES,
   MIN_TOTAL_FRAMES,
+  type Scene,
   SceneId,
+  SoundCue,
+  type SoundCue as SoundCueT,
   Storyboard,
+  snapBpm,
 } from "@adc/shared";
 
 /**
@@ -16,6 +22,10 @@ import {
  * - сцена ≥ 45 кадрів; перехід ≤ третини коротшої сусідньої сцени;
  * - загальна тривалість за `computeTimeline` у межах 450–900 кадрів (або рівно бажана тривалість
  *   клієнта) — пропорційним масштабуванням тривалостей сцен;
+ * - `musicBrief.bpm` → найближчий з `BPM_GRID`; тривалості сцен — цілі долі (`beatFrames`),
+ *   загальна тривалість та сама (остачу забирає остання сцена);
+ * - `items`: trim, унікальні id, відомі factIds; `events`: унікальні id, `at` у межах сцени
+ *   (пропорційно до зміни тривалості), звукові удари — на найближчу восьму; legacy `sfxCue` → подія "arrive";
  * - довжина текстів звіряється з `copyRules` для обраних форматів → `textIssues` (текст не
  *   переписується: це робить стадія повторним викликом моделі або людина на чекпоінті 2).
  */
@@ -26,7 +36,10 @@ const MAX_LINES_RANGE = [1, 4] as const;
 
 export interface TextIssue {
   sceneId: string;
-  field: "headline" | "sub";
+  /** `item` — текст з `scene.items` (перевіряється лише довжина слова). */
+  field: "headline" | "sub" | "item";
+  /** id з `scene.items`, коли `field === "item"`. */
+  itemId?: string;
   format: Format;
   /** `length` — весь текст довший за maxCharsPerLine × maxLines; `word` — слово довше за рядок. */
   kind: "length" | "word";
@@ -124,7 +137,7 @@ export function checkCopy(storyboard: Storyboard, formats: readonly Format[] = F
         if (actual > limit) {
           issues.push({ sceneId: scene.id, field, format, kind: "length", actual, limit, text });
         }
-        const longest = Math.max(...text.split(/\s+/).map(graphemeLength));
+        const longest = longestWord(text);
         if (longest > perLine) {
           issues.push({
             sceneId: scene.id,
@@ -138,8 +151,179 @@ export function checkCopy(storyboard: Storyboard, formats: readonly Format[] = F
         }
       }
     }
+    // Пункти не мають ліміту довжини (розкладку обирає автор фільму), але слово довше за рядок не переноситься.
+    for (const item of scene.items) {
+      const longest = longestWord(item.text, true);
+      for (const format of formats) {
+        const perLine = rules.maxCharsPerLine[format];
+        if (longest > perLine) {
+          issues.push({
+            sceneId: scene.id,
+            field: "item",
+            itemId: item.id,
+            format,
+            kind: "word",
+            actual: longest,
+            limit: perLine,
+            text: item.text,
+          });
+        }
+      }
+    }
   }
   return issues;
+}
+
+/** Адреси сайтів і пошти не скорочуються — їх не рахуємо як «довге слово» пункту. */
+const UNBREAKABLE = /[@/]|\.\p{L}{2,}$/u;
+
+function longestWord(text: string, skipUnbreakable = false): number {
+  const words = text.split(/\s+/).filter((w) => !(skipUnbreakable && UNBREAKABLE.test(w)));
+  return words.length ? Math.max(...words.map(graphemeLength)) : 0;
+}
+
+/** Тривалості сцен — цілі долі; сума кадрів ролика = `total`, остачу забирає остання сцена. */
+function quantizeToBeats(d: number[], t: number[], beat: number, total: number): void {
+  const n = d.length;
+  const need = total + t.reduce((a, b, i) => a + (i === 0 ? 0 : b), 0); // сума durationFrames
+  const floorQ = (i: number) => Math.ceil(floorFor(i, t) / beat) * beat;
+  // Межі округлюються накопичено, тож похибка не накопичується від сцени до сцени.
+  let acc = 0;
+  let placed = 0;
+  for (let i = 0; i < n - 1; i++) {
+    acc += d[i] as number;
+    const end = Math.max(placed + floorQ(i), Math.round(acc / beat) * beat);
+    d[i] = end - placed;
+    placed = end;
+  }
+  let last = need - placed;
+  const lastFloor = floorFor(n - 1, t);
+  // Остачі замало для останньої сцени — забираємо по долі з найдовших попередніх.
+  while (last < lastFloor) {
+    let best = -1;
+    for (let i = 0; i < n - 1; i++) {
+      if ((d[i] as number) - beat >= floorQ(i) && (best < 0 || (d[i] as number) > (d[best] as number)))
+        best = i;
+    }
+    if (best < 0) break;
+    d[best] = (d[best] as number) - beat;
+    last += beat;
+  }
+  d[n - 1] = Math.max(last, lastFloor);
+}
+
+/** `items`: trim, без порожніх, унікальні id (t1, t2, …), лише відомі factIds, порожня група → null. */
+function normalizeItems(scene: Scene, factSet: Set<string> | null, changes: string[]): void {
+  const raw = scene.items ?? [];
+  const taken = new Set(raw.map((i) => i.id));
+  const used = new Set<string>();
+  const out: Scene["items"] = [];
+  for (const item of raw) {
+    const text = item.text.trim();
+    if (!text) {
+      changes.push(`${scene.id}: порожній пункт ${item.id} викинуто`);
+      continue;
+    }
+    let id = item.id;
+    if (used.has(id)) {
+      let n = 1;
+      while (taken.has(`t${n}`) || used.has(`t${n}`)) n++;
+      id = `t${n}`;
+      taken.add(id);
+      changes.push(`${scene.id}: id пункту «${item.id}» → ${id}`);
+    }
+    used.add(id);
+    const ids = item.factIds ?? [];
+    const factIds = [...new Set(ids)].filter((f) => !factSet || factSet.has(f));
+    if (factIds.length !== ids.length) changes.push(`${scene.id}: ${id} — викинуто неіснуючі factIds`);
+    const group = item.group?.trim() || null;
+    out.push({ ...item, id, text, group, factIds });
+  }
+  scene.items = out;
+}
+
+/** `events`: без дублікатів id, textIds — лише наявні пункти; legacy `sfxCue` → подія "arrive" на кадрі 0. */
+function normalizeEventList(scene: Scene, changes: string[]): void {
+  const itemIds = new Set(scene.items.map((i) => i.id));
+  const seen = new Set<string>();
+  const out: Scene["events"] = [];
+  for (const e of scene.events ?? []) {
+    if (seen.has(e.id)) {
+      changes.push(`${scene.id}: дублікат події «${e.id}» викинуто`);
+      continue;
+    }
+    seen.add(e.id);
+    const textIds = [...new Set(e.textIds ?? [])].filter((id) => itemIds.has(id));
+    out.push({ ...e, what: e.what.trim(), sound: e.sound ?? null, textIds });
+  }
+  // sfxCue лишається для старого шляху звуку (computeSfxPlacements); computeEventPlacements не дублює
+  // його, бо сцена вже має подію "arrive".
+  const cue = scene.sfxCue?.trim();
+  if (cue && SOUND_CUES.includes(cue) && !seen.has(LEGACY_ARRIVE_EVENT_ID)) {
+    out.unshift({
+      id: LEGACY_ARRIVE_EVENT_ID,
+      at: 0,
+      what: "The scene arrives.",
+      sound: { cue: cue as SoundCueT, accent: "normal" },
+      textIds: [],
+    });
+    changes.push(`${scene.id}: sfxCue «${cue}» → подія «${LEGACY_ARRIVE_EVENT_ID}»`);
+  }
+  scene.events = out;
+}
+
+const SOUND_CUES: readonly string[] = SoundCue.options;
+
+/** Звуки-удари стоять на сітці восьмих; tick/click (набір тексту, лічба) лишаються де є. */
+const GRID_CUES: ReadonlySet<SoundCueT> = new Set<SoundCueT>([
+  "impact",
+  "slam",
+  "whoosh",
+  "swoosh",
+  "riser",
+  "pop",
+  "ding",
+  "shimmer",
+]);
+
+/** Найближча до `at` восьма (глобально: `from + at`) у межах сцени; немає — `at` без змін. */
+function snapToGrid(at: number, from: number, last: number, half: number): number {
+  const k = Math.round((from + at) / half);
+  let best = at;
+  let dist = Number.POSITIVE_INFINITY;
+  for (const kk of [k, k - 1, k + 1]) {
+    const local = Math.round(kk * half) - from;
+    if (local < 0 || local > last) continue;
+    if (Math.abs(local - at) < dist) {
+      best = local;
+      dist = Math.abs(local - at);
+    }
+  }
+  return best;
+}
+
+/**
+ * Кадри подій після таймінгів: пропорційно до зміни тривалості сцени, у межах `[0, durationFrames − 1]`,
+ * удари — на найближчу восьму. Порядок — за кадром.
+ */
+function placeEvents(
+  scene: Scene,
+  opts: { from: number; modelDuration: number; half: number; changes: string[] },
+): void {
+  const last = scene.durationFrames - 1;
+  const k = opts.modelDuration > 0 ? scene.durationFrames / opts.modelDuration : 1;
+  let moved = 0;
+  for (const e of scene.events) {
+    let at = k === 1 ? e.at : Math.round(e.at * k);
+    at = clamp(at, 0, last);
+    // Подія "arrive" на кадрі 0 (з legacy sfxCue) лишається на початку сцени, як звучав старий sfxCue.
+    const arrive = e.id === LEGACY_ARRIVE_EVENT_ID && at === 0;
+    if (e.sound && GRID_CUES.has(e.sound.cue) && !arrive) at = snapToGrid(at, opts.from, last, opts.half);
+    if (at !== e.at) moved++;
+    e.at = at;
+  }
+  scene.events.sort((a, b) => a.at - b.at);
+  if (moved > 0) opts.changes.push(`${scene.id}: кадри подій уточнено (${moved})`);
 }
 
 export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): NormalizeResult {
@@ -191,7 +375,15 @@ export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): 
     if (emphasis.length !== scene.text.emphasis.length)
       changes.push(`${scene.id}: emphasis без збігу з текстом`);
     scene.text.emphasis = emphasis;
+    normalizeItems(scene, factSet, changes);
+    normalizeEventList(scene, changes);
   }
+
+  // ---------- темп ----------
+  const bpm = snapBpm(sb.musicBrief.bpm);
+  if (bpm !== sb.musicBrief.bpm) changes.push(`musicBrief.bpm ${sb.musicBrief.bpm} → ${bpm}`);
+  sb.musicBrief.bpm = bpm;
+  const beat = beatFrames(bpm, sb.fps);
 
   // ---------- copyRules ----------
   for (const f of FORMATS) {
@@ -222,6 +414,7 @@ export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): 
   });
 
   // ---------- таймінги ----------
+  const modelDurations = sb.scenes.map((s) => s.durationFrames);
   const d = sb.scenes.map((s) => Math.max(1, Math.round(s.durationFrames)));
   const t = sb.scenes.map((s) => Math.max(0, Math.round(s.transitionFrames)));
   const before = totalOf(d, t);
@@ -237,6 +430,7 @@ export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): 
     else if (total > MAX_TOTAL_FRAMES) target = MAX_TOTAL_FRAMES;
   }
   if (target !== null) scaleTo(d, t, target);
+  quantizeToBeats(d, t, beat, target ?? totalOf(d, t));
 
   sb.scenes.forEach((scene, i) => {
     const nd = d[i] as number;
@@ -246,6 +440,17 @@ export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): 
     scene.durationFrames = nd;
     scene.transitionFrames = nt;
     if (i > 0 && nt === 0 && scene.transitionIn !== "cut") scene.transitionIn = "cut";
+  });
+
+  // ---------- події ----------
+  const placed = computeTimeline(sb);
+  sb.scenes.forEach((scene, i) => {
+    placeEvents(scene, {
+      from: placed.scenes[i]?.from ?? 0,
+      modelDuration: modelDurations[i] ?? scene.durationFrames,
+      half: beat / 2,
+      changes,
+    });
   });
 
   const parsed = Storyboard.parse(sb);

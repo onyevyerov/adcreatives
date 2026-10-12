@@ -229,6 +229,10 @@ ${extra}---
         expect(ref).toContain(part);
       }
       expect(fix.user).not.toContain("у всіх трьох");
+      // B6: у вхід іде код усього фільму — ліміт виходу 64 000; без правила «текст на місці до 25% сцени» (late_text)
+      expect(fix.maxTokens).toBe(64000);
+      expect(fix.system).toContain("You work at a studio that makes advertising motion-graphics videos");
+      expect(fix.system).not.toContain("late_text");
       expect(
         parsePromptFile(readFileSync(path.join(findRepoRoot(), "prompts", "brandkit.md"), "utf8")).meta
           .schema_mode,

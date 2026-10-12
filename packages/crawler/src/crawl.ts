@@ -20,6 +20,7 @@ import { type HostMap, UrlGuard } from "./guard.ts";
 import {
   autoScroll,
   dismissConsent,
+  expandCollapsed,
   extractPage,
   hideOverlays,
   type RawImage,
@@ -238,6 +239,7 @@ export async function crawlSite(inputUrl: string, opts: CrawlOptions): Promise<C
       // Банери, що з'явились із затримкою або після прокрутки.
       await withTimeout(dismissConsent(page), step(3_000)).catch(() => 0);
       await withTimeout(hideOverlays(page), step(3_000)).catch(() => 0);
+      await expandContent(page, url, step);
 
       const raw = await withTimeout(extractPage(page), step(20_000), "витягування даних");
       if (stopped) throw new PageError("краулінг зупинено");
@@ -424,6 +426,24 @@ export async function crawlSite(inputUrl: string, opts: CrawlOptions): Promise<C
     await proxy.close().catch(() => {});
   }
 }
+
+/**
+ * Розкриває згорнутий зміст (FAQ-акордеони, `<details>`, вкладки), щоб відповіді потрапили в текст.
+ * Якщо клік усе ж відвів зі сторінки (скрипт змінив адресу), повертаємось на неї без розкриття.
+ */
+async function expandContent(page: Page, url: string, step: (ms: number) => number): Promise<void> {
+  const before = page.url();
+  await withTimeout(expandCollapsed(page), step(8_000)).catch(() => null);
+  if (withoutHash(page.url()) === withoutHash(before)) return;
+  await page
+    .goto(before || url, { waitUntil: "domcontentloaded", timeout: step(NAV_TIMEOUT_MS) })
+    .catch(() => null);
+  await page.waitForLoadState("load", { timeout: step(8_000) }).catch(() => {});
+  await withTimeout(dismissConsent(page), step(3_000)).catch(() => 0);
+  await withTimeout(hideOverlays(page), step(3_000)).catch(() => 0);
+}
+
+const withoutHash = (url: string) => url.replace(/#.*$/, "");
 
 function pageKeyOf(url: string): string {
   const u = parseUrl(url);

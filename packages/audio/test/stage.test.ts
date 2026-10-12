@@ -3,18 +3,24 @@ import {
   AudioPlan,
   createCostRecorder,
   createPromptLoader,
+  type Logger,
   loadPrices,
+  noopLogger,
   projectPaths,
   readCosts,
+  type SoundCue,
   type Storyboard,
   sharedPaths,
 } from "@adc/shared";
 import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { computeChunkLayout } from "../src/chunks.ts";
+import type { DecodeAudio } from "../src/decode.ts";
 import { computeAudioPlacements } from "../src/manifest.ts";
-import { loadStandardCues, sfxHash } from "../src/sfx.ts";
+import { loadSfxLibrary, loadStandardCues, sfxHash } from "../src/sfx.ts";
 import { canReuseMusic, createAudioStage } from "../src/stage.ts";
+import { decodeWav } from "../src/wav.ts";
+import { fakeSample } from "./fakeSfx.ts";
 import {
   audioStream,
   concurrencyBody,
@@ -27,8 +33,45 @@ import {
   seedProject,
   tmpStorage,
 } from "./helpers.ts";
+import { metronome } from "./signals.ts";
 
 const standardCues = loadStandardCues(createPromptLoader());
+const sfxLibrary = loadSfxLibrary(createPromptLoader());
+/** Текст запиту SFX → cue і варіант бібліотеки (мок ElevenLabs віддає `SFX:<текст>`). */
+const variantByText = new Map(
+  Object.entries(sfxLibrary).flatMap(([cue, variants]) =>
+    variants.map((def, i) => [def.text, { cue: cue as SoundCue, variant: i + 1 }] as const),
+  ),
+);
+/** Cue подій фікстури: whoosh (s1), impact (price-hit), pop (s2), shimmer (s3). */
+const FIXTURE_EVENT_CUES = ["whoosh", "impact", "pop", "shimmer"] as const;
+const variantTexts = (cues: readonly SoundCue[]) => cues.flatMap((c) => sfxLibrary[c].map((d) => d.text));
+
+/** Прогріває спільний кеш варіантами `variants` (номери) заданих cue. */
+async function warmCache(
+  storage: ReturnType<typeof tmpStorage>,
+  cues: readonly SoundCue[],
+  variants: readonly number[] = [1, 2, 3],
+) {
+  for (const cue of cues) {
+    for (const n of variants) {
+      const def = sfxLibrary[cue][n - 1];
+      if (def) await storage.write(sharedPaths.sfxCache(sfxHash(def)), `CACHED:${def.text}`);
+    }
+  }
+}
+
+function captureLogger(): Logger & { warns: Array<{ msg: string; meta?: Record<string, unknown> }> } {
+  const warns: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
+  const logger: Logger = {
+    ...noopLogger,
+    warn: (msg, meta) => {
+      warns.push({ msg, ...(meta ? { meta: meta as Record<string, unknown> } : {}) });
+    },
+    child: () => logger,
+  };
+  return Object.assign(logger, { warns });
+}
 
 /** Розкадровка з кастомним SFX у другій сцені. */
 const withCustomCue: Storyboard = {
@@ -44,7 +87,36 @@ function draftWithCustom(storyboard: Storyboard) {
   });
 }
 
-function stage(client: ReturnType<typeof mockElevenLabs>, storage: ReturnType<typeof tmpStorage>) {
+/**
+ * Декодер-мок: замість mp3 (мок віддає текст) — синтетичний «трек-метроном» 16 с для музики
+ * і фейковий семпл бібліотеки для SFX (за текстом запиту).
+ */
+function fakeDecoder(opts: { fail?: boolean; failSfx?: (cue: SoundCue) => boolean } = {}) {
+  const calls: string[] = [];
+  const decode: DecodeAudio = async (bytes) => {
+    const m = /^(?:SFX|CACHED):([\s\S]*)$/.exec(bytes.toString());
+    const hit = m ? variantByText.get(m[1] ?? "") : undefined;
+    if (hit) {
+      calls.push(`${hit.cue}.${hit.variant}`);
+      if (opts.failSfx?.(hit.cue)) throw new Error("битий mp3");
+      return fakeSample(hit.cue, hit.variant);
+    }
+    calls.push("music");
+    if (opts.fail) throw new Error("ffmpeg не знайдено");
+    return metronome({ bpm: 85, offsetSec: 0.05, durationSec: 16, busy: true, pad: true });
+  };
+  return Object.assign(decode, {
+    calls,
+    musicCalls: () => calls.filter((c) => c === "music").length,
+    sfxCalls: () => calls.filter((c) => c !== "music"),
+  });
+}
+
+function stage(
+  client: ReturnType<typeof mockElevenLabs>,
+  storage: ReturnType<typeof tmpStorage>,
+  decode: DecodeAudio = fakeDecoder(),
+) {
   const gate = instantGate();
   const sharedCost = createCostRecorder(storage, loadPrices(), {
     projectId: null,
@@ -54,7 +126,7 @@ function stage(client: ReturnType<typeof mockElevenLabs>, storage: ReturnType<ty
     source: "test",
     attempt: 1,
   });
-  return { run: createAudioStage({ client, gate, sharedCost }), gate };
+  return { run: createAudioStage({ client, gate, sharedCost, decode }), gate };
 }
 
 describe("audioStage", () => {
@@ -70,13 +142,14 @@ describe("audioStage", () => {
     expect(plan.compositionPlan.chunks.map((c) => c.durationMs)).toEqual([4_500, 5_000, 6_500]);
     expect(res.outputs).toEqual({ planHash: expect.stringMatching(/^[0-9a-f]{16}$/), reusedMusic: false });
 
-    // Один виклик LLM (модель з frontmatter), один — музики, два SFX (whoosh+shimmer зі спільного кешу, кастомний).
+    // Один виклик LLM (модель з frontmatter), один — музики; SFX: усі варіанти cue подій
+    // (whoosh, impact, shimmer; legacy whoosh/shimmer — їхні варіанти 1, без повторного виклику) і кастомний.
     expect(ctx.anthropic.calls).toHaveLength(1);
     expect(ctx.anthropic.calls[0]?.params.model).toBe("claude-opus-5-5");
     expect(client.calls.filter((c) => c.method === "composeDetailed")).toHaveLength(1);
     const sfxCalls = client.calls.filter((c) => c.method === "convert");
     expect(sfxCalls.map((c) => c.request.text).sort()).toEqual(
-      [standardCues.whoosh.text, standardCues.shimmer.text, "ceramic cup clink on a wooden table"].sort(),
+      [...variantTexts(["whoosh", "impact", "shimmer"]), "ceramic cup clink on a wooden table"].sort(),
     );
     const custom = sfxCalls.find((c) => c.request.text === "ceramic cup clink on a wooden table");
     expect(custom?.request).toMatchObject({
@@ -94,20 +167,39 @@ describe("audioStage", () => {
         volume: 0.8,
         planHash: res.outputs.planHash,
       },
-      mix: null,
+      mix: { src: "soundtrack.wav", durationMs: 15_000 },
       sfx: [
-        { cue: "whoosh", src: "sfx/whoosh.mp3", durationMs: 600, volume: 0.6 },
-        { cue: "shimmer", src: "sfx/shimmer.mp3", durationMs: 1_200, volume: 0.6 },
+        {
+          cue: "whoosh",
+          src: "sfx/whoosh.mp3",
+          durationMs: standardCues.whoosh.durationSeconds * 1000,
+          volume: 0.6,
+        },
+        {
+          cue: "shimmer",
+          src: "sfx/shimmer.mp3",
+          durationMs: standardCues.shimmer.durationSeconds * 1000,
+          volume: 0.6,
+        },
         { cue: "cup-clink", src: "sfx/cup-clink.mp3", durationMs: 800, volume: 0.6 },
       ],
       totalFrames: 450,
     });
+    expect(plan.key).toBe("A minor");
+    const soundtrack = decodeWav(await storage.read(rev.publicFile("soundtrack.wav")));
+    expect(soundtrack.sampleRate).toBe(44_100);
+    expect(soundtrack.left.length).toBe(15 * 44_100);
     expect((await storage.read(rev.publicFile("music.mp3"))).toString()).toBe("MUSIC-DETAILED");
     expect((await storage.read(rev.publicFile("sfx/cup-clink.mp3"))).toString()).toBe(
       "SFX:ceramic cup clink on a wooden table",
     );
     expect(res.artifacts).toEqual(
-      expect.arrayContaining([rev.audioPlan, rev.audio, rev.publicFile("music.mp3")]),
+      expect.arrayContaining([
+        rev.audioPlan,
+        rev.audio,
+        rev.publicFile("music.mp3"),
+        rev.publicFile("soundtrack.wav"),
+      ]),
     );
 
     // Витрати: LLM + музика + кастомний SFX — у журнал проєкту; стандартні SFX — у спільний.
@@ -117,22 +209,32 @@ describe("audioStage", () => {
     );
     expect(costs.find((c) => c.detail === "sfx:cup-clink")?.units).toEqual({ seconds: 0.8 });
     const shared = await readCosts(storage, null);
-    expect(shared.map((c) => c.detail).sort()).toEqual(["sfx:shimmer", "sfx:whoosh"]);
+    expect(shared.map((c) => c.detail).sort()).toEqual(
+      ["whoosh", "impact", "shimmer"].flatMap((c) => [1, 2, 3].map((n) => `sfx:${c}.${n}`)).sort(),
+    );
     expect(shared.every((c) => c.stage === "sfx-cache" && c.projectId === null)).toBe(true);
   });
 
   it("uses the pre-warmed standard SFX cache (no SFX calls) and re-runs hit the plan-hash cache", async () => {
     const storage = tmpStorage();
     await seedProject(storage);
-    for (const cue of ["whoosh", "pop", "shimmer"] as const) {
-      await storage.write(sharedPaths.sfxCache(sfxHash(standardCues[cue])), `CACHED:${cue}`);
-    }
+    await warmCache(storage, FIXTURE_EVENT_CUES);
     const client = mockElevenLabs();
-    const { run } = stage(client, storage);
+    const decode = fakeDecoder();
+    const { run } = stage(client, storage, decode);
     const first = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
     expect(client.calls.map((c) => c.method)).toEqual(["composeDetailed"]);
+    expect(await readCosts(storage, null)).toHaveLength(0);
     const rev = projectPaths(PROJECT_ID).rev(1);
-    expect((await storage.read(rev.publicFile("sfx/pop.mp3"))).toString()).toBe("CACHED:pop");
+    expect((await storage.read(rev.publicFile("sfx/pop.mp3"))).toString()).toBe(
+      `CACHED:${standardCues.pop.text}`,
+    );
+    // Зведення взяло всі 12 варіантів cue подій із кешу.
+    expect(decode.sfxCalls().sort()).toEqual(
+      FIXTURE_EVENT_CUES.flatMap((c) => [1, 2, 3].map((n) => `${c}.${n}`)).sort(),
+    );
+    const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
+    expect(manifest.mix).toEqual({ src: "soundtrack.wav", durationMs: 15_000 });
 
     // Повтор стадії в тій самій ревізії: план уже є — без LLM; трек — з кешу за хешем плану.
     const ctx2 = makeCtx(storage, []);
@@ -262,7 +364,145 @@ describe("audioStage", () => {
   });
 });
 
+describe("audioStage: зведення soundtrack.wav", () => {
+  it("кеш зведення: повтор стадії не декодує трек знову; зміна подій — нове зведення на тому ж треку", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    const client = mockElevenLabs();
+    const decode = fakeDecoder();
+    const { run } = stage(client, storage, decode);
+    const r1 = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
+    expect(decode.musicCalls()).toBe(1);
+    const decodedSfx = decode.sfxCalls().length;
+    const rev = projectPaths(PROJECT_ID).rev(1);
+    const first = await storage.read(rev.publicFile("soundtrack.wav"));
+
+    // Повтор стадії: той самий план, події і семпли → зведення з кешу, побайтно те саме, без декодування.
+    await run(makeCtx(storage, []));
+    expect(decode.musicCalls()).toBe(1);
+    expect(decode.sfxCalls()).toHaveLength(decodedSfx);
+    expect((await storage.read(rev.publicFile("soundtrack.wav"))).equals(first)).toBe(true);
+
+    // Ревізія 2: подія зсунулась, бриф і таймінги ті самі → трек лишається, зведення нове.
+    const moved: Storyboard = {
+      ...fixtureStoryboard,
+      scenes: fixtureStoryboard.scenes.map((s) =>
+        s.id === "s2" ? { ...s, events: s.events.map((e) => ({ ...e, at: e.at + 5 })) } : s,
+      ),
+    };
+    await seedProject(storage, {
+      storyboard: moved,
+      rev: 2,
+      project: { rev: 2, audioPlanHash: r1.outputs.planHash },
+    });
+    const r2 = await run(makeCtx(storage, [], { rev: 2 }));
+    expect(r2.outputs.planHash).toBe(r1.outputs.planHash);
+    expect(decode.musicCalls()).toBe(2);
+    const second = await storage.read(projectPaths(PROJECT_ID).rev(2).publicFile("soundtrack.wav"));
+    expect(second.equals(first)).toBe(false);
+    expect(client.calls.filter((c) => c.method === "composeDetailed")).toHaveLength(1);
+  });
+
+  it("зведення не вдалося (немає ffmpeg) → mix: null, хост грає музику і SFX як раніше", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    const client = mockElevenLabs();
+    const { run } = stage(client, storage, fakeDecoder({ fail: true }));
+    const res = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
+    const rev = projectPaths(PROJECT_ID).rev(1);
+    const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
+    expect(manifest.mix).toBeNull();
+    expect(manifest.music?.src).toBe("music.mp3");
+    expect(manifest.sfx.length).toBeGreaterThan(0);
+    expect(await storage.exists(rev.publicFile("soundtrack.wav"))).toBe(false);
+    expect(res.artifacts).not.toContain(rev.publicFile("soundtrack.wav"));
+  });
+});
+
+describe("audioStage: бібліотека семплів подій", () => {
+  it("холодний кеш: догенеровує лише відсутні варіанти, витрати — у спільний журнал", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    await warmCache(storage, FIXTURE_EVENT_CUES, [1]);
+    const client = mockElevenLabs();
+    const decode = fakeDecoder();
+    const { run } = stage(client, storage, decode);
+    await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
+    const generated = client.calls.filter((c) => c.method === "convert").map((c) => c.request.text);
+    expect(generated.sort()).toEqual(
+      FIXTURE_EVENT_CUES.flatMap((c) => [sfxLibrary[c][1]?.text, sfxLibrary[c][2]?.text]).sort(),
+    );
+    const shared = await readCosts(storage, null);
+    expect(shared.map((c) => c.detail).sort()).toEqual(
+      FIXTURE_EVENT_CUES.flatMap((c) => [`sfx:${c}.2`, `sfx:${c}.3`]).sort(),
+    );
+    expect(shared.every((c) => c.stage === "sfx-cache" && c.projectId === null)).toBe(true);
+    expect(await readCosts(storage, PROJECT_ID)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "sfx" })]),
+    );
+    expect(decode.sfxCalls()).toHaveLength(12);
+  });
+
+  it("варіант не згенерувався або не декодувався → пропуск; cue без жодного семпла → події без звуку, зведення є", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    await warmCache(storage, ["whoosh", "pop", "shimmer"]);
+    await warmCache(storage, ["impact"], [1]);
+    // impact.2 і impact.3 не генеруються (400), а impact.1 з кешу не декодується.
+    const client = mockElevenLabs({
+      convert: [elError(400, { detail: "invalid" }), elError(400, { detail: "invalid" })],
+    });
+    let broken = true;
+    const decode = fakeDecoder({ failSfx: (cue) => broken && cue === "impact" });
+    const { run } = stage(client, storage, decode);
+    const ctx = makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]);
+    const logger = captureLogger();
+    ctx.logger = logger;
+    await run(ctx);
+    const rev = projectPaths(PROJECT_ID).rev(1);
+    const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
+    expect(manifest.mix).toEqual({ src: "soundtrack.wav", durationMs: 15_000 });
+    expect(logger.warns.filter((w) => /варіант SFX не згенерувався/.test(w.msg))).toHaveLength(2);
+    expect(logger.warns.find((w) => /не декодувався/.test(w.msg))?.meta).toMatchObject({
+      cue: "impact",
+      variant: 1,
+    });
+    expect(logger.warns.find((w) => /немає жодного семпла/.test(w.msg))?.meta).toEqual({ cue: "impact" });
+    const degraded = await storage.read(rev.publicFile("soundtrack.wav"));
+
+    // Наступний прогін з робочим декодером: хеш зведення інший (є семпл impact) → нове зведення.
+    broken = false;
+    await run(makeCtx(storage, []));
+    expect(decode.musicCalls()).toBe(2);
+    expect((await storage.read(rev.publicFile("soundtrack.wav"))).equals(degraded)).toBe(false);
+  });
+});
+
 describe("computeAudioPlacements", () => {
+  it("старий audio.json без mix парситься з mix: null; зі зведенням хост грає лише soundtrack.wav", () => {
+    const old = {
+      music: { src: "music.mp3", durationMs: 16_000, fadeOutMs: 1_000, volume: 0.8, planHash: "h" },
+      sfx: [{ cue: "whoosh", src: "sfx/whoosh.mp3", durationMs: 600, volume: 0.6 }],
+      totalFrames: 450,
+    };
+    const parsed = AudioManifest.parse(old);
+    expect(parsed.mix).toBeNull();
+    expect(computeAudioPlacements(fixtureStoryboard, parsed).map((p) => p.kind)).toEqual(["music", "sfx"]);
+
+    const mixed = AudioManifest.parse({ ...old, mix: { src: "soundtrack.wav", durationMs: 15_000 } });
+    expect(computeAudioPlacements(fixtureStoryboard, mixed)).toEqual([
+      {
+        kind: "mix",
+        cue: "mix",
+        sceneId: null,
+        src: "soundtrack.wav",
+        from: 0,
+        durationInFrames: 450,
+        volume: 1,
+      },
+    ]);
+  });
+
   it("music from frame 0 with fade-out; SFX at scene sequence starts, riser ends at the boundary", () => {
     const storyboard: Storyboard = {
       ...fixtureStoryboard,

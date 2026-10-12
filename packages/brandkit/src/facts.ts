@@ -178,38 +178,117 @@ export function dedupeFacts(facts: readonly Fact[]): Fact[] {
   });
 }
 
+/**
+ * Слова, що не називають сутність: службові, одиниці при числах, слова-зв'язки
+ * («коштує», «тепер»), якими клієнт переказує той самий факт іншими словами.
+ */
 const STOP = new Set([
+  // службові
+  "від",
+  "до",
+  "за",
+  "на",
+  "по",
+  "та",
+  "і",
+  "й",
+  "із",
+  "зі",
+  "або",
+  "для",
+  "при",
+  "без",
+  "це",
+  "the",
+  "of",
+  "to",
+  "in",
+  "on",
+  "at",
+  "for",
+  "per",
+  "by",
+  "and",
+  "or",
+  "is",
+  "an",
+  // одиниці
+  "грн",
+  "uah",
+  "usd",
+  "eur",
+  "міс",
+  "мес",
+  "mo",
+  "рік",
+  "год",
+  "хв",
+  "min",
+  "днів",
+  "дні",
+  "день",
+  "км",
+  "km",
+  "кг",
+  "kg",
+  "шт",
+  "pcs",
+  // зв'язки й переказ
   "який",
   "яка",
   "яке",
   "також",
   "тільки",
   "лише",
+  "всього",
+  "усього",
+  "тепер",
+  "зараз",
+  "коштує",
+  "коштують",
+  "ціна",
+  "вартість",
   "щодня",
   "with",
   "from",
   "only",
+  "just",
+  "now",
+  "costs",
+  "cost",
+  "price",
   "your",
   "this",
   "that",
   "every",
 ]);
 
-/** Змістовні основи слів (перші 5 літер слів від 4 літер) — для пошуку «того самого» факту. */
+/**
+ * Змістовні основи слів (перші 5 літер; короткі слова — цілі, щоб «Pro» і «Max» розрізняли тарифи)
+ * — для пошуку «того самого» факту.
+ */
 function topicStems(text: string): Set<string> {
   const out = new Set<string>();
-  for (const w of normalizeForMatch(text).match(/\p{L}{4,}/gu) ?? []) {
+  for (const w of normalizeForMatch(text).match(/\p{L}{2,}/gu) ?? []) {
     if (!STOP.has(w)) out.add(w.slice(0, 5));
   }
   return out;
 }
 
-/** Факт клієнта суперечить факту сайту: той самий вид, спільна тема, інші числа. */
+const isSubset = (a: ReadonlySet<string>, b: ReadonlySet<string>) => [...a].every((s) => b.has(s));
+
+/**
+ * Факт клієнта суперечить факту сайту: той самий вид, та сама сутність, інші числа.
+ * Та сама сутність — коли змістовні слова одного факту містяться в іншому
+ * («Капучино — 65 грн за чашку» і «Капучино коштує 70 грн»). Якщо в кожного є своє слово,
+ * це різні сутності зі спільним загальним словом («Тариф Starter» і «Тариф Pro»), не конфлікт.
+ */
 export function conflicts(site: Fact, client: { kind: FactKind; text: string }): boolean {
   if (site.kind !== client.kind) return false;
   const a = topicStems(site.text);
-  const shared = [...topicStems(client.text)].some((s) => a.has(s));
-  if (!shared) return false;
+  const b = topicStems(client.text);
+  if (![...b].some((s) => a.has(s))) return false;
+  if (!isSubset(a, b) && !isSubset(b, a)) return false;
   const na = extractNumbers(site.text).join(",");
   const nb = extractNumbers(client.text).join(",");
   return na !== nb;

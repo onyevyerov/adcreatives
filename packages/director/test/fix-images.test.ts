@@ -8,8 +8,11 @@ import {
   readTuning,
   revPaths,
 } from "@adc/shared";
+import { fixtureBrandKitFile } from "@adc/shared/fixtures";
 import sharp from "sharp";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { GuardOptions } from "../src/guard.ts";
+import { stripSheetLayout } from "../src/sheets.ts";
 import { createCheckStage } from "../src/stages/check.ts";
 import { codegenStage } from "../src/stages/codegen.ts";
 import { createFixStage } from "../src/stages/fix.ts";
@@ -17,13 +20,26 @@ import {
   exampleSources,
   fileBlocks,
   makeCtx,
-  mockEngine,
   PROJECT_ID,
   type Reply,
   seedProject,
   tmpStorage,
   userText,
 } from "./helpers.ts";
+import { movingEngine } from "./strip-engine.ts";
+
+/** Опції кожного виклику guardScene (обгортка над справжнім guard). */
+const guardCalls = vi.hoisted(() => [] as Array<{ code: string; opts: GuardOptions }>);
+vi.mock("../src/guard.ts", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/guard.ts")>();
+  return {
+    ...mod,
+    guardScene: (code: string, opts: GuardOptions = {}) => {
+      guardCalls.push({ code, opts });
+      return mod.guardScene(code, opts);
+    },
+  };
+});
 
 const ex = exampleSources();
 const CODE: Record<string, string> = { s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] };
@@ -43,7 +59,7 @@ type Params = {
   messages: Array<{ content: Block[] }>;
 };
 const paramsOf = (p: unknown) => p as Params;
-const sceneOf = (params: unknown) => /Виправ сцену (\w+) /.exec(userText(params))?.[1];
+const sceneOf = (params: unknown) => /Repair scene (\w+) /.exec(userText(params))?.[1];
 
 /** Стадія з `Tuning` з цього env. */
 const stageWith = (env: Record<string, string> = {}) => createFixStage({ tuning: () => readTuning(env) });
@@ -88,7 +104,7 @@ async function checked(): Promise<LocalStorage> {
       Object.entries(CODE).map(([id, code]) => ({ text: fileBlocks({ [id]: code }) })),
     ),
   );
-  await createCheckStage({ engine: mockEngine() })(makeCtx(storage, "check", { sceneIds: null }));
+  await createCheckStage({ engine: movingEngine() })(makeCtx(storage, "check", { sceneIds: null }));
   return storage;
 }
 
@@ -111,7 +127,11 @@ async function writeQa(storage: LocalStorage, sceneIds: readonly string[]): Prom
 const images = (p: Params) => (p.messages[0]?.content ?? []).filter((b) => b.type === "image");
 
 describe("fixStage: кадри для qa, прогрів, effort", () => {
-  it("qa: стіли обраних форматів (що є в check.json) перед текстом, JPEG ≤ 1568, легенда; warm перед паралельними", async () => {
+  beforeEach(() => {
+    guardCalls.length = 0;
+  });
+
+  it("qa: аркуші стрічки обраних форматів (що є в check.json) перед текстом, JPEG ≤ 1568, легенда; warm перед паралельними", async () => {
     const storage = await checked();
     // s2 без стілів square — лише одне зображення
     const rp = revPaths(PROJECT_ID, 1);
@@ -149,18 +169,22 @@ describe("fixStage: кадри для qa, прогрів, effort", () => {
         expect(meta.format).toBe("jpeg");
         expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(1568);
       }
-      // 9:16 і 1:1 — кадри в ряд (ширше, ніж вище)
+      // аркуш стрічки сцени (s1 — 150 кадрів → 10, s2 — 165 → 11 кадрів)
       const first = await sharp(Buffer.from(images(p)[0]?.source?.data ?? "", "base64")).metadata();
-      expect(first.width ?? 0).toBeGreaterThan(first.height ?? 0);
+      const layout = stripSheetLayout("vertical", id === "s1" ? 10 : 11);
+      expect({ width: first.width, height: first.height }).toEqual({
+        width: layout.width,
+        height: layout.height,
+      });
 
       const text = userText(p);
       for (const [i, f] of formats.entries()) {
-        expect(text).toContain(`Image ${i + 1}: scene ${id}, format ${f}, frames 25/50/90%`);
+        expect(text).toContain(`Image ${i + 1}: scene ${id}, format ${f}, strip of`);
       }
       expect(text).not.toContain(`Image ${formats.length + 1}:`);
-      expect(text).toContain("The stills show the actual state; the QA remarks below say what to change.");
+      expect(text).toContain("The frames show the actual state; the remarks below say what to change.");
       expect(text).toContain(`заголовок ${id} обрізано`);
-      expect(text.indexOf("Image 1:")).toBeLessThan(text.indexOf("Visual QA remarks"));
+      expect(text.indexOf("Image 1:")).toBeLessThan(text.indexOf("Art director's remarks"));
       // effort — frontmatter, ті самі model / system, що в прогріві; userCached без cache_control
       expect(p.output_config?.effort).toBe("high");
       expect(p.model).toBe(warm.model);
@@ -215,7 +239,7 @@ describe("fixStage: кадри для qa, прогрів, effort", () => {
     expect(log).toEqual(["text:s2"]);
     const calls = ctx.anthropic.calls.map((c) => paramsOf(c.params));
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.max_tokens).not.toBe(0);
+    expect(calls[0]?.max_tokens).toBe(64000);
     expect(calls[0]?.output_config?.effort).toBe("high");
     expect(calls[0]?.messages[0]?.content[0]?.cache_control).toBeUndefined();
   });
@@ -229,6 +253,46 @@ describe("fixStage: кадри для qa, прогрів, effort", () => {
     expect(log).toEqual(["text:s3"]);
     const [call] = ctx.anthropic.calls.map((c) => paramsOf(c.params));
     expect(call && images(call)).toHaveLength(2);
-    expect(userText(call)).toContain("Image 2: scene s3, format square, frames 25/50/90%");
+    expect(userText(call)).toContain("Image 2: scene s3, format square, strip of 11 frames");
+  });
+
+  it("fix бачить код усіх інших сцен фільму (без своєї і шаблонних); guard — з allowedScreenTexts", async () => {
+    const storage = await checked();
+    await storage.writeJson(revPaths(PROJECT_ID, 1).pipeline, {
+      attempts: {},
+      fixRounds: {},
+      qaRounds: 0,
+      templateScenes: ["s3"],
+      dirtyScenes: [],
+    });
+    await writeQa(storage, ["s1", "s2"]);
+    const ctx = makeCtx(storage, "fix", { sceneIds: ["s1", "s2"], reason: "qa" }, byScene(["s1", "s2"]));
+    guardCalls.length = 0;
+    await stageWith()(ctx);
+    const prompts = Object.fromEntries(
+      ctx.anthropic.calls.slice(1).map((c) => [sceneOf(c.params), userText(c.params)]),
+    );
+    const readonlyOf = (text: string) =>
+      /<readonly_scenes>\n([\s\S]*?)\n<\/readonly_scenes>/.exec(text)?.[1] ?? "";
+    const s1 = readonlyOf(prompts.s1 ?? "");
+    expect(s1).toContain('<file name="s2.tsx">');
+    expect(s1).toContain(CODE.s2?.trim().slice(0, 200));
+    expect(s1).not.toContain('<file name="s1.tsx">');
+    expect(s1).not.toContain('<file name="s3.tsx">'); // шаблонна сцена — без коду
+    const s2 = readonlyOf(prompts.s2 ?? "");
+    expect(s2).toContain('<file name="s1.tsx">');
+    expect(s2).not.toContain('<file name="s2.tsx">');
+
+    // guard нової версії — з дозволеними текстами сцени (headline, sub, items, CTA)
+    expect(guardCalls.map((c) => c.opts.fileName).sort()).toEqual(["s1.tsx", "s2.tsx"]);
+    const s2Guard = guardCalls.find((c) => c.opts.fileName === "s2.tsx");
+    expect(s2Guard?.opts.allowedTexts).toEqual([
+      "Капучино — 75 грн",
+      "-10% на каву з собою до 10:00",
+      "Спешелті еспресо з молоком",
+      "75 грн",
+      "-10%",
+      fixtureBrandKitFile.cta.text,
+    ]);
   });
 });
