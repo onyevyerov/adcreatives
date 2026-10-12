@@ -69,6 +69,8 @@ describe("driver — happy path through three checkpoints", () => {
       ]);
     }
     expect(h.messages().at(-1)).toContain("⚠");
+    // Тексти items сцени — під її рядком.
+    expect(h.messages().at(-1)).toContain("· Спешелті еспресо з молоком · 75 грн · -10%");
 
     // «Затвердити» записує непідтверджене як факт клієнта.
     await h.approve(1);

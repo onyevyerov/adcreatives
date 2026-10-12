@@ -98,6 +98,21 @@ export async function buildBrandCheckpoint(
 
 // ─────────────────────────── чекпоінт 2: тексти ───────────────────────────
 
+/**
+ * Рядок текстів `items` сцени для чекпоінта 2: `· текст · текст ⚠`; ⚠ — у пункті є непідтверджене
+ * твердження. null — сцена без items.
+ */
+export function formatSceneItems(
+  scene: Pick<Storyboard["scenes"][number], "id" | "items">,
+  unverified: ReadonlyArray<Pick<ClaimsReport["unverified"][number], "sceneId" | "field" | "itemId">>,
+): string | null {
+  if (scene.items.length === 0) return null;
+  const flagged = new Set(
+    unverified.filter((c) => c.sceneId === scene.id && c.field === "item").map((c) => c.itemId),
+  );
+  return scene.items.map((i) => `· ${i.text}${flagged.has(i.id) ? " ⚠" : ""}`).join(" ");
+}
+
 export async function buildScriptCheckpoint(
   storage: Storage,
   project: ProjectState,
@@ -124,7 +139,8 @@ export async function buildScriptCheckpoint(
   const timeline = computeTimeline(storyboard);
   const sec = (frames: number) =>
     (Math.round((frames / storyboard.fps) * 10) / 10).toString().replace(".", ",");
-  const flagged = new Set(claims.unverified.map((c) => c.sceneId));
+  // ⚠ у рядку сцени — непідтверджене в headline/sub; у пунктах — біля самого пункту.
+  const flagged = new Set(claims.unverified.filter((c) => c.field !== "item").map((c) => c.sceneId));
   const lines = [t("scriptCheckpointIntro"), "", `**${storyboard.concept}**`, ""];
   lines.push(t("scriptScenesHeader", { seconds: sec(timeline.totalFrames) }));
   storyboard.scenes.forEach((scene, i) => {
@@ -132,6 +148,8 @@ export async function buildScriptCheckpoint(
     const span = tl ? `${sec(tl.from)}–${sec(tl.end)} с` : "";
     const sub = scene.text.sub ? ` / ${scene.text.sub}` : "";
     lines.push(`${i + 1}. ${span} — ${scene.text.headline}${sub}${flagged.has(scene.id) ? " ⚠" : ""}`);
+    const items = formatSceneItems(scene, claims.unverified);
+    if (items) lines.push(`   ${items}`);
   });
   const mb = storyboard.musicBrief;
   lines.push("", `**Музика:** ${mb.genre}, ${mb.mood.join(", ")}, ~${mb.bpm} BPM`);

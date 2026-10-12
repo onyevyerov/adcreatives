@@ -119,3 +119,68 @@ describe("verifyClaims", () => {
     expect(report.unverified.map((c) => c.text)).toEqual(["cheapest", "guaranteed"]);
   });
 });
+
+describe("verifyClaims: items і текст сайту", () => {
+  const SITE = [
+    '<page url="https://webreportio.com/" title="WebReport">',
+    "## Аудит сайту",
+    "Повний звіт від $300–2000 за 48 годин",
+    "Агенція: 3–10 робочих днів | Ми: 1 день",
+    "Найшвидший аудит у регіоні",
+    "</page>",
+  ].join("\n");
+
+  function withItems(items: Array<{ id: string; text: string }>): Storyboard {
+    const sb = withTexts([{ headline: "Аудит сайту" }]);
+    (sb.scenes[0] as Storyboard["scenes"][number]).items = items.map((i) => ({
+      ...i,
+      role: "number" as const,
+      group: null,
+      factIds: [],
+    }));
+    return sb;
+  }
+
+  it("«від $300–2000» в items підтверджується текстом сайту (matchedSite)", () => {
+    const report = verifyClaims(withItems([{ id: "t1", text: "від $300–2000" }]), fixtureBrandKit, {
+      siteText: SITE,
+    });
+    expect(report.unverified).toEqual([]);
+    expect(report.verified.map((c) => [c.field, c.itemId, c.text, c.kind, c.matchedSite])).toEqual([
+      ["item", "t1", "$300", "price", true],
+      ["item", "t1", "2000", "date", true], // «2000» екстрактор вважає роком
+    ]);
+    expect(ClaimsReport.parse(report)).toBeTruthy();
+  });
+
+  it("без тексту сайту ті самі items — непідтверджені; чужі числа сайту не підтверджують", () => {
+    const items = [
+      { id: "t1", text: "від $300–2000" },
+      { id: "t2", text: "Звіт за 4 години" },
+      { id: "t3", text: "Найшвидший аудит" },
+      { id: "t4", text: "20000 перевірок" },
+    ];
+    const none = verifyClaims(withItems(items), fixtureBrandKit);
+    expect(none.unverified.map((c) => [c.itemId, c.text])).toEqual([
+      ["t1", "$300"],
+      ["t1", "2000"],
+      ["t2", "4"],
+      ["t3", "Найшвидший"],
+      ["t4", "20000"],
+    ]);
+    const site = verifyClaims(withItems(items), fixtureBrandKit, { siteText: SITE });
+    expect(site.verified.filter((c) => c.matchedSite).map((c) => c.text)).toEqual([
+      "$300",
+      "2000",
+      "Найшвидший",
+    ]);
+    expect(site.unverified.map((c) => c.text)).toEqual(["4", "20000"]);
+  });
+
+  it("факт бренд-кіта має пріоритет над сайтом; factIds пункту — першими", () => {
+    const report = verifyClaims(withItems([{ id: "t1", text: "Капучино 75 грн" }]), fixtureBrandKit, {
+      siteText: "Капучино 75 грн",
+    });
+    expect(report.verified.map((c) => [c.itemId, c.factId, c.matchedSite])).toEqual([["t1", "f1", false]]);
+  });
+});

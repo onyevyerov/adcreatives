@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
+import { formatSceneItems } from "@adc/pipeline";
 import {
   aggregateCosts,
   type ChatEvent,
@@ -127,15 +128,19 @@ export function formatEvent(event: ChatEvent, root: string): string | null {
         return lines.join("\n");
       }
       if (p.checkpoint === "script") {
-        const flagged = new Set(p.claims.unverified.map((c) => c.sceneId));
+        const flagged = new Set(p.claims.unverified.filter((c) => c.field !== "item").map((c) => c.sceneId));
         return [
           `══ Чекпоінт 2 — тексти (${p.durationSeconds} с): ${p.storyboard.concept}`,
-          ...p.storyboard.scenes.map(
-            (s) =>
+          ...p.storyboard.scenes.flatMap((s) => {
+            const items = formatSceneItems(s, p.claims.unverified);
+            return [
               `   ${s.id} [${s.purpose}] ${s.text.headline}${s.text.sub ? ` / ${s.text.sub}` : ""}${flagged.has(s.id) ? "  ⚠ непідтверджене" : ""}`,
-          ),
+              ...(items ? [`      ${items}`] : []),
+            ];
+          }),
           ...p.claims.unverified.map(
-            (c) => `   ⚠ ${c.sceneId}: «${c.text}» — немає на сайті; «Затвердити» = факт від клієнта`,
+            (c) =>
+              `   ⚠ ${c.sceneId}${c.itemId ? `/${c.itemId}` : ""}: «${c.text}» — немає на сайті; «Затвердити» = факт від клієнта`,
           ),
           `   музика: ${p.musicBrief.genre}, ${p.musicBrief.bpm} bpm`,
         ].join("\n");
