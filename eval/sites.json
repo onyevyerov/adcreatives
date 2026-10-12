@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "url": "https://webreportio.com/",
+    "name": "webreportio-parity",
+    "formats": ["landscape"],
+    "language": "uk",
+    "durationSeconds": 25
+  }
+]

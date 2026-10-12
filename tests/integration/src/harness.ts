@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import {
   createChatLlmFactory,
+  createInitialProject,
   createMemoryLock,
   createPipelineDriver,
   type PipelineDriverImpl,
@@ -23,6 +24,7 @@ import {
   type PipelineCommand,
   type PipelineJob,
   type Prices,
+  ProjectState,
   type ProjectStatus,
   type PromptLoader,
   projectPaths,
@@ -282,6 +284,12 @@ export interface CreateProjectInput {
   origin?: RunSource;
   /** ID проєкту (дефолт — випадковий). */
   id?: string;
+  /**
+   * Тривалість ролика, с (15–30), заздалегідь — як eval-кейс із фіксованою тривалістю. У чаті її
+   * називає власник реплікою (chat-intent); тут `project.json` пишеться одразу таким, яким його
+   * створив би драйвер на `start`, плюс тривалість — без LLM. null/не задано — як зараз.
+   */
+  durationSeconds?: number | null;
 }
 
 export interface Harness {
@@ -428,6 +436,19 @@ export function createHarness(options: HarnessOptions): Harness {
         startCommandId: commandId,
       });
       await storage.writeJson(projectPaths(id).intake, intake);
+      if (input.durationSeconds != null) {
+        const initial = createInitialProject({
+          id,
+          url,
+          manualText,
+          origin: intake.origin,
+          now: now(),
+        });
+        await storage.writeJson(
+          projectPaths(id).project,
+          ProjectState.parse({ ...initial, durationSeconds: input.durationSeconds }),
+        );
+      }
       events.append(id, {
         type: "message",
         role: "user",
