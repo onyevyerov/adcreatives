@@ -115,7 +115,7 @@ describe("brandkitStage", () => {
 
     const key = projectPaths(PROJECT).brandkit(1);
     expect(res.outputs).toEqual({ version: 1 });
-    expect(res.artifacts).toEqual([key, contactSheetKey(PROJECT)]);
+    expect(res.artifacts).toEqual([key, projectPaths(PROJECT).siteText, contactSheetKey(PROJECT)]);
     expect(res.inputsHash).toMatch(/^[0-9a-f]{16}$/);
 
     // Виклик: стрім (effort high), модель з frontmatter, 6 скриншотів + контакт-лист.
@@ -153,6 +153,12 @@ describe("brandkitStage", () => {
 
     const sheet = await sharp(await storage.read(contactSheetKey(PROJECT))).metadata();
     expect(sheet.format).toBe("png");
+
+    // Текст сайту, який пішов у промпт, збережено для наступних стадій.
+    const siteText = await storage.readText(projectPaths(PROJECT).siteText);
+    expect(siteText).toMatch(/^<page url="https:\/\/zerno\.example\.com\/uk\/"/);
+    expect(siteText).toContain("Лате — 85 грн.");
+    expect(text).toContain(siteText);
 
     expect(ctx.emitted.events[0]).toMatchObject({ type: "progress", stage: "brandkit" });
     const costs = await readCosts(storage, PROJECT);
