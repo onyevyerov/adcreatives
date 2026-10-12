@@ -10,6 +10,7 @@ import {
 } from "@adc/shared";
 import { applyMixAutomation, mixSections } from "./automation.ts";
 import { alignToBeatGrid, type BeatAlignment } from "./beat.ts";
+import { FALLBACK_KEY, parseKey } from "./key.ts";
 import {
   createStereo,
   dbToGain,
@@ -21,16 +22,25 @@ import {
   type StereoPcm,
   secToSamples,
 } from "./pcm.ts";
-import { FALLBACK_KEY, hashString, parseKey, synthCue } from "./synth.ts";
+import {
+  analyzeSample,
+  type PreparedSound,
+  pitchShifts,
+  renderSample,
+  type SampleAnalysis,
+  type SfxSample,
+  type SfxSampleLibrary,
+} from "./samples.ts";
 import { encodeWav } from "./wav.ts";
 
 /**
- * Зведення: музика (вирівняна по долі, з автоматизацією частин) + синтезовані події за спільним
- * таймлайном + дакінг + мастер. Результат — `soundtrack.wav`, який хост грає замість музики й SFX.
+ * Зведення: музика (вирівняна по долі, з автоматизацією частин) + звуки подій з бібліотеки SFX
+ * (ElevenLabs) за спільним таймлайном + дакінг + мастер. Результат — `soundtrack.wav`, який хост
+ * грає замість музики й SFX.
  */
 
 /** Версія алгоритму зведення: входить у хеш повторного використання. */
-export const MIX_VERSION = 1;
+export const MIX_VERSION = 2;
 
 /** Мастер: RMS ≈ −14 dBFS, м'який кліпер від −6 dBFS, пік ≤ −1 dBFS. */
 export const MASTER_RMS_DBFS = -14;
@@ -80,6 +90,11 @@ export interface PlacedSound {
   frame: number;
   /** Ступінь пентатоніки для pop/ding (у сцені йдуть угору), інакше null. */
   degree: number | null;
+  /** Варіант семпла з бібліотеки (1, 2, 3…) і його хеш. */
+  variant: number;
+  sampleHash: string;
+  /** Зсув висоти семпла, півтони (0 — без зсуву). */
+  semitones: number;
   /** Семпл кадру події в треку. */
   at: number;
   /** Семпл початку звуку (може бути < 0 — тоді початок обрізано). */
@@ -96,6 +111,8 @@ export interface SoundtrackInput {
   storyboard: Pick<Storyboard, "fps" | "scenes" | "musicBrief">;
   /** `AudioPlan.key` («A minor»); null або нерозпізнане — ля-мінорна пентатоніка. */
   key: string | null;
+  /** Бібліотека семплів подій; cue без жодного придатного семпла — його події без звуку. */
+  samples: SfxSampleLibrary;
 }
 
 export interface Soundtrack {
@@ -108,6 +125,8 @@ export interface Soundtrack {
   masterGain: number;
   alignment: BeatAlignment | null;
   sounds: PlacedSound[];
+  /** Події зі звуком, для cue яких у бібліотеці немає семпла (звучать тишею). */
+  silent: EventPlacement[];
 }
 
 /** Вікно чутності: riser — 100 мс до кадру, whoosh/swoosh — ±50 мс, решта — 100 мс від кадру. */
@@ -134,6 +153,32 @@ function scaleDegrees(placements: readonly EventPlacement[]): Map<EventPlacement
     out.set(p, n);
     counters.set(p.sceneId, n + 1);
   }
+  return out;
+}
+
+interface PreparedEntry {
+  sample: SfxSample;
+  analysis: SampleAnalysis;
+}
+
+/** Аналіз варіантів кожного cue (порожні й тихі семпли відкидаються); cue без варіантів — немає в мапі. */
+function prepareLibrary(samples: SfxSampleLibrary): Map<SoundCue, PreparedEntry[]> {
+  const out = new Map<SoundCue, PreparedEntry[]>();
+  for (const cue of Object.keys(samples).sort() as SoundCue[]) {
+    const entries: PreparedEntry[] = [];
+    for (const sample of samples[cue] ?? []) {
+      const analysis = analyzeSample(cue, sample.pcm);
+      if (analysis) entries.push({ sample, analysis });
+    }
+    if (entries.length > 0) out.set(cue, entries);
+  }
+  return out;
+}
+
+/** Хеші варіантів бібліотеки по cue (у порядку варіантів) — для `soundtrackHash`. */
+export function sampleHashes(samples: SfxSampleLibrary): Partial<Record<SoundCue, string[]>> {
+  const out: Partial<Record<SoundCue, string[]>> = {};
+  for (const cue of Object.keys(samples) as SoundCue[]) out[cue] = (samples[cue] ?? []).map((s) => s.hash);
   return out;
 }
 
@@ -165,26 +210,46 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
     });
   }
 
-  // 2. Події: синтез, розміщення за семантикою кадру, гучність відносно музики навколо.
+  // 2. Події: семпл бібліотеки (варіанти по колу, висота — у тональності), розміщення
+  // за семантикою кадру, гучність відносно музики навколо.
   const key = parseKey(input.key) ?? FALLBACK_KEY;
-  const beatSec = 60 / bpm;
   const musicRms = rmsOf(music);
   const floor = Math.max(musicRms * dbToGain(REF_FLOOR_REL_DB), dbToGain(REF_FLOOR_ABS_DB));
   const events = createStereo(total, sr);
-  const placements = computeEventPlacements(storyboard).filter(
+  const library = prepareLibrary(input.samples);
+  const withCue = computeEventPlacements(storyboard).filter(
     (p): p is EventPlacement & { cue: SoundCue } => p.cue !== null,
   );
+  const silent = withCue.filter((p) => !library.has(p.cue));
+  const placements = withCue.filter((p) => library.has(p.cue));
   const degrees = scaleDegrees(placements);
+  const rotation = new Map<SoundCue, number>();
+  const chosen = placements.map((p) => {
+    const variants = library.get(p.cue) ?? [];
+    const n = rotation.get(p.cue) ?? 0;
+    rotation.set(p.cue, n + 1);
+    return variants[n % variants.length] as PreparedEntry;
+  });
+  const shifts = pitchShifts(
+    placements.map((p, i) => ({
+      cue: p.cue,
+      sceneId: p.sceneId,
+      pitchHz: chosen[i]?.analysis.pitchHz ?? null,
+    })),
+    key,
+  );
+  const rendered = new Map<string, PreparedSound>();
   const sounds: PlacedSound[] = [];
-  for (const p of placements) {
+  for (const [idx, p] of placements.entries()) {
     const degree = degrees.get(p) ?? null;
-    const sound = synthCue(p.cue, {
-      key,
-      degree: degree ?? 0,
-      beatSec,
-      seed: hashString(`${p.sceneId}:${p.eventId}`),
-      sampleRate: sr,
-    });
+    const entry = chosen[idx] as PreparedEntry;
+    const semitones = shifts[idx] ?? 0;
+    const renderKey = `${entry.sample.hash}:${entry.sample.variant}:${semitones}`;
+    let sound = rendered.get(renderKey);
+    if (!sound) {
+      sound = renderSample(entry.sample.pcm, entry.analysis, { semitones, sampleRate: sr });
+      rendered.set(renderKey, sound);
+    }
     const at = frameToSample(p.frame, fps, sr);
     const start = at - sound.anchor;
     const window = audibilityWindow(p.cue, at, sr);
@@ -211,6 +276,9 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
       accent: p.accent,
       frame: p.frame,
       degree,
+      variant: entry.sample.variant,
+      sampleHash: entry.sample.hash,
+      semitones,
       at,
       start,
       window,
@@ -264,20 +332,26 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
     masterGain,
     alignment,
     sounds,
+    silent,
   };
 }
 
 /**
  * Хеш повторного використання зведення: трек (`planHash`), тональність, темп і `mix` частин,
- * таймлайн сцен і всі події з кадрами й звуком, плюс версія алгоритму.
+ * таймлайн сцен, усі події з кадрами й звуком, хеші варіантів семплів використаних cue
+ * (у порядку варіантів — від нього залежить ротація), плюс версія алгоритму.
  */
 export function soundtrackHash(input: {
   planHash: string;
   key: string | null;
   storyboard: Pick<Storyboard, "fps" | "scenes" | "musicBrief">;
+  /** Хеші варіантів бібліотеки по cue (`sampleHashes`). */
+  samples: Partial<Record<SoundCue, readonly string[]>>;
 }): string {
   const { storyboard } = input;
   const timeline = computeTimeline(storyboard);
+  const placements = computeEventPlacements(storyboard);
+  const used = [...new Set(placements.map((p) => p.cue).filter((c): c is SoundCue => c !== null))].sort();
   return inputsHash({
     version: MIX_VERSION,
     planHash: input.planHash,
@@ -289,6 +363,7 @@ export function soundtrackHash(input: {
       totalFrames: timeline.totalFrames,
       scenes: timeline.scenes.map((s) => ({ id: s.id, from: s.from, durationInFrames: s.durationInFrames })),
     },
-    events: computeEventPlacements(storyboard),
+    events: placements,
+    samples: Object.fromEntries(used.map((cue) => [cue, [...(input.samples[cue] ?? [])]])),
   });
 }

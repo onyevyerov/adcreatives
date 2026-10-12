@@ -9,13 +9,12 @@ import {
   loadRootEnv,
   type PromptLoader,
   RunSource,
-  STANDARD_SFX_CUES,
   type Storage,
   storageFromEnv,
 } from "@adc/shared";
 import { createElevenLabsClient, type ElevenLabsLike } from "./client.ts";
 import { defaultGate, type ElevenLabsGate } from "./gate.ts";
-import { ensureStandardSfx, loadStandardCues, type SfxFile } from "./sfx.ts";
+import { ensureStandardSfx, loadSfxLibrary, type SfxFile, sfxHash, variantLabel } from "./sfx.ts";
 
 export interface WarmSfxCacheOptions {
   storage: Storage;
@@ -27,16 +26,26 @@ export interface WarmSfxCacheOptions {
   logger?: Logger;
 }
 
-/** Генерує відсутні стандартні SFX у `DATA_DIR/cache/sfx/<hash>.mp3` (наявні пропускає). */
+/**
+ * Генерує відсутні SFX бібліотеки (усі `SoundCue` × усі варіанти; legacy-cue — це їхні варіанти 1)
+ * у `DATA_DIR/cache/sfx/<hash>.mp3`; наявні пропускає. Однаковий запит генерується один раз.
+ */
 export async function warmSfxCache(opts: WarmSfxCacheOptions): Promise<SfxFile[]> {
-  const library = loadStandardCues(opts.prompts);
+  const library = loadSfxLibrary(opts.prompts);
   const deps = {
     storage: opts.storage,
     client: opts.client,
     gate: opts.gate,
     ...(opts.logger ? { logger: opts.logger } : {}),
   };
-  return Promise.all(STANDARD_SFX_CUES.map((cue) => ensureStandardSfx(deps, opts.cost, cue, library[cue])));
+  const jobs = new Map<string, Promise<SfxFile>>();
+  for (const [cue, variants] of Object.entries(library)) {
+    variants.forEach((def, i) => {
+      const hash = sfxHash(def);
+      if (!jobs.has(hash)) jobs.set(hash, ensureStandardSfx(deps, opts.cost, variantLabel(cue, i + 1), def));
+    });
+  }
+  return Promise.all(jobs.values());
 }
 
 /**
@@ -80,7 +89,7 @@ export async function runSfxCacheCli(argv: readonly string[]): Promise<number> {
   });
   for (const f of files) {
     console.log(
-      `${f.generated ? "згенеровано" : "вже в кеші "}  ${f.cue.padEnd(8)} → ${storage.absPath(f.key)}`,
+      `${f.generated ? "згенеровано" : "вже в кеші "}  ${f.cue.padEnd(10)} → ${storage.absPath(f.key)}`,
     );
   }
   return 0;
