@@ -1,9 +1,48 @@
 import { computeTimeline, Storyboard } from "@adc/shared";
 import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
-import { checkCopy, normalizeStoryboard } from "../src/normalize.ts";
+import { checkCopy, maxHits, normalizeStoryboard } from "../src/normalize.ts";
 
 const ASSETS = ["a01", "a02"];
+
+type Ev = Storyboard["scenes"][number]["events"][number];
+type Cue = NonNullable<Ev["sound"]>["cue"];
+type Accent = NonNullable<Ev["sound"]>["accent"];
+
+/**
+ * Ролик 24 с при 120 BPM (доля 15 кадрів): 4 склейки по 180 кадрів; удари задаються глобальними
+ * секундами (кадри на сітці — нормалізація їх не зсуває).
+ */
+function hitsVideo(hits: Array<[sec: number, cue: Cue, accent: Accent]>): Storyboard {
+  const scenes = [0, 1, 2, 3].map((i) => ({
+    durationFrames: 180,
+    transitionFrames: 0,
+    transitionIn: "cut" as const,
+    sfxCue: null,
+    events: hits
+      .map(([sec, cue, accent], k): [number, Ev] => [
+        sec * 30,
+        { id: `e${k + 1}`, at: sec * 30 - i * 180, what: "Hit.", sound: { cue, accent }, textIds: [] },
+      ])
+      .filter(([f]) => f >= i * 180 && f < (i + 1) * 180)
+      .map(([, e]) => e),
+  }));
+  const out = sb(scenes);
+  out.musicBrief.bpm = 120;
+  return out;
+}
+
+/** Подія за id з усіх сцен: [cue, accent, глобальний кадр]. */
+function eventsById(res: {
+  storyboard: Storyboard;
+}): Record<string, [Cue | undefined, Accent | undefined, number]> {
+  const tl = computeTimeline(res.storyboard);
+  const out: Record<string, [Cue | undefined, Accent | undefined, number]> = {};
+  res.storyboard.scenes.forEach((s, i) => {
+    for (const e of s.events) out[e.id] = [e.sound?.cue, e.sound?.accent, (tl.scenes[i]?.from ?? 0) + e.at];
+  });
+  return out;
+}
 
 function sb(scenes: Array<Partial<Storyboard["scenes"][number]>>): Storyboard {
   const base = fixtureStoryboard.scenes[0] as Storyboard["scenes"][number];
@@ -263,5 +302,117 @@ describe("normalizeStoryboard", () => {
     expect(issues).toEqual([
       expect.objectContaining({ sceneId: "s1", field: "item", itemId: "t1", kind: "word", limit: 18 }),
     ]);
+  });
+
+  it("ліміт ударів: 1 + floor(totalSec / 6) — 15 с → 3, 24 с → 5, 30 с → 6", () => {
+    expect(maxHits(15)).toBe(3);
+    expect(maxHits(23.9)).toBe(4);
+    expect(maxHits(24)).toBe(5);
+    expect(maxHits(30)).toBe(6);
+  });
+
+  it("щільність ударів: понад 5 на 24 с → pop (normal), спершу soft, потім normal за порядком; кадр той самий", () => {
+    // Удари рівно через 3 с — вікно не порушене, працює лише ліміт на ролик.
+    const res = normalizeStoryboard(
+      hitsVideo([
+        [0, "impact", "hard"],
+        [3, "slam", "normal"],
+        [6, "impact", "soft"],
+        [9, "impact", "hard"],
+        [12, "slam", "normal"],
+        [15, "impact", "hard"],
+        [18, "slam", "soft"],
+        [21, "impact", "hard"],
+      ]),
+      { assetIds: ASSETS },
+    );
+    expect(res.totalFrames).toBe(720);
+    expect(eventsById(res)).toEqual({
+      e1: ["impact", "hard", 0],
+      e2: ["pop", "normal", 90],
+      e3: ["pop", "normal", 180],
+      e4: ["impact", "hard", 270],
+      e5: ["slam", "normal", 360],
+      e6: ["impact", "hard", 450],
+      e7: ["pop", "normal", 540],
+      e8: ["impact", "hard", 630],
+    });
+    const demoted = res.changes.filter((c) => c.includes("→ pop"));
+    expect(demoted).toEqual([
+      "s2: подія «e3» impact (soft) → pop — понад ліміт 5 ударів на ролик",
+      "s4: подія «e7» slam (soft) → pop — понад ліміт 5 ударів на ролик",
+      "s1: подія «e2» slam (normal) → pop — понад ліміт 5 ударів на ролик",
+    ]);
+  });
+
+  it("щільність ударів: другий impact/slam у вікні 3 с → pop, навіть hard; рівно 3 с — можна", () => {
+    // Розклад ударів з розбору ролика пайплайна: 0, 1.5, 8, 9.5, 13.5, 15.5, 17.5, 20.5 с.
+    const res = normalizeStoryboard(
+      hitsVideo([
+        [0, "impact", "normal"],
+        [1.5, "slam", "hard"],
+        [8, "impact", "hard"],
+        [9.5, "impact", "hard"],
+        [13.5, "slam", "hard"],
+        [15.5, "impact", "soft"],
+        [17.5, "impact", "hard"],
+        [20.5, "slam", "hard"],
+      ]),
+      { assetIds: ASSETS },
+    );
+    const ev = eventsById(res);
+    expect(Object.values(ev).filter(([cue]) => cue === "impact" || cue === "slam")).toHaveLength(5);
+    expect(ev.e2).toEqual(["pop", "normal", 45]);
+    expect(ev.e4).toEqual(["pop", "normal", 285]);
+    expect(ev.e6).toEqual(["pop", "normal", 465]);
+    expect(ev.e8).toEqual(["slam", "hard", 615]); // 17.5 → 20.5 рівно 3 с
+    expect(res.changes).toContain("s1: подія «e2» slam (hard) → pop — ближче 3 с до попереднього удару");
+    expect(res.changes.some((c) => c.includes("понад ліміт"))).toBe(false);
+  });
+
+  it("riser далі ніж за 2 такти до наступної озвученої події — лише попередження", () => {
+    const base = hitsVideo([]);
+    const [s1, s2] = base.scenes as [Storyboard["scenes"][number], Storyboard["scenes"][number]];
+    // 2 такти при 120 BPM = 8 долей = 120 кадрів.
+    s1.events = [
+      { id: "build", at: 30, what: "Tension.", sound: { cue: "riser", accent: "normal" }, textIds: [] },
+      { id: "quiet", at: 90, what: "Seen, not heard.", sound: null, textIds: [] },
+    ];
+    s2.events = [
+      { id: "land", at: 0, what: "Lands.", sound: { cue: "pop", accent: "normal" }, textIds: [] },
+      { id: "build2", at: 60, what: "Tension.", sound: { cue: "riser", accent: "hard" }, textIds: [] },
+      { id: "peak", at: 165, what: "Peak.", sound: { cue: "impact", accent: "hard" }, textIds: [] },
+    ];
+    const res = normalizeStoryboard(base, { assetIds: ASSETS });
+    expect(res.changes.filter((c) => c.includes("riser"))).toEqual([
+      "s1: riser «build» за 10 долей до події «land» — довший за 2 такти (попередження)",
+    ]);
+    const ev = eventsById(res);
+    expect(ev.build).toEqual(["riser", "normal", 30]);
+    expect(ev.build2).toEqual(["riser", "hard", 240]);
+    expect(ev.peak).toEqual(["impact", "hard", 345]);
+  });
+
+  it("старі розкадровки з sfxCue: подія arrive з impact не рахується і не понижується", () => {
+    // 6 сцен по 2.5 с, у кожної sfxCue "impact" — як раніше, без пониження.
+    const old = sb(
+      [0, 1, 2, 3, 4, 5].map(() => ({
+        durationFrames: 75,
+        transitionFrames: 0,
+        transitionIn: "cut" as const,
+        sfxCue: "impact",
+        events: [],
+      })),
+    );
+    old.musicBrief.bpm = 120;
+    const res = normalizeStoryboard(old, { assetIds: ASSETS });
+    expect(res.totalFrames).toBe(450);
+    for (const s of res.storyboard.scenes) {
+      expect(s.sfxCue).toBe("impact");
+      expect(s.events.map((e) => [e.id, e.at, e.sound?.cue, e.sound?.accent])).toEqual([
+        ["arrive", 0, "impact", "normal"],
+      ]);
+    }
+    expect(res.changes.some((c) => c.includes("→ pop"))).toBe(false);
   });
 });

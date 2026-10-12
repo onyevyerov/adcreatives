@@ -26,6 +26,8 @@ import {
  *   загальна тривалість та сама (остачу забирає остання сцена);
  * - `items`: trim, унікальні id, відомі factIds; `events`: унікальні id, `at` у межах сцени
  *   (пропорційно до зміни тривалості), звукові удари — на найближчу восьму; legacy `sfxCue` → подія "arrive";
+ * - щільність ударів (`limitHits`): impact/slam ≤ `1 + floor(totalSec / 6)` на ролик і ≤ 1 у вікні 3 с,
+ *   зайві → `pop`; riser далі ніж за 2 такти до події — попередження;
  * - довжина текстів звіряється з `copyRules` для обраних форматів → `textIssues` (текст не
  *   переписується: це робить стадія повторним викликом моделі або людина на чекпоінті 2).
  */
@@ -326,6 +328,91 @@ function placeEvents(
   if (moved > 0) opts.changes.push(`${scene.id}: кадри подій уточнено (${moved})`);
 }
 
+/** Важкі удари: їх мало, кожен — структурний момент ролика. */
+const HIT_CUES: ReadonlySet<SoundCueT> = new Set<SoundCueT>(["impact", "slam"]);
+/** Між двома важкими ударами — щонайменше стільки секунд. */
+export const HIT_WINDOW_SEC = 3;
+/** Секунд ролика на один важкий удар понад перший. */
+const SEC_PER_HIT = 6;
+/** riser довший за стільки тактів (4/4) до події — попередження. */
+const RISER_MAX_BARS = 2;
+/** Порядок пониження зайвих ударів: спершу `soft`, потім `normal`, `hard` — останніми. */
+const ACCENT_RANK = { soft: 0, normal: 1, hard: 2 } as const;
+
+/** Ліміт важких ударів (impact/slam) на ролик: `1 + floor(totalSec / 6)` (24 с → 5). */
+export function maxHits(totalSec: number): number {
+  return 1 + Math.floor(totalSec / SEC_PER_HIT);
+}
+
+/** Подія "arrive" з legacy `sfxCue`: старий шлях звуку, її не чіпаємо і не рахуємо. */
+function isLegacyArrive(scene: Scene, e: Scene["events"][number]): boolean {
+  return e.id === LEGACY_ARRIVE_EVENT_ID && !!scene.sfxCue?.trim() && e.sound?.cue === scene.sfxCue.trim();
+}
+
+/**
+ * Щільність ударів (після `placeEvents`, кадри вже остаточні):
+ * - impact/slam ближче `HIT_WINDOW_SEC` до попереднього залишеного удару → `pop` (`normal`);
+ * - понад `maxHits` на ролик → `pop` (`normal`), починаючи з `soft`, далі `normal`, далі `hard`,
+ *   у межах рівня — за порядком у ролику;
+ * - `riser` далі ніж за 2 такти до наступної озвученої події — лише попередження в `changes`.
+ * Кадр події не змінюється. Legacy-події "arrive" з `sfxCue` не рахуються і не понижуються.
+ */
+export function limitHits(sb: Storyboard, changes: string[]): void {
+  const timeline = computeTimeline(sb);
+  const beat = beatFrames(sb.musicBrief.bpm, sb.fps);
+  type Placed = { scene: Scene; event: Scene["events"][number]; frame: number; legacy: boolean };
+  const all: Placed[] = [];
+  sb.scenes.forEach((scene, i) => {
+    const from = timeline.scenes[i]?.from ?? 0;
+    for (const event of scene.events) {
+      all.push({ scene, event, frame: from + event.at, legacy: isLegacyArrive(scene, event) });
+    }
+  });
+  // Стабільне сортування: за рівних кадрів — у порядку сцен і подій.
+  all.sort((a, b) => a.frame - b.frame);
+
+  const accentOf = (p: Placed) => p.event.sound?.accent ?? "normal";
+  const demote = (p: Placed, why: string) => {
+    changes.push(
+      `${p.scene.id}: подія «${p.event.id}» ${p.event.sound?.cue} (${accentOf(p)}) → pop — ${why}`,
+    );
+    p.event.sound = { cue: "pop", accent: "normal" };
+  };
+
+  // Вікно: другий удар ближче 3 с до попереднього залишеного понижується.
+  const minGap = HIT_WINDOW_SEC * sb.fps;
+  const kept: Placed[] = [];
+  for (const p of all) {
+    if (p.legacy || !p.event.sound || !HIT_CUES.has(p.event.sound.cue)) continue;
+    const prev = kept[kept.length - 1];
+    if (prev && p.frame - prev.frame < minGap) demote(p, `ближче ${HIT_WINDOW_SEC} с до попереднього удару`);
+    else kept.push(p);
+  }
+
+  // Ліміт на ролик: зайві — від найменш важливих.
+  const limit = maxHits(timeline.totalFrames / sb.fps);
+  if (kept.length > limit) {
+    const order = kept
+      .map((p, i) => ({ p, i }))
+      .sort((a, b) => ACCENT_RANK[accentOf(a.p)] - ACCENT_RANK[accentOf(b.p)] || a.i - b.i);
+    for (const { p } of order.slice(0, kept.length - limit)) {
+      demote(p, `понад ліміт ${limit} ударів на ролик`);
+    }
+  }
+
+  // riser: наростання до наступної озвученої події не довше за 2 такти.
+  const maxLead = RISER_MAX_BARS * 4 * beat;
+  all.forEach((p, i) => {
+    if (p.legacy || p.event.sound?.cue !== "riser") return;
+    const target = all.slice(i + 1).find((q) => q.event.sound && q.event.sound.cue !== "riser");
+    if (!target || target.frame - p.frame <= maxLead) return;
+    const beats = Math.round((target.frame - p.frame) / beat);
+    changes.push(
+      `${p.scene.id}: riser «${p.event.id}» за ${beats} долей до події «${target.event.id}» — довший за ${RISER_MAX_BARS} такти (попередження)`,
+    );
+  });
+}
+
 export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): NormalizeResult {
   const sb: Storyboard = structuredClone(input);
   const changes: string[] = [];
@@ -452,6 +539,7 @@ export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): 
       changes,
     });
   });
+  limitHits(sb, changes);
 
   const parsed = Storyboard.parse(sb);
   const timeline = computeTimeline(parsed);
