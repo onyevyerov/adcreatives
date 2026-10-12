@@ -1,6 +1,7 @@
 import { readCosts, readTuning, revPaths, type Scene, type Storyboard } from "@adc/shared";
 import { fixtureAssets, fixtureBrandKitFile, fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
+import { parseFileBlocks } from "../src/files.ts";
 import { directorPaths } from "../src/io.ts";
 import { readLedger } from "../src/ledger.ts";
 import { brandForCode, CodegenReport, createCodegenStage, sceneCodegenHash } from "../src/stages/codegen.ts";
@@ -304,5 +305,11 @@ describe("codegenStage (film)", () => {
     const brand = structuredClone(fixtureBrandKitFile);
     brand.identity.tagline = "Кава, що будить";
     expect(brandForCode(brand).tagline).toBe("Кава, що будить");
+  });
+
+  it("parseFileBlocks: обірваний блок (повтор стріму після обриву) не ковтає наступний повний", () => {
+    const text = `<file name="s1.tsx">\nconst a = 1;\n</file>\n<file name="s2.tsx">\nconst broken =\n<file name="s1.tsx">\nconst a = 2;\n</file>\n<file name="s2.tsx">\nconst b = 2;\n</file>`;
+    const parsed = Object.fromEntries(parseFileBlocks(text).map((f) => [f.sceneId, f.code]));
+    expect(parsed).toEqual({ s1: "const a = 2;\n", s2: "const b = 2;\n" });
   });
 });

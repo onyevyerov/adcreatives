@@ -21,7 +21,11 @@ export interface ParsedFile {
   code: string;
 }
 
-const FILE_BLOCK = /<file\s+(?:name|path)\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)<\/file>/gi;
+/**
+ * Вміст блоку не містить початку іншого `<file`: обірваний блок (обрізаний стрім, повтор виклику
+ * після обриву) відкидається, а не ковтає наступний повний блок.
+ */
+const FILE_BLOCK = /<file\s+(?:name|path)\s*=\s*["']([^"']+)["']\s*>((?:(?!<file\s)[\s\S])*?)<\/file>/gi;
 const FENCE = /^\s*```[a-zA-Z]*\s*\n([\s\S]*?)\n\s*```\s*$/;
 const ANY_FENCE = /```(?:tsx|typescript|ts|jsx)?\s*\n([\s\S]*?)\n```/;
 
