@@ -195,6 +195,8 @@ export async function ensureMusic(
     promptUsed: music.promptUsed,
     briefHash,
     createdAt: (deps.now ?? (() => new Date()))().toISOString(),
+    check: null,
+    attempts: 1,
   };
   await deps.storage.write(key, music.audio);
   await deps.storage.writeJson(metaKey, meta);

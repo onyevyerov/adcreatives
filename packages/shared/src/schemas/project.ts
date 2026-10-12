@@ -54,6 +54,8 @@ export const STAGE_NAMES = [
   "brandkit-patch",
   "storyboard",
   "codegen",
+  /** Агентний режим генерації: один агент пише, рендерить і дивиться сцени (замість codegen → check → qa → fix). */
+  "author",
   "check",
   "fix",
   "qa",

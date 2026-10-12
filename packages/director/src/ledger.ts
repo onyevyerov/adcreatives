@@ -26,7 +26,8 @@ export type SceneCheckData = z.infer<typeof SceneCheckData>;
 
 export const SceneVersion = z.object({
   v: z.number().int().min(1),
-  origin: z.enum(["codegen", "fix", "carry"]),
+  /** author — версія, яку записав агент стадії `author` (агентний режим). */
+  origin: z.enum(["codegen", "fix", "carry", "author"]),
   createdAt: z.string(),
   /** sha256 коду; порожній рядок — модель не повернула файл. */
   codeHash: z.string(),

@@ -48,6 +48,10 @@ export const OnScreenRole = z.enum([
   "caption",
   "quote",
   "button",
+  /** Дрібний надзаголовок над headline або блоком: "КРОК 2", "ЩО ВИ ОТРИМУЄТЕ". */
+  "eyebrow",
+  /** Стан/серйозність у рядку UI-мока: "Критично", "Готово", "3 години". */
+  "status",
 ]);
 export type OnScreenRole = z.infer<typeof OnScreenRole>;
 

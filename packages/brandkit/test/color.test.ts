@@ -34,6 +34,9 @@ describe("fixPalette", () => {
       surface: "#F5F5F5",
       textOnDark: "#5C6BC0",
       textOnLight: "#9E9E9E",
+      danger: null,
+      warning: null,
+      success: null,
     });
     expect(contrastRatio(palette.textOnLight, "#FFFFFF")).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(palette.textOnDark, "#1A237E")).toBeGreaterThanOrEqual(4.5);
@@ -76,6 +79,9 @@ describe("fixPalette", () => {
       surface: "#1e1e1e",
       textOnDark: "#888888",
       textOnLight: "#222222",
+      danger: null,
+      warning: null,
+      success: null,
     });
     expect(palette.primary).toBe("#FFCC00");
     const report = paletteReport(palette);

@@ -9,6 +9,8 @@ import { Effort } from "./llm/prompts.ts";
  * Відкат: `ADC_CODEGEN_MODE=fanout` (anchor, потім решта паралельно) або послідовна генерація
  * `ADC_CODEGEN_MODE=sequential ADC_CODEGEN_ANCHOR_EFFORT=xhigh ADC_CODEGEN_REST_EFFORT=high`.
  * `qaMaxRounds` — кількість кіл QA → fix перед чекпоінтом 3.
+ * `generationMode: agent` — стадія `author` (один агент пише, рендерить і дивиться сцени) замість
+ * codegen → check → qa → fix; бюджети `author*` обмежують її токенами, ітераціями і часом.
  * `null` — значення з frontmatter промпта.
  */
 export const Tuning = z.object({
@@ -22,6 +24,11 @@ export const Tuning = z.object({
   fixCheckEffort: Effort.nullable().default(null),
   speculativeRender: z.boolean().default(false),
   qaMaxRounds: z.number().int().min(0).max(3).default(2),
+  generationMode: z.enum(["pipeline", "agent"]).default("pipeline"),
+  /** Сумарні токени (input + output + cache) стадії `author`. */
+  authorTokenBudget: z.number().int().min(500_000).default(3_000_000),
+  authorMaxIterations: z.number().int().min(5).max(80).default(40),
+  authorMaxMinutes: z.number().int().min(5).max(60).default(25),
 });
 export type Tuning = z.infer<typeof Tuning>;
 
@@ -37,6 +44,10 @@ export const TUNING_ENV: Record<keyof Tuning, string> = {
   fixCheckEffort: "ADC_FIX_CHECK_EFFORT",
   speculativeRender: "ADC_SPECULATIVE_RENDER",
   qaMaxRounds: "ADC_QA_MAX_ROUNDS",
+  generationMode: "ADC_GENERATION_MODE",
+  authorTokenBudget: "ADC_AUTHOR_TOKEN_BUDGET",
+  authorMaxIterations: "ADC_AUTHOR_MAX_ITERATIONS",
+  authorMaxMinutes: "ADC_AUTHOR_MAX_MINUTES",
 };
 
 const NUMBER_FIELDS = new Set<keyof Tuning>([
@@ -44,6 +55,9 @@ const NUMBER_FIELDS = new Set<keyof Tuning>([
   "codegenTaskBudget",
   "codegenConcurrency",
   "qaMaxRounds",
+  "authorTokenBudget",
+  "authorMaxIterations",
+  "authorMaxMinutes",
 ]);
 const BOOLEAN_VALUES: Record<string, boolean> = { "1": true, true: true, "0": false, false: false };
 

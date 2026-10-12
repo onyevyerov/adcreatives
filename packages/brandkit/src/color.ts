@@ -1,4 +1,4 @@
-import type { Palette } from "@adc/shared";
+import type { BasePaletteRole, Palette } from "@adc/shared";
 
 /**
  * Кольори і контраст за WCAG 2.x.
@@ -111,7 +111,7 @@ const DARK_REFERENCE = "#222222";
 /** Еталонне світле тло, якщо в палітрі немає світлого кольору. */
 const LIGHT_REFERENCE = "#F5F5F5";
 
-export const PALETTE_ROLE_UK: Record<keyof Palette, string> = {
+export const PALETTE_ROLE_UK: Record<BasePaletteRole, string> = {
   primary: "основний",
   secondary: "додатковий",
   accent: "акцентний",
@@ -142,7 +142,7 @@ export function fixPalette(input: Palette): PaletteFixResult {
   const fixes: string[] = [];
   const p = { ...input } as Palette;
 
-  for (const role of Object.keys(PALETTE_ROLE_UK) as Array<keyof Palette>) {
+  for (const role of Object.keys(PALETTE_ROLE_UK) as BasePaletteRole[]) {
     const hex = normalizeHex(p[role]);
     if (!hex) {
       const fallback = role === "textOnLight" ? "#111111" : role === "textOnDark" ? "#FFFFFF" : "#808080";
@@ -183,7 +183,7 @@ export function fixPalette(input: Palette): PaletteFixResult {
   adjust("textOnLight", lightest, CONTRAST.text, `замало контрасту зі світлим тлом ${lightest}`);
   adjust("textOnDark", darkest, CONTRAST.text, `замало контрасту з темним тлом ${darkest}`);
 
-  const ensureReadable = (role: keyof Palette, min: number) => {
+  const ensureReadable = (role: BasePaletteRole, min: number) => {
     const bg = p[role];
     if (Math.max(contrastRatio(p.textOnLight, bg), contrastRatio(p.textOnDark, bg)) >= min) return;
     const why = `текст на кольорі «${PALETTE_ROLE_UK[role]}» ${bg}`;

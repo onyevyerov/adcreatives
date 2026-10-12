@@ -1,14 +1,23 @@
-import type { BrandKit, MotionPersonality } from "@adc/shared/schemas/brandkit";
+import type { BrandKit, MotionPersonality, Palette } from "@adc/shared/schemas/brandkit";
 import type { AssetRef } from "@adc/shared/types/video";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { useDelayRender } from "remotion";
 import { type FontInfo, fontStack, loadPlannedFont, planFont } from "./fonts.ts";
 
+/** Палітра теми: ролі бренд-кіта, семантичні (danger, warning, success) — завжди кольори. */
+export type ThemePalette = { [K in keyof Palette]: string };
+
+/** Семантичні кольори для бренд-кітів без них (старі версії). */
+export const SEMANTIC_FALLBACK = { danger: "#EF4444", warning: "#F59E0B", success: "#22C55E" } as const;
+
+/** Системний моноширинний стек, якщо бренд-кіт не задав `typography.mono`. */
+export const MONO_FALLBACK_STACK = "ui-monospace, monospace";
+
 export interface Theme {
-  /** primary, secondary, accent, background, surface, textOnDark, textOnLight */
-  palette: BrandKit["palette"];
-  /** CSS font-family, вже завантажені. */
-  fonts: { heading: string; body: string };
+  /** primary, secondary, accent, background, surface, textOnDark, textOnLight, danger, warning, success */
+  palette: ThemePalette;
+  /** CSS font-family, вже завантажені; mono — для чисел, eyebrow і статусів. */
+  fonts: { heading: string; body: string; mono: string };
   weights: { heading: number[]; body: number[] };
   /** px для кадру з короткою стороною 1080 (множити на `useFormat().unit`), з visualStyle.shapes. */
   radius: { sm: number; md: number; lg: number; pill: number };
@@ -25,11 +34,19 @@ const RADIUS: Record<BrandKit["visualStyle"]["shapes"], Theme["radius"]> = {
 
 /** Тема з бренд-кіта (чиста функція; ваги — фактично завантажені). */
 export function buildTheme(brand: BrandKit, weights?: { heading: number[]; body: number[] }): Theme {
+  const p = brand.palette;
+  const mono = brand.typography.mono;
   return {
-    palette: brand.palette,
+    palette: {
+      ...p,
+      danger: p.danger ?? SEMANTIC_FALLBACK.danger,
+      warning: p.warning ?? SEMANTIC_FALLBACK.warning,
+      success: p.success ?? SEMANTIC_FALLBACK.success,
+    },
     fonts: {
       heading: fontStack(brand.typography.heading.family),
       body: fontStack(brand.typography.body.family),
+      mono: mono ? `"${mono.family.replace(/"/g, "")}", ${MONO_FALLBACK_STACK}` : MONO_FALLBACK_STACK,
     },
     weights: weights ?? {
       heading: [...brand.typography.heading.weights].sort((a, b) => a - b),

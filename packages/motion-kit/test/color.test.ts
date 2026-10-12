@@ -43,7 +43,7 @@ describe("кольори", () => {
   });
 
   it("результат readableOn має контраст ≥ 3 для всіх кольорів палітри фікстури", () => {
-    for (const bg of Object.values(palette)) {
+    for (const bg of Object.values(palette).filter((c): c is string => c !== null)) {
       expect(contrastRatio(readableOn(bg, palette), bg)).toBeGreaterThanOrEqual(3);
     }
   });

@@ -13,7 +13,13 @@ import { musicVolumeAt } from "../src/host/audio.tsx";
 import { firstAvailableAsset, TEMPLATE_VARIANTS, templateVariantFor } from "../src/host/TemplateScene.tsx";
 import { defaultStagger, easings, progress, springFor, springs } from "../src/motion.ts";
 import { parseQaLog } from "../src/qa.tsx";
-import { bodyWeight, buildTheme, headingWeight } from "../src/theme.tsx";
+import {
+  bodyWeight,
+  buildTheme,
+  headingWeight,
+  MONO_FALLBACK_STACK,
+  SEMANTIC_FALLBACK,
+} from "../src/theme.tsx";
 
 const fakeInfo: FontInfo = {
   fontFamily: "Montserrat",
@@ -35,7 +41,8 @@ const fakeInfo: FontInfo = {
 describe("тема", () => {
   it("будує токени з бренд-кіта", () => {
     const t = buildTheme(fixtureBrandKit);
-    expect(t.palette).toEqual(fixtureBrandKit.palette);
+    expect(t.palette).toEqual({ ...fixtureBrandKit.palette, ...SEMANTIC_FALLBACK });
+    expect(t.fonts.mono).toBe(MONO_FALLBACK_STACK);
     expect(t.fonts.heading).toBe(fontStack("Montserrat"));
     expect(t.fonts.body.startsWith('"Inter"')).toBe(true);
     expect(t.radius.pill).toBe(999);
@@ -43,6 +50,20 @@ describe("тема", () => {
     expect(t.density).toBe("balanced");
     expect(headingWeight(t)).toBe(800);
     expect(bodyWeight(t)).toBe(400);
+  });
+
+  it("семантичні кольори й моношрифт бренд-кіта мають пріоритет над запасними", () => {
+    const t = buildTheme({
+      ...fixtureBrandKit,
+      palette: { ...fixtureBrandKit.palette, danger: "#D93636" },
+      typography: {
+        ...fixtureBrandKit.typography,
+        mono: { family: "JetBrains Mono", weights: [400], origin: "substitute" },
+      },
+    });
+    expect(t.palette.danger).toBe("#D93636");
+    expect(t.palette.success).toBe(SEMANTIC_FALLBACK.success);
+    expect(t.fonts.mono).toBe(`"JetBrains Mono", ${MONO_FALLBACK_STACK}`);
   });
 
   it("sharp-бренд без заокруглень", () => {

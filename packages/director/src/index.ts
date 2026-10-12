@@ -4,10 +4,12 @@
  * Стадії (`Stage<S>` з `@adc/shared`): storyboardStage, codegenStage, createCheckStage({engine}),
  * fixStage, qaStage, reviseStage. Для рендер-стадії воркера — prepareRenderJob.
  * Чисті хелпери: normalizeStoryboard, verifyClaims, guardScene, typecheckScenes.
+ * Для стадії `author` (`@adc/author`) — без зміни реалізацій: guard/typecheck, авто-перевірки й
+ * аркуші check, контекст і бренд codegen, журнал версій, реєстр сцен, розбір файлових блоків.
  */
 
 export { extractClaims, verifyClaims } from "./claims.ts";
-export { loadCodegenContext } from "./context.ts";
+export { type CodegenContext, contextVars, loadCodegenContext } from "./context.ts";
 export { parseFileBlocks, parseSingleScene, scenesIndexSource } from "./files.ts";
 export {
   ALLOWED_MODULES,
@@ -27,10 +29,26 @@ export {
   scenePreviewProps,
   writeScenesIndex,
 } from "./job.ts";
-export { readLedger, type SceneLedger, type SceneVersion } from "./ledger.ts";
+export {
+  addVersion,
+  currentVersion,
+  type NewVersion,
+  readLedger,
+  rejectedScenes,
+  type SceneLedger,
+  type SceneVersion,
+  writeLedger,
+} from "./ledger.ts";
 export { checkCopy, type NormalizeResult, normalizeStoryboard, type TextIssue } from "./normalize.ts";
-export { type CheckStageDeps, collectAutoIssues, createCheckStage } from "./stages/check.ts";
-export { type CodegenStageDeps, codegenStage, createCodegenStage } from "./stages/codegen.ts";
+export {
+  type CheckStageDeps,
+  collectAutoIssues,
+  createCheckStage,
+  rebuildSheets,
+  STRIP_STEP,
+  versionStripSheet,
+} from "./stages/check.ts";
+export { brandForCode, type CodegenStageDeps, codegenStage, createCodegenStage } from "./stages/codegen.ts";
 export { createFixStage, type FixStageDeps, fixStage } from "./stages/fix.ts";
 export { createQaStage, keepBestVersions, qaStage } from "./stages/qa.ts";
 export { createReviseStage, type RevisionRecord, reviseStage } from "./stages/revise.ts";

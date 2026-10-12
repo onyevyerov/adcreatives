@@ -8,6 +8,7 @@ export const STAGE_LABEL_UK: Record<StageName, string> = {
   "brandkit-patch": "правка бренд-кіта",
   storyboard: "сценарій",
   codegen: "генерація сцен",
+  author: "генерація сцен",
   check: "перевірка сцен",
   fix: "виправлення сцен",
   qa: "перевірка якості",

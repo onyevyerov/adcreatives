@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readTuning, TUNING_ENV, Tuning, TuningError } from "../src/tuning.ts";
 
 describe("readTuning", () => {
-  it("дефолти — погоджена конфігурація (film, anchor і решта high, task budget 100 000, qaMaxRounds 2)", () => {
+  it("дефолти — погоджена конфігурація (film, anchor і решта high, task budget 100 000, qaMaxRounds 2, pipeline)", () => {
     expect(readTuning({})).toEqual({
       codegenMode: "film",
       codegenAnchorEffort: "high",
@@ -14,6 +14,10 @@ describe("readTuning", () => {
       fixCheckEffort: null,
       speculativeRender: false,
       qaMaxRounds: 2,
+      generationMode: "pipeline",
+      authorTokenBudget: 3_000_000,
+      authorMaxIterations: 40,
+      authorMaxMinutes: 25,
     } satisfies Tuning);
   });
 
@@ -27,6 +31,22 @@ describe("readTuning", () => {
       codegenMode: "sequential",
       codegenAnchorEffort: "xhigh",
       codegenRestEffort: "high",
+    });
+  });
+
+  it("агентний режим і бюджети стадії author — через env", () => {
+    expect(
+      readTuning({
+        ADC_GENERATION_MODE: "agent",
+        ADC_AUTHOR_TOKEN_BUDGET: "1500000",
+        ADC_AUTHOR_MAX_ITERATIONS: "60",
+        ADC_AUTHOR_MAX_MINUTES: "30",
+      }),
+    ).toMatchObject({
+      generationMode: "agent",
+      authorTokenBudget: 1_500_000,
+      authorMaxIterations: 60,
+      authorMaxMinutes: 30,
     });
   });
 
@@ -65,6 +85,10 @@ describe("readTuning", () => {
     ["ADC_QA_MAX_ROUNDS", "4"],
     ["ADC_CODEGEN_CONCURRENCY", "2.5"],
     ["ADC_SPECULATIVE_RENDER", "yes"],
+    ["ADC_GENERATION_MODE", "auto"],
+    ["ADC_AUTHOR_TOKEN_BUDGET", "100000"],
+    ["ADC_AUTHOR_MAX_ITERATIONS", "100"],
+    ["ADC_AUTHOR_MAX_MINUTES", "2"],
   ])("невалідне %s=%s — помилка, не тихий дефолт", (name, value) => {
     expect(() => readTuning({ [name]: value })).toThrow(TuningError);
     expect(() => readTuning({ [name]: value })).toThrow(name);

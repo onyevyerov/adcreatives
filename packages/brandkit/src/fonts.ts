@@ -171,7 +171,7 @@ export function fixTypography(
   const heading = resolveFont(input.heading, "heading", { cyrillic, detected });
   const body = resolveFont(input.body, "body", { cyrillic, detected });
   return {
-    typography: { heading: heading.choice, body: body.choice, detected },
+    typography: { heading: heading.choice, body: body.choice, mono: input.mono, detected },
     fixes: [heading.fix, body.fix].filter((f): f is string => f !== null),
   };
 }

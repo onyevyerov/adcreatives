@@ -36,7 +36,11 @@ const { springs } = await import("../src/motion.ts");
 const { default: DeviceReveal } = await import("../examples/device-reveal.tsx");
 
 const palette = fixtureBrandKit.palette;
-const paletteHex = new Set(Object.values(palette).map((c) => c.toLowerCase()));
+const paletteHex = new Set(
+  Object.values(palette)
+    .filter((c): c is string => c !== null)
+    .map((c) => c.toLowerCase()),
+);
 
 function render(node: ReactNode, frame: number, brand: BrandKit = fixtureBrandKit): string {
   clock.frame = frame;

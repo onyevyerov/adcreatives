@@ -46,6 +46,18 @@ export const AudioPlan = z.object({
 });
 export type AudioPlan = z.infer<typeof AudioPlan>;
 
+/** Перевірка згенерованого треку: чи є бочка на сітці і чи нема провалів. */
+export const MusicTrackCheck = z.object({
+  bpm: z.number(),
+  kickOnsets: z.number().int(),
+  beatConfidence: z.number(),
+  /** Провали RMS > 1 с відносно медіани треку, мс. */
+  gaps: z.array(z.object({ fromMs: z.number().int(), toMs: z.number().int(), dropDb: z.number() })),
+  rmsPerSecondDb: z.array(z.number()),
+  ok: z.boolean(),
+});
+export type MusicTrackCheck = z.infer<typeof MusicTrackCheck>;
+
 /** Метадані згенерованої музики: `audio/<planHash>/music.json`. */
 export const MusicMeta = z.object({
   planHash: z.string(),
@@ -56,5 +68,9 @@ export const MusicMeta = z.object({
   promptUsed: z.string().nullable(),
   briefHash: z.string(),
   createdAt: z.string(),
+  /** Перевірка треку після генерації; null — не перевірявся (старі треки). */
+  check: MusicTrackCheck.nullable().default(null),
+  /** Скільки генерацій знадобилось (включно з першою). */
+  attempts: z.number().int().min(1).default(1),
 });
 export type MusicMeta = z.infer<typeof MusicMeta>;
