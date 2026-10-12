@@ -3,7 +3,7 @@ import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { directorPaths } from "../src/io.ts";
 import { type StoryboardMeta, storyboardStage } from "../src/stages/storyboard.ts";
-import { makeCtx, PROJECT_ID, type Reply, seedProject, tmpStorage, userText } from "./helpers.ts";
+import { makeCtx, PROJECT_ID, type Reply, seedProject, systemText, tmpStorage, userText } from "./helpers.ts";
 
 type Scene = Storyboard["scenes"][number];
 
@@ -173,6 +173,46 @@ describe("storyboard: точковий ретрай текстів (storyboard-c
     expect(out.items.map((i) => i.id)).toEqual(["t1", "t2", "t3"]);
     // Події не чіпаються (arrive — з legacy sfxCue фікстури).
     expect(out.events.map((e) => e.id)).toEqual(["arrive", "price-hit", "badge-in"]);
+    expect(meta.textIssues).toEqual([]);
+  });
+
+  it("eyebrow/status у items: роль іде в copyfix, промпт тримає їх короткими; роль після злиття та сама", async () => {
+    const draft = structuredClone(fixtureStoryboard);
+    const s2 = draft.scenes[1] as Scene;
+    s2.items.unshift({ id: "t4", role: "eyebrow", text: "ПРОПОЗИЦІЯ", group: null, factIds: [] });
+    s2.items.push({
+      id: "t5",
+      role: "status",
+      text: "Найпопулярнішийнапій",
+      group: "row:ціна",
+      factIds: [],
+    });
+    const fix = { scenes: [{ id: "s2", ...structuredClone(s2.text), items: [{ id: "t5", text: "Хіт" }] }] };
+    const { ctx, sb, meta } = await runStage([{ json: draft }, { json: fix }]);
+    expect(ctx.anthropic.calls).toHaveLength(2);
+    const params = ctx.anthropic.calls[1]?.params;
+    const scenes = JSON.parse(block(params, "scenes_to_fix")) as Array<{
+      items: Array<{ id: string; role: string }>;
+      issues: Array<{ itemId?: string }>;
+    }>;
+    expect(scenes[0]?.items.map((i) => `${i.id}:${i.role}`)).toEqual([
+      "t4:eyebrow",
+      "t1:label",
+      "t2:number",
+      "t3:badge",
+      "t5:status",
+    ]);
+    expect(new Set(scenes[0]?.issues.map((i) => i.itemId))).toEqual(new Set(["t5"]));
+    const system = systemText(params);
+    expect(system).toContain("a `status` stays a short state word or estimate");
+    const out = sb.scenes[1] as Scene;
+    expect(out.items.map((i) => [i.id, i.role, i.text])).toEqual([
+      ["t4", "eyebrow", "ПРОПОЗИЦІЯ"],
+      ["t1", "label", "Спешелті еспресо з молоком"],
+      ["t2", "number", "75 грн"],
+      ["t3", "badge", "-10%"],
+      ["t5", "status", "Хіт"],
+    ]);
     expect(meta.textIssues).toEqual([]);
   });
 });

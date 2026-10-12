@@ -1,10 +1,39 @@
-import { ClaimsReport, computeTimeline, projectPaths, revPaths, type Storyboard } from "@adc/shared";
-import { fixtureSiteData, fixtureStoryboard } from "@adc/shared/fixtures";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  type BrandKitFile,
+  ClaimsReport,
+  computeTimeline,
+  type ProductSubstance,
+  projectPaths,
+  revPaths,
+  type Storyboard,
+} from "@adc/shared";
+import {
+  fixtureBrandKit,
+  fixtureBrandKitFile,
+  fixtureSiteData,
+  fixtureStoryboard,
+} from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { directorPaths } from "../src/io.ts";
 import { momentsInstruction, reviseStage } from "../src/stages/revise.ts";
-import { storyboardStage } from "../src/stages/storyboard.ts";
-import { makeCtx, PROJECT_ID, seedProject, tmpStorage, userText } from "./helpers.ts";
+import {
+  EMPTY_SUBSTANCE_NOTE,
+  semanticForScript,
+  storyboardStage,
+  substanceForScript,
+} from "../src/stages/storyboard.ts";
+import { makeCtx, PROJECT_ID, seedProject, systemText, tmpStorage, userText } from "./helpers.ts";
+
+/** Речовина продукту (аудит сайту), текст сайту, з якого її процитовано, і сцена «приклад результату». */
+const SUBSTANCE_FIXTURE = JSON.parse(
+  readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "storyboard-substance.json"),
+    "utf8",
+  ),
+) as { siteText: string; substance: ProductSubstance; scene: Storyboard["scenes"][number] };
 
 /** Розкадровка нового формату: темп із сітки, сцени — цілі долі (як після normalize). */
 function gridStoryboard(): Storyboard {
@@ -46,6 +75,7 @@ describe("storyboardStage", () => {
     const user = userText(ctx.anthropic.calls[0]?.params);
     expect(user).toContain("<facts>");
     expect(user).toContain("Капучино — 75 грн");
+    expect(block(ctx.anthropic.calls[0]?.params, "substance")).toBe(EMPTY_SUBSTANCE_NOTE);
     expect(ctx.anthropic.calls[0]?.method).toBe("stream"); // effort high → стрім
   });
 
@@ -114,6 +144,100 @@ describe("storyboardStage", () => {
     expect(res.reused).toBe(true);
     expect(ctx.anthropic.calls).toHaveLength(0);
     expect(await storage.exists(revPaths(PROJECT_ID, 2).claims)).toBe(true);
+  });
+});
+
+describe("storyboardStage: речовина продукту, семантичні кольори, нові ролі", () => {
+  it("<substance> і <semantic_colors> у запиті; сцена з eyebrow/status і рядками з сайту проходить як є", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage, { storyboard: null });
+    // Бренд-кіт «Зерно» з речовиною продукту з фікстури: перевіряється проводка даних, не зміст.
+    const kit: BrandKitFile = {
+      ...structuredClone(fixtureBrandKitFile),
+      substance: structuredClone(SUBSTANCE_FIXTURE.substance),
+      palette: { ...fixtureBrandKitFile.palette, danger: "#E5484D" },
+    };
+    await storage.writeJson(projectPaths(PROJECT_ID).brandkit(1), kit);
+    await storage.write(projectPaths(PROJECT_ID).siteText, SUBSTANCE_FIXTURE.siteText);
+
+    // Відповідь моделі: сцена «приклад результату» перед фінальною і breakdown-частина на ній.
+    const sb = structuredClone(fixtureStoryboard);
+    sb.scenes.splice(2, 0, structuredClone(SUBSTANCE_FIXTURE.scene));
+    sb.musicBrief.structure = [
+      { label: "intro", sceneIds: ["s1"], energy: 0.5, mix: "full" },
+      { label: "drop", sceneIds: ["s2"], energy: 0.7, mix: "full" },
+      { label: "breakdown", sceneIds: ["s4"], energy: 0.3, mix: "breakdown" },
+      { label: "finale", sceneIds: ["s3"], energy: 0.7, mix: "full" },
+    ];
+    const ctx = makeCtx(storage, "storyboard", { durationSeconds: null }, [{ json: sb }]);
+    const res = await storyboardStage(ctx);
+
+    const params = ctx.anthropic.calls[0]?.params;
+    expect(JSON.parse(block(params, "substance"))).toEqual(SUBSTANCE_FIXTURE.substance);
+    const semantic = JSON.parse(block(params, "semantic_colors")) as Record<string, string>;
+    expect(semantic.danger).toBe("#E5484D");
+    expect(semantic.warning).toContain("виведе код");
+    expect(semantic.success).toContain("виведе код");
+    // <brand> той самий, що й для правок: речовина — окремим блоком.
+    expect(block(params, "brand")).not.toContain("exampleIssues");
+
+    // Правила промпта: обов'язкові сцени, ролі, повні моки, звукова дисципліна, такти, колір.
+    const system = systemText(params);
+    for (const rule of [
+      "Two scenes are in every film, whatever the owner answered",
+      "`eyebrow` (a small overline",
+      "`status` (the state, severity or estimate",
+      "A scene that shows the product at work usually carries 8–12 items",
+      "Use them 2–3 times in the whole video",
+      "`1 + floor(seconds / 6)`",
+      "Every film has one `breakdown` part right before the final scene",
+      "a whole number of bars (4 beats)",
+      "tint towards `danger`",
+    ]) {
+      expect(system).toContain(rule);
+    }
+
+    const out = await storage.readJson<Storyboard>(revPaths(PROJECT_ID, 1).storyboard);
+    const s4 = out.scenes.find((s) => s.id === "s4") as Storyboard["scenes"][number];
+    expect(s4.items.map((i) => i.role)).toEqual([
+      "eyebrow",
+      "heading",
+      "number",
+      "item",
+      "status",
+      "item",
+      "status",
+      "item",
+      "status",
+      "caption",
+      "status",
+    ]);
+    expect(s4.items.map((i) => i.text)).toEqual(SUBSTANCE_FIXTURE.scene.items.map((i) => i.text));
+    expect(s4.motionIntent).toContain("tints towards danger");
+
+    // Числа з речовини продукту підтверджує текст сайту, з якого її процитовано.
+    const claims = await storage.readJson(revPaths(PROJECT_ID, 1).claims, (v) => ClaimsReport.parse(v));
+    expect(claims.unverified).toEqual([]);
+    expect(claims.verified).toContainEqual(
+      expect.objectContaining({ sceneId: "s4", itemId: "t3", text: "47", matchedSite: true }),
+    );
+    expect(claims.verified).toContainEqual(
+      expect.objectContaining({ sceneId: "s4", itemId: "t11", text: "3", matchedSite: true }),
+    );
+    expect(res.outputs.unverifiedClaims).toBe(0);
+    const meta = await storage.readJson<{ textIssues: unknown[] }>(
+      directorPaths(PROJECT_ID, 1).storyboardMeta,
+    );
+    expect(meta.textIssues).toEqual([]);
+  });
+
+  it("старий бренд-кіт: речовина порожня → заглушка; семантичні кольори null → їх виведе код", () => {
+    expect(substanceForScript(fixtureBrandKit)).toBe(EMPTY_SUBSTANCE_NOTE);
+    const semantic = semanticForScript(fixtureBrandKit.palette);
+    expect(Object.keys(semantic)).toEqual(["danger", "warning", "success"]);
+    for (const note of Object.values(semantic)) expect(note).toMatch(/^null — колір виведе код/);
+    const one = { ...fixtureBrandKit, substance: { ...fixtureBrandKit.substance, checks: ["UX/UI"] } };
+    expect(substanceForScript(one)).toEqual(one.substance);
   });
 });
 
@@ -230,6 +354,9 @@ describe("reviseStage: items і events", () => {
     );
     const res = await reviseStage(ctx);
     expect(block(ctx.anthropic.calls[0]?.params, "site")).toContain("недоступний");
+    // Перелік ролей пункту в промпті правок — з новими eyebrow/status.
+    expect(systemText(ctx.anthropic.calls[0]?.params)).toContain("`button`, `eyebrow`");
+    expect(systemText(ctx.anthropic.calls[0]?.params)).toContain("або `status`");
     expect(res.outputs).toEqual({ scenesToRegenerate: ["s3"], musicChanged: false, durationChanged: false });
     const sb = await storage.readJson<Storyboard>(revPaths(PROJECT_ID, 2).storyboard);
     const s3 = sb.scenes[2] as Storyboard["scenes"][number];
