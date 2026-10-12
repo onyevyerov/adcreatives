@@ -477,7 +477,8 @@ describe("звук кейсу", () => {
     const storage = new LocalStorage(tmp);
     await writeAudioArtifacts(storage, "p1");
     const audio = await measureCaseAudio(storage, "p1", 1, caseStoryboard, { decode });
-    expect(audio).toMatchObject({ source: "stems", note: null, reverb: null });
+    // Зведення v3 (A1) має стем reverb.
+    expect(audio).toMatchObject({ source: "stems", note: null, reverb: { rmsDb: expect.any(Number) } });
     expect(audio.mix?.perSecondDb).toHaveLength(15);
     expect(audio.mix?.peakDb).toBeLessThanOrEqual(-1);
     expect(audio.beat).toMatchObject({ bpm: 85 });
