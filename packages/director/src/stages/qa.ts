@@ -175,6 +175,67 @@ export function qaStoryboard(storyboard: Storyboard, templates: ReadonlySet<stri
   };
 }
 
+/**
+ * Критерії рубрики «Showreel bar» (`prompts/qa.md`) → kind зауваження: макет, фон і колір — `off_brief`,
+ * заповненість моків — `placeholder`. Оцінки живуть лише в `description` (`QaReport` не змінюється).
+ */
+export const SHOWREEL_CRITERIA = {
+  layout: "off_brief",
+  background: "off_brief",
+  mocks: "placeholder",
+  colour: "off_brief",
+} as const satisfies Record<string, QaIssue["kind"]>;
+export type ShowreelCriterion = keyof typeof SHOWREEL_CRITERIA;
+
+/** Оцінка ≤ цього порогу — зауваження `major`, вище — лише згадка (не тягне сцену на fix). */
+export const SHOWREEL_FIX_MAX_SCORE = 2;
+
+const SHOWREEL_RE = /^\s*showreel bar\s*[·:—–-]?\s*(layout|background|mocks|colou?r)\s+([1-5])\s*\/\s*5/i;
+
+/** Оцінка з опису зауваження `Showreel bar · <criterion> <score>/5: …`; null — це не оцінка рубрики. */
+export function showreelScore(description: string): { criterion: ShowreelCriterion; score: number } | null {
+  const m = SHOWREEL_RE.exec(description);
+  if (!m?.[1] || !m[2]) return null;
+  const name = m[1].toLowerCase();
+  return { criterion: (name === "color" ? "colour" : name) as ShowreelCriterion, score: Number(m[2]) };
+}
+
+/**
+ * Рубрика «Showreel bar» кодом, щоб вердикт не залежав від того, як модель поставила severity:
+ * оцінка ≤ 2 → `major` (critical лишається) і kind свого критерію; оцінка 3–5 → `minor`;
+ * на сцену й критерій лишається одне зауваження — з найнижчою оцінкою (перше за рівності).
+ * Решта зауважень — без змін і в тому ж порядку.
+ */
+export function applyShowreelRubric(issues: readonly QaIssue[]): QaIssue[] {
+  const best = new Map<string, { index: number; score: number }>();
+  issues.forEach((issue, index) => {
+    const s = showreelScore(issue.description);
+    if (!s) return;
+    const key = `${issue.sceneId}\0${s.criterion}`;
+    const prev = best.get(key);
+    if (!prev || s.score < prev.score) best.set(key, { index, score: s.score });
+  });
+  const out: QaIssue[] = [];
+  issues.forEach((issue, index) => {
+    const s = showreelScore(issue.description);
+    if (!s) {
+      out.push(issue);
+      return;
+    }
+    if (best.get(`${issue.sceneId}\0${s.criterion}`)?.index !== index) return;
+    out.push(
+      s.score <= SHOWREEL_FIX_MAX_SCORE
+        ? {
+            ...issue,
+            kind: SHOWREEL_CRITERIA[s.criterion],
+            severity: issue.severity === "critical" ? "critical" : "major",
+          }
+        : { ...issue, severity: "minor" },
+    );
+  });
+  return out;
+}
+
 export interface RollbackResult {
   /** sceneId → номер версії, до якої повернулись. */
   restored: Record<string, number>;
@@ -255,7 +316,8 @@ export async function keepBestVersions(args: {
  * Стадія `qa` (арт-директор): аркуші стрічки сцен зі scope (кадри кожні 0.5 с у кожному обраному
  * форматі; запасний варіант — кадри 25/50/90%) + концепт, задум, тексти й моменти сцен + autoIssues →
  * `qa.json`. Сцени поза scope моделі не показуються — повторний QA після fix дешевший.
- * Вердикт — кодом: лишились major/critical → fix.
+ * Вердикт — кодом: лишились major/critical → fix. Оцінки «Showreel bar» (у `description`) проходять
+ * `applyShowreelRubric`: оцінка ≤ 2 відправляє сцену на fix навіть без дефектів.
  */
 export function createQaStage(): Stage<"qa"> {
   return async (ctx: StageContext<"qa">) => {
@@ -352,7 +414,10 @@ export function createQaStage(): Stage<"qa"> {
     }
 
     // Лише сцени зі scope і обрані формати; зауваження інших сцен — з попереднього qa.json ревізії.
-    const fresh = report.issues.filter((i) => scope.includes(i.sceneId) && formats.includes(i.format));
+    // Оцінки «Showreel bar» — за рубрикою (≤ 2 → major, інакше minor).
+    const fresh = applyShowreelRubric(
+      report.issues.filter((i) => scope.includes(i.sceneId) && formats.includes(i.format)),
+    );
     const kept = (previous?.issues ?? []).filter(
       (i) => !scope.includes(i.sceneId) && allIds.includes(i.sceneId),
     );
