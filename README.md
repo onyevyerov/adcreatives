@@ -173,6 +173,35 @@ pnpm tsx scripts/cli.ts stats [--csv]                                 # стат
 `run` працює в тому ж `DATA_DIR`, що й API (проєкти видно на `/stats`), без Redis і браузера;
 витрати — з `source: "test"` (або `--source chat`).
 
+## Веб-чат (`apps/api/public`)
+
+Сторінка без збірки: `index.html` — лише точки монтування, стилі — статичний CSS у `public/static/css`
+(токени → `tokens.css`, спільні примітиви → `components.css`, далі файл на екран), JS — ES-модулі в
+`public/static/js` (vanilla, `// @ts-check` + JSDoc, перевіряє `pnpm typecheck`). Маршрут `GET /static/*`.
+
+```bash
+pnpm --filter @adc/api dev      # http://localhost:3000 (інший порт: PORT=3110 pnpm --filter @adc/api dev)
+```
+
+- `/?project=<id>` — робочий простір проєкту (GET проєкту + SSE), інакше — стартовий екран.
+- `/?mock=1` — програє фікстуру подій «Зерна» (`static/dev/fixture-events.js`) без бекенду, Redis і ключів:
+  «Затвердити» запускає наступний сегмент, повідомлення після видачі — ревізію 2.
+  Параметри: `&jump=brand|script|storyboard|delivered|failed|revision|revisionDelivered` — одразу в потрібне
+  місце, `&speed=2` — швидше, `&fail=1` — помилка після чекпоінта 2 (перевірка «Спробувати ще раз»).
+- `/?fixture=<стан>` — статичний `UiState` з `static/dev/fixture-states.js` (`awaitingBrand`, `rendering`,
+  `delivered`, …) з dev-діями; для верстки окремого екрана.
+
+Устрій `public/static/js`: `contracts.js` (заморожені типи `UiState`/`Actions`, константи), `store.js`,
+`app.js` (роутинг і монтування), `data/` (API, SSE з перепідключенням, чистий `reduce`, дії, mock),
+`views/` (по файлу на область/екран; контракт `mount(el, ctx) → { update, destroy }`), `lib/` (таймлайн,
+трек сцен — порт `computeTimeline`). DOM — лише через `dom.js` (`textContent`/`setAttribute`):
+**`innerHTML`, `eval` та інлайнові `on*` заборонені** (тексти з сайтів клієнтів), це перевіряє
+`test/ui/integration.test.ts`.
+
+Дизайн-еталон — `docs/design/AdCreative Reference.dc.html` (токени T, компоненти C, екрани S, стани X);
+відкривати через локальний сервер: `npx serve docs/design`. Тести UI (happy-dom):
+`pnpm --filter @adc/api exec vitest run test/ui` (повний прохід у mock — `test/ui/integration.test.ts`).
+
 ## Інтеграційний тест
 
 `pnpm --filter @adc/integration test` — пайплайн від URL локального сайту-фікстури через три чекпоінти до

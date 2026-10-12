@@ -153,7 +153,7 @@ API фіксується в Кроці 0 як версія 0. До кінця х
 - **Ендпоінти:** `POST /api/projects` (multipart: url або manualText, photos[]) → {id}; `POST /api/projects/:id/messages` {text}; `POST /api/projects/:id/commands` {type: approve|set_logo|retry|restart_confirmed, …}; `POST /api/projects/:id/uploads` (multipart); `GET /api/projects/:id/events` (SSE); `GET /api/projects/:id`; `GET /api/projects/:id/trace`; `GET /api/projects`; `GET /api/stats`; `GET /api/stats.csv`; `GET /stats`; `GET /files/*` (лише всередині `DATA_DIR`, захист від `..`).
 - **Вхід:** `assertPublicHttpUrl` і `classifySource(url)`. Для `social`/`marketplace` — одразу відповідь «потрібен сайт або текст і фото», краулер не стартує. ID проєкту — випадковий (nanoid, 21 символ).
 - **SSE:** події `message`, `progress`, `checkpoint`, `artifact`, `cost`, `state`, `error`. `id` події = ID запису в Redis Stream. При підключенні з `Last-Event-ID` — довантаження пропущеного (`XRANGE`), далі `XREAD`. Без заголовка — вся історія проєкту.
-- **`public/index.html`:** стрічка повідомлень, поле вводу, input file, кнопки «Затвердити»/«Правки»/«Спробувати ще раз», клікабельні кандидати лого, аудіоплеєр, відео-прев'ю, рядок «Витрачено: $X.XX», посилання на `/stats`. Без стилів, без збірки.
+- **`public/index.html`:** стрічка повідомлень, поле вводу, input file, кнопки «Затвердити»/«Правки»/«Спробувати ще раз», клікабельні кандидати лого, аудіоплеєр, відео-прев'ю, рядок «Витрачено: $X.XX», посилання на `/stats`. Стилі — статичний CSS у `public/static/css`, JS — ES-модулі в `public/static/js` (віддає `GET /static/*`), без збірки.
 - **`/stats`:** проста HTML-таблиця, див. «Облік витрат».
 
 ### Воркер (`apps/worker`, BullMQ)
