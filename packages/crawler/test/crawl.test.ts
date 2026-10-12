@@ -4,7 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CrawlFailedError, type CrawlResult, crawlSite } from "../src/crawl.ts";
 import { createCrawlStage } from "../src/stage.ts";
 import { makeContext, tmpStorage } from "./helpers/context.ts";
-import { type FixtureServers, startFixtureServers, testHostMap, testResolver } from "./helpers/server.ts";
+import {
+  type FixtureServers,
+  INTEGRATION_FIXTURE_DIR,
+  startFixtureServers,
+  testHostMap,
+  testResolver,
+} from "./helpers/server.ts";
 
 const net = { resolve: testResolver, hostMap: testHostMap };
 
@@ -30,6 +36,10 @@ afterAll(async () => {
 });
 
 const pagePaths = () => result.site.pages.map((p) => new URL(p.url).pathname);
+
+/** Наступний непорожній рядок після `line` (абзаци розділені порожнім рядком). */
+const nextLine = (lines: string[], line: string): string | undefined =>
+  lines.slice(lines.indexOf(line) + 1).find((l) => l !== "");
 
 describe("crawlSite на фікстурі", () => {
   it("повертає валідний SiteData з головною першою", () => {
@@ -193,8 +203,7 @@ describe("текст сторінки: розкриття згорнутого �
     expect(text).toContain("Безкоштовна доставка від 500 грн у межах центру.");
     expect(text).toContain("Так, можна оплатити карткою або Apple Pay.");
     // Порядок документа: питання — одразу перед своєю відповіддю.
-    const l = lines();
-    expect(l[l.indexOf("Чи є доставка?") + 1]).toBe("Безкоштовна доставка від 500 грн у межах центру.");
+    expect(nextLine(lines(), "Чи є доставка?")).toBe("Безкоштовна доставка від 500 грн у межах центру.");
   });
 
   it("<details> відкрито, усі вкладки (mousedown, вміст лише активної) зібрано", () => {
@@ -202,8 +211,14 @@ describe("текст сторінки: розкриття згорнутого �
     expect(text).toContain("Еспресо, американо, капучино.");
     expect(text).toContain("Круасани з мигдалем щоранку.");
     expect(text).toContain("Сирники зі сметаною до 12:00.");
-    const l = lines();
-    expect(l[l.indexOf("Випічка") + 1]).toBe("Круасани з мигдалем щоранку.");
+    expect(nextLine(lines(), "Випічка")).toBe("Круасани з мигдалем щоранку.");
+  });
+
+  it("абзаци розділені порожнім рядком, пункти списку й рядки таблиці — підряд", () => {
+    expect(text).toContain("# Питання й відповіді\n\n### Audit\n\nКомплексний аудит кав'ярні за 3 дні");
+    expect(text).toContain("\n\nПерший крок\nДругий крок\n\n");
+    expect(text).toContain("\n\nТариф | Ціна\nStarter | $10/міс\nPro | $40/міс\n\n");
+    expect(text).not.toMatch(/\n{3,}/);
   });
 
   it("блоки — окремі рядки: заголовки з #, пункти списків, рядки таблиць через |, без склеєних слів", () => {
@@ -224,6 +239,106 @@ describe("текст сторінки: розкриття згорнутого �
     expect(text).not.toMatch(/AuditКомплексний|НовеХіт|ХітОбсмажування|крокДругий/);
     expect(text).not.toContain("Footer text");
     expect(text).not.toContain("Про нас");
+  });
+});
+
+describe("лендинг: акордеони й вкладки без ARIA, демо-дані", () => {
+  let text = "";
+  let site: SiteData;
+
+  beforeAll(async () => {
+    const res = await crawlSite(`${servers.origin}/landing/`, {
+      ...net,
+      storage: tmpStorage(),
+      projectId: "p6",
+      maxPages: 1,
+    });
+    site = res.site;
+    text = res.site.pages[0]?.text ?? "";
+  }, 60_000);
+
+  const lines = () => text.split("\n");
+
+  it("усі приховані відповіді FAQ (лише trusted-клік, один відкритий пункт) є в тексті", () => {
+    // Пункт, відкритий від початку, — теж: наступні кліки його закривають і прибирають з DOM.
+    expect(nextLine(lines(), "Is there a free plan?")).toBe("Yes, one audit per month is free.");
+    expect(nextLine(lines(), "How long does an audit take?")).toBe("Up to 15 minutes for 50 pages.");
+    expect(nextLine(lines(), "What do you check?")).toBe("Speed, technical SEO, UX and competitors.");
+    expect(nextLine(lines(), "Can I white-label reports?")).toBe(
+      "Yes, the Agency plan adds your logo to every PDF.",
+    );
+    // Посилання на іншу сторінку не клікнуто: сторінка та сама.
+    expect(new URL(site.pages[0]?.url ?? "").pathname).toBe("/landing/");
+    expect(text).toContain("See all plans");
+  });
+
+  it("згортання Bootstrap (.collapsed + data-bs-target) і вкладки за класами розкрито", () => {
+    expect(nextLine(lines(), "### Technical SEO")).toBe("Duplicate pages, canonical tags and redirects.");
+    expect(nextLine(lines(), "### Core Web Vitals")).toBe("Largest element appears in more than 7 seconds.");
+    expect(text).toContain("Full audit of up to 50 pages.");
+    expect(text).toContain("Weekly checks of your key pages.");
+    expect(text).toContain("White-label PDF for agencies.");
+  });
+
+  it("демо-дані з DOM (мок звіту, декоративний aria-hidden мок) — окремі рядки з префіксом >", () => {
+    expect(lines()).toEqual(
+      expect.arrayContaining([
+        "> Very slow loading on phones",
+        "> CRITICAL",
+        "> Score 47/100",
+        "> The main element takes more than 7 seconds to appear.",
+        "> Compress hero images | 3 hours | ● Done",
+        "> Fix canonical tags | 1 hour | To do",
+        "> audit — northpeak.example",
+        "> Technical SEO 92",
+        "> Speed 47/100",
+      ]),
+    );
+    // Звичайний текст навколо мока — без префікса.
+    expect(lines()).toContain("This is what you get after the audit.");
+    expect(lines()).toContain("## Sample report");
+  });
+
+  it("hero у шапці з h1 — у тексті, меню й футер — ні; копії слайдів не дублюються", () => {
+    expect(text).toContain("# Audit your site in one line\n\nFind what slows your site down and get a plan.");
+    expect(text).toContain("Paste a link\nGet the report in 15 minutes");
+    expect(text).toContain("Plan | Price\nStarter | $19/mo\nAgency | $99/mo");
+    expect(lines()).not.toContain("Features");
+    expect(text).not.toContain("Footer text");
+    expect(lines().filter((l) => l.includes("Found 12 broken redirects"))).toEqual([
+      "Found 12 broken redirects in a minute.",
+    ]);
+    expect(lines().filter((l) => l.includes("Trusted by 300 agencies"))).toEqual(["Trusted by 300 agencies"]);
+  });
+});
+
+describe("фікстура інтеграційних тестів", () => {
+  let integration: FixtureServers;
+  let site: SiteData;
+
+  beforeAll(async () => {
+    integration = await startFixtureServers({ root: INTEGRATION_FIXTURE_DIR });
+    site = (await crawlSite(`${integration.origin}/`, { ...net, storage: tmpStorage(), projectId: "p7" }))
+      .site;
+  }, 60_000);
+
+  afterAll(async () => {
+    await integration?.close();
+  });
+
+  it("краулить усі сторінки й бере весь їхній текст", () => {
+    const byPath = new Map(site.pages.map((p) => [new URL(p.url).pathname, p.text]));
+    expect([...byPath.keys()]).toEqual(["/", "/about.html", "/menu.html"]);
+    expect(byPath.get("/")).toContain(
+      "# Кава, яку обсмажуємо самі\n\nСпешелті кав'ярня в центрі Львова. Обсмажуємо зерно щотижня.",
+    );
+    expect(byPath.get("/")).toContain("Капучино — 75 грн.");
+    expect(byPath.get("/")).toContain("Львів, вул. Руська, 1 · щодня 8:00–21:00 · +380 67 123 45 67");
+    expect(byPath.get("/about.html")).toContain(
+      "Ми — невелика команда бариста. Кожного тижня обсмажуємо свіже зерно і готуємо сніданки до 12:00.",
+    );
+    expect(byPath.get("/menu.html")).toContain("Еспресо — 50 грн\nКапучино — 75 грн\nСніданки — до 12:00");
+    expect(site.partial).toBe(false);
   });
 });
 

@@ -12,10 +12,153 @@ export interface LinkCandidate {
 }
 
 /**
- * Ключові слова сторінок, які найкраще описують бізнес (англ., укр., рос., транслітерація).
- * Вага більша — сторінка важливіша.
+ * Ключові слова сторінок, які найкраще описують продукт чи бізнес: англійською (більшість
+ * слагів) і мовами сайтів, які ми бачимо (укр., рос., транслітерація, пол., нім., фр., ісп.).
+ * Вага більша — сторінка важливіша. Першими — сторінки, що показують продукт у роботі:
+ * як це працює, можливості, ціни, FAQ, приклади/демо/звіти, кейси, порівняння, «про нас».
  */
 const PAGE_KEYWORDS: Array<{ weight: number; words: string[] }> = [
+  {
+    weight: 14,
+    words: [
+      "how-it-works",
+      "how-we-work",
+      "how-does-it-work",
+      "process",
+      "як-це-працює",
+      "як-ми-працюємо",
+      "yak-tse-pratsyuye",
+      "как-это-работает",
+      "как-мы-работаем",
+      "kak-eto-rabotaet",
+      "jak-to-dziala",
+      "so-funktionierts",
+      "wie-es-funktioniert",
+      "comment-ca-marche",
+      "como-funciona",
+    ],
+  },
+  {
+    weight: 13,
+    words: [
+      "features",
+      "feature",
+      "capabilities",
+      "functionality",
+      "можливості",
+      "функції",
+      "функціонал",
+      "возможности",
+      "функции",
+      "функционал",
+      "mozhlyvosti",
+      "vozmozhnosti",
+      "funkcje",
+      "funktionen",
+      "fonctionnalites",
+      "funcionalidades",
+    ],
+  },
+  {
+    weight: 12,
+    words: [
+      "examples",
+      "example",
+      "demo",
+      "sample",
+      "samples",
+      "sample-report",
+      "report",
+      "reports",
+      "приклади",
+      "приклад",
+      "демо",
+      "звіт",
+      "звіти",
+      "примеры",
+      "пример",
+      "отчет",
+      "отчёт",
+      "pryklady",
+      "primery",
+      "przyklady",
+      "beispiele",
+      "exemples",
+      "ejemplos",
+    ],
+  },
+  {
+    weight: 12,
+    words: [
+      "pricing",
+      "prices",
+      "price",
+      "plans",
+      "tariffs",
+      "ціни",
+      "прайс",
+      "вартість",
+      "тарифи",
+      "цены",
+      "тарифы",
+      "стоимость",
+      "tsiny",
+      "taryfy",
+      "ceny",
+      "tarify",
+      "cennik",
+      "preise",
+      "tarifs",
+      "precios",
+    ],
+  },
+  {
+    weight: 12,
+    words: [
+      "faq",
+      "faqs",
+      "questions",
+      "питання",
+      "часті-питання",
+      "вопросы",
+      "вопрос-ответ",
+      "pytannya",
+      "voprosy",
+      "pytania",
+      "fragen",
+    ],
+  },
+  {
+    weight: 11,
+    words: [
+      "cases",
+      "case-studies",
+      "case-study",
+      "customers",
+      "success-stories",
+      "кейси",
+      "кейсы",
+      "keisy",
+      "kejsy",
+      "realizacje",
+    ],
+  },
+  {
+    weight: 11,
+    words: [
+      "compare",
+      "comparison",
+      "vs",
+      "alternatives",
+      "alternative",
+      "порівняння",
+      "сравнение",
+      "porivnyannya",
+      "sravnenie",
+      "porownanie",
+      "vergleich",
+    ],
+  },
   {
     weight: 10,
     words: ["about", "about-us", "who-we-are", "про-нас", "pro-nas", "o-nas", "о-нас", "про нас", "о нас"],
@@ -40,37 +183,33 @@ const PAGE_KEYWORDS: Array<{ weight: number; words: string[] }> = [
   },
   { weight: 9, words: ["menu", "меню", "kitchen", "кухня"] },
   {
-    weight: 8,
-    words: [
-      "pricing",
-      "prices",
-      "price",
-      "tariffs",
-      "ціни",
-      "прайс",
-      "вартість",
-      "цены",
-      "тарифи",
-      "tsiny",
-      "ceny",
-    ],
-  },
-  {
     weight: 7,
-    words: ["portfolio", "works", "projects", "cases", "gallery", "портфоліо", "роботи", "галерея", "кейси"],
+    words: ["portfolio", "works", "projects", "gallery", "портфоліо", "роботи", "галерея"],
   },
   { weight: 7, words: ["reviews", "testimonials", "відгуки", "отзывы", "vidguky", "otzyvy"] },
   { weight: 6, words: ["team", "staff", "doctors", "команда", "лікарі", "врачи", "komanda"] },
   { weight: 6, words: ["contact", "contacts", "контакти", "контакты", "kontakty", "where", "location"] },
   {
     weight: 4,
-    words: ["faq", "delivery", "доставка", "питання", "вопросы", "offers", "акції", "акции", "promo"],
+    words: ["delivery", "доставка", "offers", "акції", "акции", "promo"],
   },
 ];
 
 /** Сторінки, які майже ніколи не допомагають рекламі. */
 const LOW_VALUE =
   /(privacy|policy|terms|cookie|gdpr|oferta|оферта|політика|конфіденц|legal|sitemap|blog\/.+|news\/.+)/i;
+
+/** Блог і новини: беремо лише тоді, коли після ключових сторінок лишився ліміт. */
+const BLOG_SEGMENT =
+  /^(blog|blogs|news|articles?|posts?|journal|insights|stories|press|media|блог|новини|статті|новости|статьи|aktualnosci|aktuelles)$/;
+
+/** Адреса веде в блог/новини (сам розділ або запис). */
+export function isBlogUrl(url: URL): boolean {
+  return decode(url.pathname)
+    .toLowerCase()
+    .split("/")
+    .some((s) => BLOG_SEGMENT.test(s));
+}
 
 function decode(s: string): string {
   try {
@@ -89,12 +228,20 @@ export function scoreCandidate(candidate: LinkCandidate): number {
   const anchor = candidate.text.toLowerCase().trim();
   let best = 0;
   for (const { weight, words } of PAGE_KEYWORDS) {
+    if (weight <= best) continue;
     for (const w of words) {
       const inPath = segments.some(
-        (s) => s === w || s.startsWith(`${w}-`) || s.endsWith(`-${w}`) || s === `${w}.html`,
+        (s) =>
+          s === w ||
+          s.startsWith(`${w}-`) ||
+          s.endsWith(`-${w}`) ||
+          s.includes(`-${w}-`) ||
+          s === `${w}.html`,
       );
-      const inAnchor = anchor.length > 0 && anchor.length < 40 && anchor.includes(w.replaceAll("-", " "));
-      if (inPath || inAnchor) best = Math.max(best, weight);
+      if (inPath || (anchor.length > 0 && anchor.length < 40 && inAnchor(anchor, w.replaceAll("-", " ")))) {
+        best = weight;
+        break;
+      }
     }
   }
   let score = best * 10;
@@ -104,6 +251,17 @@ export function scoreCandidate(candidate: LinkCandidate): number {
   score -= Math.max(0, segments.length - 1) * 4;
   if (LOW_VALUE.test(pathText)) score -= 40;
   return score;
+}
+
+/** Слово на початку слова анкора: «demo» є в «Book a demo», але «case» немає в «showcase». */
+function inAnchor(anchor: string, word: string): boolean {
+  let from = 0;
+  for (;;) {
+    const i = anchor.indexOf(word, from);
+    if (i < 0) return false;
+    if (i === 0 || !/[\p{L}\p{N}]/u.test(anchor[i - 1] ?? "")) return true;
+    from = i + 1;
+  }
 }
 
 export interface SelectPagesInput {
@@ -120,7 +278,8 @@ export interface SelectPagesInput {
 
 /**
  * Обирає сторінки для краулінгу: той самий сайт, без пропусків, лише мовна версія
- * введеної адреси, без дублів, за пріоритетом.
+ * введеної адреси, без дублів, за пріоритетом. Блог і новини — після всіх інших сторінок,
+ * тобто лише якщо лишився ліміт.
  */
 export function selectPages(input: SelectPagesInput): string[] {
   const home = parseUrl(input.home);
@@ -133,7 +292,7 @@ export function selectPages(input: SelectPagesInput): string[] {
     .map((u) => versionPrefix(u))
     .filter((p) => p !== "/" && p !== versionPrefix(home));
 
-  const best = new Map<string, { url: string; score: number; order: number }>();
+  const best = new Map<string, { url: string; score: number; order: number; blog: boolean }>();
   input.candidates.forEach((c, order) => {
     const url = parseUrl(c.url, home);
     if (!url || !isSameSite(url, home) || isSkippableUrl(url)) return;
@@ -149,11 +308,11 @@ export function selectPages(input: SelectPagesInput): string[] {
     const score = scoreCandidate(c);
     const existing = best.get(key);
     if (!existing || existing.score < score) {
-      best.set(key, { url: stripHash(url), score, order: existing?.order ?? order });
+      best.set(key, { url: stripHash(url), score, order: existing?.order ?? order, blog: isBlogUrl(url) });
     }
   });
   return [...best.values()]
-    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .sort((a, b) => Number(a.blog) - Number(b.blog) || b.score - a.score || a.order - b.order)
     .slice(0, Math.max(0, input.limit))
     .map((x) => x.url);
 }

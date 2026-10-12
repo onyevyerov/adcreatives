@@ -43,6 +43,8 @@ export const CRAWL_LIMITS = {
 } as const;
 
 const NAV_TIMEOUT_MS = 30_000;
+/** Час на розкриття згорнутого змісту однієї сторінки. */
+const EXPAND_TIME_MS = 9_000;
 /** Скільки кандидатів у картинки завантажувати (після дедупу лишиться ≤ 40). */
 const MAX_IMAGE_CANDIDATES = 70;
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -428,12 +430,16 @@ export async function crawlSite(inputUrl: string, opts: CrawlOptions): Promise<C
 }
 
 /**
- * Розкриває згорнутий зміст (FAQ-акордеони, `<details>`, вкладки), щоб відповіді потрапили в текст.
- * Якщо клік усе ж відвів зі сторінки (скрипт змінив адресу), повертаємось на неї без розкриття.
+ * Розкриває згорнутий зміст (FAQ-акордеони, `<details>`, згортання, вкладки; ≤ 40 кліків через
+ * Playwright), щоб відповіді потрапили в текст. Якщо клік усе ж відвів зі сторінки (скрипт змінив
+ * адресу), повертаємось на неї без розкриття.
  */
 async function expandContent(page: Page, url: string, step: (ms: number) => number): Promise<void> {
   const before = page.url();
-  await withTimeout(expandCollapsed(page), step(8_000)).catch(() => null);
+  const budget = step(EXPAND_TIME_MS);
+  // Власний бюджет кліків трохи менший за зовнішній ліміт: цикл кліків зупиняється сам і не
+  // продовжує клікати у фоні, поки вже йде витягування тексту.
+  await withTimeout(expandCollapsed(page, { budgetMs: budget - 1_500 }), budget).catch(() => null);
   if (withoutHash(page.url()) === withoutHash(before)) return;
   await page
     .goto(before || url, { waitUntil: "domcontentloaded", timeout: step(NAV_TIMEOUT_MS) })
