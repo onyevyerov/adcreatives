@@ -1,7 +1,7 @@
 import type { Fact, SiteData } from "@adc/shared";
 import { fixtureBrandKit, fixtureSiteData } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
-import { addClientFacts, assignFactIds, extractNumbers, verifySiteFacts } from "../src/facts.ts";
+import { addClientFacts, assignFactIds, conflicts, extractNumbers, verifySiteFacts } from "../src/facts.ts";
 
 const HOME = "https://zerno.example.com/uk/";
 
@@ -110,5 +110,52 @@ describe("ids and client facts", () => {
     expect(res.added[0]).toMatchObject({ id: "c1", source: "client", sourceUrl: null, quote: null });
     expect(res.facts.map((f) => f.id)).toEqual(["f1", "c1"]);
     expect(res.fixes[0]).toMatch(/замінено фактом клієнта/);
+  });
+
+  it("conflicts: different entities sharing a generic word do not conflict; same entity with other numbers does", () => {
+    const site = (kind: Fact["kind"], text: string) => siteFact({ kind, text, quote: text });
+    expect(
+      conflicts(site("price", "Тариф Starter — $10/міс"), { kind: "price", text: "Тариф Pro — $40/міс" }),
+    ).toBe(false);
+    expect(conflicts(site("price", "Капучино 65 грн"), { kind: "price", text: "Капучино 70 грн" })).toBe(
+      true,
+    );
+    expect(
+      conflicts(site("claim", "Безкоштовна доставка від 500 грн"), {
+        kind: "claim",
+        text: "Безкоштовна доставка від 400 грн",
+      }),
+    ).toBe(true);
+    // Переказ того самого факту іншими словами — усе ще конфлікт.
+    expect(
+      conflicts(site("price", "Капучино — 65 грн за чашку"), {
+        kind: "price",
+        text: "Капучино коштує 70 грн",
+      }),
+    ).toBe(true);
+    // Інші сутності з тим самим загальним словом.
+    expect(
+      conflicts(site("price", "Курс англійської — 3000 грн"), {
+        kind: "price",
+        text: "Курс німецької — 3200 грн",
+      }),
+    ).toBe(false);
+    // Ті самі числа або інший вид — не конфлікт.
+    expect(conflicts(site("price", "Капучино 70 грн"), { kind: "price", text: "Капучино — 70 грн" })).toBe(
+      false,
+    );
+    expect(conflicts(site("price", "Капучино 65 грн"), { kind: "claim", text: "Капучино 70 грн" })).toBe(
+      false,
+    );
+  });
+
+  it("client price for one tariff keeps the other tariffs' site prices", () => {
+    const facts: Fact[] = [
+      siteFact({ id: "f1", kind: "price", text: "Тариф Starter — $10/міс" }),
+      siteFact({ id: "f2", kind: "price", text: "Тариф Pro — $40/міс" }),
+    ];
+    const res = addClientFacts(facts, [{ kind: "price", text: "Тариф Pro — $45/міс" }]);
+    expect(res.replaced.map((f) => f.id)).toEqual(["f2"]);
+    expect(res.facts.map((f) => f.id)).toEqual(["f1", "c1"]);
   });
 });
