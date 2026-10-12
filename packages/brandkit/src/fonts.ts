@@ -83,8 +83,11 @@ export function needsCyrillic(language: Language, brandName = ""): boolean {
   return language === "uk" || /[Ѐ-ӿ]/.test(brandName);
 }
 
+/** Накреслення за замовчуванням, якщо модель їх не дала. */
+const DEFAULT_WEIGHTS: Record<Role, number[]> = { heading: [700], body: [400], mono: [400, 700] };
+
 function nearestWeights(requested: readonly number[], available: readonly number[], role: Role): number[] {
-  const wanted = requested.length ? requested : [role === "heading" ? 700 : 400];
+  const wanted = requested.length ? requested : DEFAULT_WEIGHTS[role];
   const out = new Set<number>();
   for (const w of wanted) {
     const nearest = available.reduce((best, a) => (Math.abs(a - w) < Math.abs(best - w) ? a : best));
@@ -93,13 +96,18 @@ function nearestWeights(requested: readonly number[], available: readonly number
   return [...out].sort((a, b) => a - b);
 }
 
-type Role = "heading" | "body";
+type Role = "heading" | "body" | "mono";
+
+/** Моношрифт за замовчуванням (з кирилицею); та сама назва — у motion-kit. */
+export const DEFAULT_MONO = "JetBrains Mono";
 
 export interface FontResolution {
   choice: FontChoice;
   /** null — без змін. */
   fix: string | null;
 }
+
+const ROLE_UK: Record<Role, string> = { heading: "заголовків", body: "тексту", mono: "чисел і міток" };
 
 /**
  * Перевіряє одну роль: шрифт є в списку і (за потреби) має кирилицю.
@@ -114,7 +122,7 @@ export function resolveFont(
   const detectedKeys = new Set(opts.detected.map((d) => fontKey(primaryFamily(d) ?? d)));
   const requested = primaryFamily(choice.family) ?? choice.family;
   const found = findGoogleFont(requested);
-  const roleUk = role === "heading" ? "заголовків" : "тексту";
+  const roleUk = ROLE_UK[role];
 
   const build = (font: GoogleFont): FontChoice => ({
     family: font.family,
@@ -127,7 +135,10 @@ export function resolveFont(
   const subName = DATA.substitutes[fontKey(requested)];
   const sub = subName ? findGoogleFont(subName) : null;
   const category: FontCategory = found?.category ?? guessCategory(requested);
-  const fallbackName = DATA.fallbacks[category]?.[role] ?? (role === "heading" ? "Montserrat" : "Inter");
+  const fallbackName =
+    role === "mono"
+      ? DEFAULT_MONO
+      : (DATA.fallbacks[category]?.[role] ?? (role === "heading" ? "Montserrat" : "Inter"));
   const replacement = sub && ok(sub) ? sub : findGoogleFont(fallbackName);
   if (!replacement || !ok(replacement)) {
     throw new Error(`fonts.json: запасний шрифт ${fallbackName} відсутній або без кирилиці`);
@@ -147,6 +158,37 @@ function guessCategory(family: string): FontCategory {
   if (/serif|garamond|times|georgia|baskerville|bodoni|didot|playfair|antiqua/.test(k) && !/sans/.test(k))
     return "serif";
   return "sans-serif";
+}
+
+const isMono = (family: string): boolean => findGoogleFont(family)?.category === "monospace";
+
+/**
+ * Моношрифт для чисел, eyebrow і міток — завжди заповнений.
+ * Модель дала шрифт: перевірка як для інших ролей, плюс він має бути моноширинним.
+ * null: якщо шрифт бренду (текст, потім заголовки) сам моно — він; інакше `JetBrains Mono`.
+ */
+export function resolveMono(
+  choice: FontChoice | null,
+  brand: { heading: FontChoice; body: FontChoice },
+  opts: { cyrillic: boolean; detected: readonly string[] },
+): FontResolution {
+  const fallback = (fix: string | null): FontResolution => ({
+    ...resolveFont(
+      { family: DEFAULT_MONO, weights: choice?.weights ?? [], origin: "substitute" },
+      "mono",
+      opts,
+    ),
+    fix,
+  });
+  if (choice === null) {
+    const own = [brand.body, brand.heading].find((f) => isMono(f.family));
+    if (!own) return fallback(null);
+    return { ...resolveFont({ ...own, weights: [] }, "mono", opts), fix: null };
+  }
+  const res = resolveFont(choice, "mono", opts);
+  if (isMono(res.choice.family)) return res;
+  const requested = primaryFamily(choice.family) ?? choice.family;
+  return fallback(`Шрифт чисел і міток «${requested}» не моноширинний — замінено на «${DEFAULT_MONO}».`);
 }
 
 export interface TypographyFixResult {
@@ -170,8 +212,13 @@ export function fixTypography(
   const cyrillic = needsCyrillic(opts.language, opts.brandName);
   const heading = resolveFont(input.heading, "heading", { cyrillic, detected });
   const body = resolveFont(input.body, "body", { cyrillic, detected });
+  const mono = resolveMono(
+    input.mono,
+    { heading: heading.choice, body: body.choice },
+    { cyrillic, detected },
+  );
   return {
-    typography: { heading: heading.choice, body: body.choice, mono: input.mono, detected },
-    fixes: [heading.fix, body.fix].filter((f): f is string => f !== null),
+    typography: { heading: heading.choice, body: body.choice, mono: mono.choice, detected },
+    fixes: [heading.fix, body.fix, mono.fix].filter((f): f is string => f !== null),
   };
 }

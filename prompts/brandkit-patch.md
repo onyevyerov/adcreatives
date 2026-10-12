@@ -59,8 +59,8 @@ The document has these parts; types and allowed values are strict.
 
 - `identity`: `name` (string), `tagline` (string or null), `category` (string, Ukrainian), `language` (`"uk"` or `"en"`, the video language), `city`, `serviceArea` (string or null).
 - `languageVersions`: array of `{lang, url}`. Not something the owner edits.
-- `palette`: `primary`, `secondary`, `accent`, `background`, `surface`, `textOnDark`, `textOnLight`, each a `#RRGGBB` string.
-- `typography`: `heading` and `body`, each `{family: string, weights: int[] (100–900, at least one), origin: "site" | "substitute"}`; `detected`: string[] of families found on the site.
+- `palette`: `primary`, `secondary`, `accent`, `background`, `surface`, `textOnDark`, `textOnLight`, each a `#RRGGBB` string; `danger`, `warning`, `success` (semantic colors for problems, warnings and success states: status badges and problem scenes), each a `#RRGGBB` string or null (null: the code derives them from red, amber and green).
+- `typography`: `heading` and `body`, each `{family: string, weights: int[] (100–900, at least one), origin: "site" | "substitute"}`; `mono`: the same shape or null, a monospace font for numbers and small labels (null: the code picks JetBrains Mono); `detected`: string[] of families found on the site.
 - `logo`: `assetId` (string or null), `type` (`"image"`, `"svg"`, `"text"`), `needsBackground` (boolean), `textFallback` (string).
 - `logoCandidates`: up to 4 assetIds.
 - `voice`: `tone` (string[]), `formality` (`"formal"`, `"neutral"`, `"casual"`), `description` (string).
@@ -72,6 +72,7 @@ The document has these parts; types and allowed values are strict.
 - `contacts`: `phones`, `emails`, `socials` (string[]), `website` (string or null).
 - `cta`: `text` (string), `target` (string or null).
 - `facts`: array of `{id: string, kind: "price" | "discount" | "number" | "guarantee" | "date" | "claim", text: string, source: "site" | "client", sourceUrl: string or null, quote: string or null}`.
+- `substance`: the product at work, every string a verbatim quote from the website: `steps` (`{name, detail: string or null}`), `checks` (string[]), `exampleIssues` (`{title, severity: "critical" | "moderate" | "minor" or null, score, explanation, fix, effort: each string or null}`), `planRows` (`{text, group: string or null, effort: string or null}`), `products` (`{name, oneLiner: string or null}`), `comparisons` (`{criterion, us, alternative}`). The code removes every string it cannot find verbatim in the site text, so you can remove or reorder entries when the owner asks, but do not add the owner's own words here: their numbers and claims go into `facts`.
 - `visualStyle`: `mood` (string[]), `motionPersonality` (`"energetic"`, `"calm"`, `"premium"`, `"playful"`), `density` (`"airy"`, `"balanced"`, `"dense"`), `shapes` (`"rounded"`, `"sharp"`, `"organic"`, `"geometric"`), `musicHints` (string[]).
 - `assets`: ranked images, each `{assetId, role, quality 1–5, cropFocus {x, y}, hasBakedText, description}`.
 - `gaps`: array of `{kind: "few_photos" | "no_logo" | "no_contacts" | "no_offer" | "no_cta" | "low_confidence" | "other", note: string}`.

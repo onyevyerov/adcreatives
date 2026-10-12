@@ -1,4 +1,9 @@
-import type { BasePaletteRole, Palette } from "@adc/shared";
+import {
+  type BasePaletteRole,
+  type Palette,
+  SEMANTIC_PALETTE_ROLES,
+  type SemanticPaletteRole,
+} from "@adc/shared";
 
 /**
  * Кольори і контраст за WCAG 2.x.
@@ -206,6 +211,90 @@ export function fixPalette(input: Palette): PaletteFixResult {
   }
   ensureReadable("accent", CONTRAST.large);
 
+  return { palette: p, fixes };
+}
+
+/** Базові семантичні кольори (ті самі — fallback у темі motion-kit для старих бренд-кітів). */
+export const SEMANTIC_BASE: Record<SemanticPaletteRole, string> = {
+  danger: "#EF4444",
+  warning: "#F59E0B",
+  success: "#22C55E",
+};
+
+const SEMANTIC_ROLE_UK: Record<SemanticPaletteRole, string> = {
+  danger: "помилка",
+  warning: "попередження",
+  success: "успіх",
+};
+
+/** Частка акценту бренду в базовому семантичному кольорі. */
+const SEMANTIC_ACCENT_MIX = 0.15;
+/** Крок підсвітлення/затемнення семантичного кольору до потрібного контрасту. */
+const SEMANTIC_STEP = 0.05;
+
+/**
+ * Найменш змінений варіант кольору (кроком 5 % до білого або чорного), що має контраст ≥ `min`
+ * з кожним із `against`. Спершу — напрямок від фону (світліше на темному, темніше на світлому).
+ * Якщо поріг недосяжний (фон і підкладка протилежні), — варіант з найкращим мінімальним контрастом.
+ */
+function stepToContrast(
+  color: Rgb,
+  against: readonly string[],
+  min: number,
+  prefer: "dark" | "light",
+): string {
+  const worst = (c: Rgb) => Math.min(...against.map((a) => contrastRatio(c, a)));
+  const order: Array<"dark" | "light"> = prefer === "dark" ? ["dark", "light"] : ["light", "dark"];
+  let best = color;
+  let bestScore = worst(color);
+  if (bestScore >= min) return toHex(color);
+  for (const dir of order) {
+    const target = dir === "dark" ? BLACK : WHITE;
+    for (let k = 1; k * SEMANTIC_STEP <= 1 + 1e-9; k++) {
+      // Округлення до #RRGGBB — до перевірки, щоб записаний колір точно проходив поріг.
+      const candidate = parseColor(toHex(mix(color, target, k * SEMANTIC_STEP))) as Rgb;
+      const score = worst(candidate);
+      if (score >= min) return toHex(candidate);
+      if (score > bestScore) [best, bestScore] = [candidate, score];
+    }
+  }
+  return toHex(best);
+}
+
+/**
+ * Семантичні кольори палітри (danger / warning / success) — завжди заповнені.
+ * null (сайт їх не має) → базовий колір, підмішаний до `accent` на 15 %, і підсвітлений чи
+ * затемнений кроком 5 % до контрасту ≥ 3 з `background` і `surface`. Колір із сайту лишається,
+ * якщо читається; інакше зсувається так само, зі звітом у `fixes`.
+ */
+export function deriveSemanticPalette(input: Palette): PaletteFixResult {
+  const fixes: string[] = [];
+  const p = { ...input } as Palette;
+  const accent = parseColor(p.accent);
+  const against = [p.background, p.surface];
+  const prefer = luminance(p.background) > 0.179 ? "dark" : "light";
+
+  for (const role of SEMANTIC_PALETTE_ROLES) {
+    const given = p[role];
+    const parsed = given === null ? null : parseColor(given);
+    if (given !== null && !parsed) {
+      fixes.push(`Колір «${SEMANTIC_ROLE_UK[role]}» (${given}) не розпізнано — виведено з базового.`);
+    }
+    if (parsed) {
+      const fixed = stepToContrast(parsed, against, CONTRAST.large, prefer);
+      if (fixed !== toHex(parsed)) {
+        fixes.push(
+          `Колір «${SEMANTIC_ROLE_UK[role]}» ${toHex(parsed)} → ${fixed}: замало контрасту з фоном ` +
+            `(${Math.min(...against.map((a) => contrastRatio(fixed, a))).toFixed(1)}:1).`,
+        );
+      }
+      p[role] = fixed;
+      continue;
+    }
+    const base = parseColor(SEMANTIC_BASE[role]) as Rgb;
+    const tinted = accent ? (parseColor(toHex(mix(base, accent, SEMANTIC_ACCENT_MIX))) as Rgb) : base;
+    p[role] = stepToContrast(tinted, against, CONTRAST.large, prefer);
+  }
   return { palette: p, fixes };
 }
 

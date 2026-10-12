@@ -20,6 +20,7 @@ import { finalizeBrandKit } from "./finalize.ts";
 import { buildBrandkitInput } from "./input.ts";
 import { applyPatch } from "./jsonPatch.ts";
 import { applyLogoChoice, buildPatchVars, reconcilePatchedFacts } from "./patch.ts";
+import { compressSiteText } from "./text.ts";
 import { contactSheetKey, latestBrandkitVersion, readBrandkit } from "./versions.ts";
 
 export interface BrandkitStageOptions {
@@ -43,6 +44,20 @@ async function readAssets(storage: Storage, projectId: string): Promise<Asset[]>
   const key = projectPaths(projectId).assets;
   if (!(await storage.exists(key))) return [];
   return (await storage.readJson(key, (v) => AssetManifest.parse(v))).assets;
+}
+
+/**
+ * Текст сайту, який бачив бренд-кіт (`brandkit/site-text.txt`) — за ним перевіряється `substance`.
+ * Старі проєкти без файла — те саме стиснення з `crawl/site.json` (як у сценариста); немає й його — null.
+ */
+async function readSiteText(
+  storage: Storage,
+  projectId: string,
+  site: SiteData | null,
+): Promise<string | null> {
+  const key = projectPaths(projectId).siteText;
+  if (await storage.exists(key)) return storage.readText(key);
+  return site ? compressSiteText(site).text : null;
 }
 
 function llmToStageError(err: unknown, what: string): never {
@@ -106,7 +121,11 @@ export function createBrandkitStage(opts: BrandkitStageOptions = {}): Stage<"bra
       llmToStageError(err, "сайт");
     }
 
-    const fin = finalizeBrandKit(data, { site, assets, initial: true }, input.sheetNumbers);
+    const fin = finalizeBrandKit(
+      data,
+      { site, assets, siteText: input.siteText, initial: true },
+      input.sheetNumbers,
+    );
     const version = (await latestBrandkitVersion(storage, projectId)) + 1;
     const file = BrandKitFile.parse({
       ...fin.brandkit,
@@ -231,6 +250,7 @@ export function createBrandkitPatchStage(
     const fin = finalizeBrandKit(kit, {
       site,
       assets,
+      siteText: await readSiteText(storage, projectId, site),
       keepFactIds: new Set(prevKit.facts.map((f) => f.id)),
     });
     const version = current + 1;

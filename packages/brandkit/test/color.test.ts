@@ -1,6 +1,15 @@
+import type { Palette } from "@adc/shared";
 import { fixtureBrandKit } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
-import { contrastRatio, fixPalette, normalizeHex, paletteReport, parseColor } from "../src/color.ts";
+import {
+  contrastRatio,
+  deriveSemanticPalette,
+  fixPalette,
+  normalizeHex,
+  paletteReport,
+  parseColor,
+  SEMANTIC_BASE,
+} from "../src/color.ts";
 
 describe("color", () => {
   it("parses hex, short hex and rgb()", () => {
@@ -88,5 +97,64 @@ describe("fixPalette", () => {
     expect(report.background).toBeGreaterThanOrEqual(4.5);
     expect(report.surface).toBeGreaterThanOrEqual(4.5);
     expect(report.primary).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("deriveSemanticPalette", () => {
+  const roles = ["danger", "warning", "success"] as const;
+  const light: Palette = {
+    ...fixtureBrandKit.palette,
+    accent: "#EF4444",
+    background: "#FFFFFF",
+    surface: "#FFFFFF",
+  };
+  const readable = (p: Palette) =>
+    roles.every((r) => {
+      const c = p[r] as string;
+      return contrastRatio(c, p.background) >= 3 && contrastRatio(c, p.surface) >= 3;
+    });
+
+  it("derives null roles from the fixed bases mixed into the accent, without fixes", () => {
+    const { palette, fixes } = deriveSemanticPalette(light);
+    expect(fixes).toEqual([]);
+    // База danger = акцент: домішка нічого не міняє, контраст з білим 3.8 — без підсвічування.
+    expect(palette.danger).toBe(SEMANTIC_BASE.danger);
+    // Жовтий на білому нечитабельний — затемнено до порогу.
+    expect(palette.warning).not.toBe(SEMANTIC_BASE.warning);
+    expect(readable(palette)).toBe(true);
+    // Брендові кольори не змінюються.
+    expect({ ...palette, danger: null, warning: null, success: null }).toEqual(light);
+  });
+
+  it("tints the bases toward the brand accent", () => {
+    const blue = deriveSemanticPalette({ ...light, accent: "#1D4ED8" }).palette;
+    const red = deriveSemanticPalette(light).palette;
+    expect(blue.success).not.toBe(red.success);
+    const g = parseColor(blue.success as string);
+    // Зелений лишається зеленим: домішка акценту лише 15 %.
+    expect(g && g.g > g.r && g.g > g.b).toBe(true);
+  });
+
+  it("lightens on a dark theme and checks both background and surface", () => {
+    const dark: Palette = { ...fixtureBrandKit.palette, background: "#0B0B0F", surface: "#2A2A35" };
+    const { palette } = deriveSemanticPalette(dark);
+    expect(readable(palette)).toBe(true);
+    const fixtureKit = deriveSemanticPalette(fixtureBrandKit.palette).palette;
+    expect(readable(fixtureKit)).toBe(true);
+  });
+
+  it("keeps a readable site color, nudges an unreadable one and replaces garbage with a report", () => {
+    const { palette, fixes } = deriveSemanticPalette({
+      ...light,
+      danger: "#b91c1c",
+      warning: "#FDE68A",
+      success: "зелений",
+    });
+    expect(palette.danger).toBe("#B91C1C");
+    expect(contrastRatio(palette.warning as string, "#FFFFFF")).toBeGreaterThanOrEqual(3);
+    expect(readable(palette)).toBe(true);
+    expect(fixes).toHaveLength(2);
+    expect(fixes.join(" ")).toMatch(/попередження.*#FDE68A/);
+    expect(fixes.join(" ")).toMatch(/успіх.*не розпізнано/);
   });
 });
