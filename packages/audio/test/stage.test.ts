@@ -139,14 +139,14 @@ describe("audioStage", () => {
 
     const rev = projectPaths(PROJECT_ID).rev(1);
     const plan = await storage.readJson(rev.audioPlan, (v) => AudioPlan.parse(v));
-    expect(plan.compositionPlan.chunks.map((c) => c.durationMs)).toEqual([4_500, 5_000, 6_500]);
+    expect(plan.compositionPlan.chunks.map((c) => c.durationMs)).toEqual([23_000]);
     expect(res.outputs).toEqual({ planHash: expect.stringMatching(/^[0-9a-f]{16}$/), reusedMusic: false });
 
     // Один виклик LLM (модель з frontmatter), один — музики; SFX: усі варіанти cue подій
     // (whoosh, impact, shimmer; legacy whoosh/shimmer — їхні варіанти 1, без повторного виклику) і кастомний.
     expect(ctx.anthropic.calls).toHaveLength(1);
     expect(ctx.anthropic.calls[0]?.params.model).toBe("claude-opus-5-5");
-    expect(client.calls.filter((c) => c.method === "composeDetailed")).toHaveLength(1);
+    expect(client.calls.filter((c) => c.method === "compose")).toHaveLength(1);
     const sfxCalls = client.calls.filter((c) => c.method === "convert");
     expect(sfxCalls.map((c) => c.request.text).sort()).toEqual(
       [...variantTexts(["whoosh", "impact", "shimmer"]), "ceramic cup clink on a wooden table"].sort(),
@@ -160,9 +160,10 @@ describe("audioStage", () => {
 
     const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
     expect(manifest).toEqual({
+      // Стадія не передає decode у ensureMusic: ffmpeg не розкодує текст мока → сирий трек 23 с.
       music: {
-        src: "music.mp3",
-        durationMs: 16_000,
+        src: "music.wav",
+        durationMs: 23_000,
         fadeOutMs: 1_000,
         volume: 0.8,
         planHash: res.outputs.planHash,
@@ -189,7 +190,7 @@ describe("audioStage", () => {
     const soundtrack = decodeWav(await storage.read(rev.publicFile("soundtrack.wav")));
     expect(soundtrack.sampleRate).toBe(44_100);
     expect(soundtrack.left.length).toBe(15 * 44_100);
-    expect((await storage.read(rev.publicFile("music.mp3"))).toString()).toBe("MUSIC-DETAILED");
+    expect((await storage.read(rev.publicFile("music.wav"))).toString()).toBe("MUSIC-COMPOSE");
     expect((await storage.read(rev.publicFile("sfx/cup-clink.mp3"))).toString()).toBe(
       "SFX:ceramic cup clink on a wooden table",
     );
@@ -197,7 +198,7 @@ describe("audioStage", () => {
       expect.arrayContaining([
         rev.audioPlan,
         rev.audio,
-        rev.publicFile("music.mp3"),
+        rev.publicFile("music.wav"),
         rev.publicFile("soundtrack.wav"),
       ]),
     );
@@ -205,7 +206,7 @@ describe("audioStage", () => {
     // Витрати: LLM + музика + кастомний SFX — у журнал проєкту; стандартні SFX — у спільний.
     const costs = await readCosts(storage, PROJECT_ID);
     expect(costs.map((c) => `${c.provider}:${c.detail ?? c.promptName}`).sort()).toEqual(
-      ["anthropic:audio-plan", "elevenlabs:music:composeDetailed", "elevenlabs:sfx:cup-clink"].sort(),
+      ["anthropic:audio-plan", "elevenlabs:music:compose", "elevenlabs:sfx:cup-clink"].sort(),
     );
     expect(costs.find((c) => c.detail === "sfx:cup-clink")?.units).toEqual({ seconds: 0.8 });
     const shared = await readCosts(storage, null);
@@ -223,7 +224,7 @@ describe("audioStage", () => {
     const decode = fakeDecoder();
     const { run } = stage(client, storage, decode);
     const first = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
-    expect(client.calls.map((c) => c.method)).toEqual(["composeDetailed"]);
+    expect(client.calls.map((c) => c.method)).toEqual(["compose"]);
     expect(await readCosts(storage, null)).toHaveLength(0);
     const rev = projectPaths(PROJECT_ID).rev(1);
     expect((await storage.read(rev.publicFile("sfx/pop.mp3"))).toString()).toBe(
@@ -251,7 +252,7 @@ describe("audioStage", () => {
     const { run } = stage(client, storage);
     const r1 = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
 
-    // Ревізія 2: сцена s3 коротша (відео 14 с ≤ трек 16 с), бриф той самий.
+    // Ревізія 2: сцена s3 коротша (відео 14 с ≤ трек 23 с), бриф той самий.
     const shorter: Storyboard = {
       ...fixtureStoryboard,
       scenes: fixtureStoryboard.scenes.map((s) => (s.id === "s3" ? { ...s, durationFrames: 135 } : s)),
@@ -291,7 +292,7 @@ describe("audioStage", () => {
     const manifest = await storage.readJson(projectPaths(PROJECT_ID).rev(2).audio, (v) =>
       AudioManifest.parse(v),
     );
-    expect(manifest.music).toMatchObject({ planHash: r1.outputs.planHash, durationMs: 16_000 });
+    expect(manifest.music).toMatchObject({ planHash: r1.outputs.planHash, durationMs: 23_000 });
     expect(manifest.totalFrames).toBe(420);
   });
 
@@ -303,9 +304,10 @@ describe("audioStage", () => {
     const r1 = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
     const project = { rev: 2, audioPlanHash: r1.outputs.planHash };
 
+    // Відео 23.5 с > трек 23 с (відео 15 с + 8 с запасу).
     const longer: Storyboard = {
       ...fixtureStoryboard,
-      scenes: fixtureStoryboard.scenes.map((s) => (s.id === "s3" ? { ...s, durationFrames: 225 } : s)),
+      scenes: fixtureStoryboard.scenes.map((s) => (s.id === "s3" ? { ...s, durationFrames: 420 } : s)),
     };
     await seedProject(storage, { storyboard: longer, rev: 2, project });
     const r2 = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(longer)) }], { rev: 2 }));
@@ -324,7 +326,7 @@ describe("audioStage", () => {
     const draft = draftFor(computeChunkLayout(newBrief), { promptFallback: "acoustic folk, instrumental" });
     const r3 = await run(makeCtx(storage, [{ json: draft }], { rev: 3 }));
     expect(r3.outputs.reusedMusic).toBe(false);
-    expect(client.calls.filter((c) => c.method === "composeDetailed")).toHaveLength(3);
+    expect(client.calls.filter((c) => c.method === "compose")).toHaveLength(3);
 
     expect(canReuseMusic({ briefHash: "a", durationMs: 16_000 }, "a", 16_000)).toBe(true);
     expect(canReuseMusic({ briefHash: "a", durationMs: 16_000 }, "a", 16_001)).toBe(false);
@@ -400,7 +402,7 @@ describe("audioStage: зведення soundtrack.wav", () => {
     expect(decode.musicCalls()).toBe(2);
     const second = await storage.read(projectPaths(PROJECT_ID).rev(2).publicFile("soundtrack.wav"));
     expect(second.equals(first)).toBe(false);
-    expect(client.calls.filter((c) => c.method === "composeDetailed")).toHaveLength(1);
+    expect(client.calls.filter((c) => c.method === "compose")).toHaveLength(1);
   });
 
   it("зведення не вдалося (немає ffmpeg) → mix: null, хост грає музику і SFX як раніше", async () => {
@@ -412,7 +414,7 @@ describe("audioStage: зведення soundtrack.wav", () => {
     const rev = projectPaths(PROJECT_ID).rev(1);
     const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
     expect(manifest.mix).toBeNull();
-    expect(manifest.music?.src).toBe("music.mp3");
+    expect(manifest.music?.src).toBe("music.wav");
     expect(manifest.sfx.length).toBeGreaterThan(0);
     expect(await storage.exists(rev.publicFile("soundtrack.wav"))).toBe(false);
     expect(res.artifacts).not.toContain(rev.publicFile("soundtrack.wav"));
