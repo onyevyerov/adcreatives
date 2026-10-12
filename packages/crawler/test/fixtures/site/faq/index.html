@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Питання — Зерно</title>
+<style>
+  body{margin:0;font-family:Georgia,serif;background:#fff8f0;color:#1e1410}
+  .cards{display:flex;gap:16px}
+  .badge{display:inline-block;padding:2px 8px;background:#6b3e26;color:#fff}
+  .qa button{display:block;width:100%;text-align:left}
+  .tabs [role=tab]{margin-right:8px}
+</style></head>
+<body>
+<header><a href="/" class="logo">Зерно</a><nav><a href="/about">Про нас</a><a href="/menu">Меню</a></nav></header>
+<main>
+  <h1>Питання й відповіді</h1>
+  <!-- Блоки впритул, без пробілів між тегами: тексти не мають склеїтись. -->
+  <div class="cards"><div><h3>Audit</h3><p>Комплексний аудит кав'ярні за 3 дні</p></div><div><span class="badge">Нове</span><span class="badge">Хіт</span><div>Обсмажування</div></div></div>
+  <ul><li>Перший крок</li><li>Другий крок</li></ul>
+  <table><tr><th>Тариф</th><th>Ціна</th></tr><tr><td>Starter</td><td>$10/міс</td></tr><tr><td>Pro</td><td>$40/міс</td></tr></table>
+
+  <!-- Акордеон: відповідь з'являється в DOM лише після кліку; відкритий лише один пункт. -->
+  <div class="faq" id="faq">
+    <div class="qa"><button type="button" aria-expanded="false" data-a="Так, щодня з 8:00 до 21:00 без вихідних.">Ви працюєте щодня?</button></div>
+    <div class="qa"><button type="button" aria-expanded="false" data-a="Безкоштовна доставка від 500 грн у межах центру.">Чи є доставка?</button></div>
+    <div class="qa"><button type="button" aria-expanded="false" data-a="Так, можна оплатити карткою або Apple Pay.">Можна платити карткою?</button></div>
+  </div>
+
+  <details><summary>Умови бронювання</summary><p>Столик тримаємо 15 хвилин після початку броні.</p></details>
+
+  <!-- Вкладки: вміст панелі рендериться лише для активної вкладки. -->
+  <div class="tabs">
+    <div role="tablist">
+      <button type="button" role="tab" aria-selected="true" aria-controls="panel" data-t="Еспресо, американо, капучино.">Кава</button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="panel" data-t="Круасани з мигдалем щоранку.">Випічка</button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="panel" data-t="Сирники зі сметаною до 12:00.">Сніданки</button>
+    </div>
+    <div role="tabpanel" id="panel"></div>
+  </div>
+  <p><a href="/menu">Детальніше</a></p>
+</main>
+<footer><p>Footer text that must not be in main text</p></footer>
+<script>
+  for (const btn of document.querySelectorAll(".qa button")) {
+    btn.addEventListener("click", () => {
+      for (const other of document.querySelectorAll(".qa button")) {
+        other.setAttribute("aria-expanded", "false");
+        other.parentElement.querySelector(".answer")?.remove();
+      }
+      btn.setAttribute("aria-expanded", "true");
+      const p = document.createElement("p");
+      p.className = "answer";
+      p.textContent = btn.dataset.a;
+      btn.parentElement.append(p);
+    });
+  }
+  const panel = document.getElementById("panel");
+  const tabs = document.querySelectorAll("[role=tab]");
+  const show = (tab) => {
+    for (const t of tabs) t.setAttribute("aria-selected", String(t === tab));
+    panel.innerHTML = "";
+    const p = document.createElement("p");
+    p.textContent = tab.dataset.t;
+    panel.append(p);
+  };
+  // Як у Radix Tabs: вкладку активує mousedown, а не click.
+  for (const t of tabs) t.addEventListener("mousedown", () => show(t));
+  show(tabs[0]);
+</script>
+</body></html>
