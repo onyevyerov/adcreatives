@@ -1,1 +1,530 @@
-/* .cb- · B6 · чекпоінт 1, бренд-кіт (S2, S6, C6, C7, X2). Заглушка Кроку 0 — блок замінює вміст. */
+/* .cb- · B6 · чекпоінт 1, бренд-кіт (S2, S6, C6, C7, X2). */
+
+.cb {
+  --cb-tile-line: rgba(21, 20, 18, 0.14); /* рамка тайлів формату і лого (C6, X2) */
+  --cb-add-line: rgba(21, 20, 18, 0.25); /* пунктир «Додати фото» (C7) */
+
+  display: flex;
+  flex-direction: column;
+  max-width: 1000px;
+  padding: 40px clamp(24px, 4vw, 56px) 88px;
+  container-type: inline-size;
+}
+
+/* ── Шапка: eyebrow з ромбом · «Правки» · «Затвердити →» ── */
+
+.cb-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.cb-head__actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Ідентичність ── */
+
+.cb-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 32px 0 36px;
+}
+
+.cb-name {
+  overflow-wrap: anywhere;
+}
+
+.cb-tagline {
+  max-width: 640px;
+}
+
+.cb-meta {
+  color: var(--muted);
+}
+
+.cb-empty {
+  padding: 32px 0;
+}
+
+/* ── Рядки специфікації (T3: 120px / 1fr · gap 28 · padding 28 0) ── */
+
+.cb-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.cb-lead {
+  color: var(--ink);
+  font: 500 16px / 1.35 var(--f-ui);
+}
+
+.cb-sub {
+  color: var(--muted);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.cb-tags {
+  color: var(--ink-2);
+}
+
+.cb-note {
+  color: var(--muted);
+  font: 400 13px / 1.5 var(--f-ui);
+}
+
+/* Палітра: auto-fit minmax(96px, 1fr), висота 140, hex усередині. */
+.cb-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.cb-swatch {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 140px;
+  padding: 12px;
+  border-radius: var(--r-12);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  color: var(--ink-2);
+}
+
+.cb-swatch__name {
+  font: 500 10.5px / 1.2 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.cb-swatch__hex {
+  font: 500 13px / 1.2 var(--f-mono);
+}
+
+.cb-textcolors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.cb-textcolor {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font: 400 13px / 1.4 var(--f-ui);
+}
+
+.cb-textcolor__chip {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-4);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.cb-textcolor__hex {
+  font: 400 12.5px / 1.4 var(--f-mono);
+  color: var(--muted);
+}
+
+/* Шрифти: «Аа» шрифтом бренду. */
+.cb-fonts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 24px;
+}
+
+.cb-font {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cb-font__sample {
+  color: var(--ink);
+  font-size: 64px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.cb-font__family {
+  font: 500 16px / 1.3 var(--f-ui);
+}
+
+.cb-font__meta {
+  color: var(--muted);
+  font: 400 12px / 1.4 var(--f-mono);
+}
+
+/* Лого (X2): тайли 200×96, обраний — рамка --ink + бейдж ✓, зображення contain з padding 16. */
+.cb-logos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cb-logo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 200px;
+  height: 96px;
+  padding: 16px;
+  border: 1.5px solid var(--cb-tile-line);
+  border-radius: var(--r-14);
+  background: var(--card);
+  color: var(--ink);
+  transition: border-color var(--t-hover);
+}
+
+button.cb-logo:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+
+.cb-logo.is-on {
+  border-color: var(--ink);
+}
+
+.cb-logo:disabled {
+  cursor: default;
+}
+
+.cb-logo.stripes {
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 10px;
+}
+
+.cb-logo__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.cb-logo__caption {
+  color: var(--ink-2);
+  font: 500 10px / 1.3 var(--f-mono);
+}
+
+.cb-logo__badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--on-ink);
+  font: 500 11px / 20px var(--f-mono);
+  text-align: center;
+}
+
+.cb-logo--text {
+  border-color: var(--ink);
+}
+
+.cb-logo__text {
+  overflow: hidden;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Послуги */
+.cb-services {
+  display: flex;
+  flex-direction: column;
+}
+
+.cb-service {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.cb-service:first-child {
+  padding-top: 0;
+}
+
+.cb-service:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.cb-service__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cb-service__name {
+  font: 500 16px / 1.35 var(--f-ui);
+}
+
+.cb-service__price {
+  flex: none;
+  color: var(--ink-2);
+}
+
+/* Факти (C7): сайт / від вас. */
+.cb-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.cb-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cb-fact__label {
+  color: var(--muted);
+  font: 500 10px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cb-fact--client .cb-fact__label {
+  color: var(--ink);
+}
+
+.cb-fact__text {
+  font: 500 16px / 1.35 var(--f-ui);
+}
+
+.cb-fact__quote {
+  color: var(--muted);
+  font: 400 13px / 1.4 var(--f-ui);
+}
+
+.cb-fact__link {
+  overflow: hidden;
+  color: var(--muted);
+  font: 400 11.5px / 1.4 var(--f-mono);
+  text-decoration: none;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cb-fact__link:hover {
+  color: var(--accent);
+}
+
+/* Фото (C7): 150×112, радіус 12, cover; «Додати фото» — пунктир. */
+.cb-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cb-photo {
+  flex: none;
+  width: 150px;
+  height: 112px;
+  overflow: hidden;
+  border-radius: var(--r-12);
+}
+
+.cb-photo__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cb-photo--add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1.5px dashed var(--cb-add-line);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 13px / 1 var(--f-ui);
+  transition:
+    border-color var(--t-hover),
+    color var(--t-hover);
+}
+
+.cb-photo--add:hover:not(:disabled) {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.cb-photo--add:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cb-photo__plus {
+  font-size: 20px;
+  font-weight: 300;
+}
+
+.cb-warn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 400 14px / 1.5 var(--f-ui);
+}
+
+/* Автоматичні виправлення — дрібним mono. */
+.cb-fixes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font: 400 12px / 1.5 var(--f-mono);
+}
+
+/* ── Панель «Ваші рішення» (--card, радіус 20) ── */
+
+.cb-decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin-top: 12px;
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-20);
+  background: var(--card);
+}
+
+.cb-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cb-group__label {
+  color: var(--ink-2);
+  font: 500 14px / 1.4 var(--f-ui);
+}
+
+.cb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cb-option:disabled,
+.cb-lang:disabled {
+  cursor: not-allowed;
+}
+
+.cb-option:disabled:not([aria-pressed="true"]),
+.cb-lang:disabled:not([aria-pressed="true"]) {
+  opacity: 0.45;
+}
+
+/* Тайли форматів (C6): 124×132, радіус 14, рамка 1.5. */
+.cb-fmts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cb-fmt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  width: 124px;
+  height: 132px;
+  padding: 14px 10px;
+  border: 1.5px solid var(--cb-tile-line);
+  border-radius: var(--r-14);
+  background: transparent;
+  color: var(--ink);
+  transition:
+    border-color var(--t-hover),
+    background-color var(--t-hover);
+}
+
+.cb-fmt:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+
+.cb-fmt.is-on {
+  border-color: var(--ink);
+  background: var(--paper);
+}
+
+.cb-fmt:disabled {
+  cursor: not-allowed;
+}
+
+.cb-fmt:disabled:not(.is-on) {
+  opacity: 0.45;
+}
+
+.cb-fmt__glyph {
+  flex: none;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--r-4);
+  transition: background-color var(--t-hover);
+}
+
+.cb-fmt.is-on .cb-fmt__glyph {
+  background: var(--ink);
+}
+
+.cb-fmt__glyph--vertical {
+  width: 22px;
+  height: 38px;
+}
+
+.cb-fmt__glyph--square {
+  width: 32px;
+  height: 32px;
+}
+
+.cb-fmt__glyph--landscape {
+  width: 44px;
+  height: 25px;
+}
+
+.cb-fmt__ratio {
+  font: 500 13px / 1 var(--f-mono);
+}
+
+.cb-fmt__name {
+  color: var(--muted);
+  font: 400 12px / 1 var(--f-ui);
+}
+
+/* ── S6 · 1024×768: сцена ≈ 640px — тісніші відступи панелі ── */
+
+@container (max-width: 640px) {
+  .cb-hero {
+    padding: 28px 0 32px;
+  }
+
+  .cb-decisions {
+    padding: 24px;
+  }
+
+  .cb-font__sample {
+    font-size: 56px;
+  }
+}

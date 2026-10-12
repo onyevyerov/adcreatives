@@ -1,1 +1,301 @@
-/* .cd- · B8 · чекпоінт 3, розкадровка (S4, C7). Заглушка Кроку 0 — блок замінює вміст. */
+/* .cd- · B8 · чекпоінт 3, розкадровка (S4, C7). Значення — з T1–T4, C1, C7; примітиви — components.css. */
+
+/* Сцена: padding 36–44 · clamp(24px, 4vw, 56px) · 80–96, max-w 1000 (T3). */
+.cd {
+  container-type: inline-size;
+  max-width: 1000px;
+  padding: 40px clamp(24px, 4vw, 56px) 88px;
+}
+
+/* ───────────── Шапка ───────────── */
+
+.cd-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+
+.cd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ───────────── Заголовок і лід ───────────── */
+
+.cd-intro {
+  display: flex;
+  flex-direction: column;
+  margin-top: 28px;
+}
+
+.cd-lead {
+  margin-top: 18px;
+  max-width: 640px;
+}
+
+.cd-changed-note {
+  margin-top: 10px;
+  color: var(--accent);
+}
+
+.cd-empty {
+  margin-top: 28px;
+  color: var(--muted);
+}
+
+/* ───────────── Стіли: група на сцену, a і b поруч ───────────── */
+
+.cd-stills {
+  --cd-still-w: 129px; /* 230 × 9/16 */
+  --cd-still-h: 230px;
+
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px 28px;
+  margin: 40px 0 44px;
+}
+
+.cd-stills[data-format="square"] {
+  --cd-still-w: 150px;
+  --cd-still-h: 150px;
+}
+
+.cd-stills[data-format="landscape"] {
+  --cd-still-w: 199px; /* 112 × 16/9 */
+  --cd-still-h: 112px;
+}
+
+.cd-scene {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cd-scene__frames {
+  display: flex;
+  gap: 8px;
+}
+
+.cd-still {
+  display: block;
+  flex: none;
+  width: var(--cd-still-w);
+  height: var(--cd-still-h);
+  border-radius: var(--r-6);
+  outline: 1px solid var(--line-soft);
+  outline-offset: -1px;
+  background: var(--placeholder-a);
+  object-fit: cover;
+}
+
+.cd-scene__caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.cd-scene__label {
+  color: var(--ink-2);
+}
+
+.cd-tag--changed {
+  color: var(--accent);
+}
+
+.cd-tag--changed::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+
+.cd-tag--template {
+  color: var(--muted);
+}
+
+.cd-stills-empty {
+  margin: 32px 0;
+  color: var(--muted);
+}
+
+/* ───────────── Рядки специфікації ───────────── */
+
+.cd-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ───────────── Аркуші ───────────── */
+
+.cd-sheets__list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cd-sheet {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.cd-sheet__format {
+  padding-top: 2px;
+  color: var(--ink-2);
+}
+
+.cd-sheet__link {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 100%;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.cd-sheet__img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  max-height: 240px;
+  border-radius: var(--r-6);
+  outline: 1px solid var(--line-soft);
+  outline-offset: -1px;
+  background: var(--placeholder-a);
+  transition: outline-color var(--t-hover);
+}
+
+.cd-sheet__hint {
+  font-size: 11.5px;
+  transition: color var(--t-hover);
+}
+
+.cd-sheet__link:hover .cd-sheet__img {
+  outline-color: var(--ink);
+}
+
+.cd-sheet__link:hover .cd-sheet__hint {
+  color: var(--ink);
+}
+
+/* ───────────── Перевірка (C7 · «QA · шаблонні сцени») ───────────── */
+
+.cd-qa-ok {
+  color: var(--ink-2);
+  font: 400 12.5px / 1.5 var(--f-mono);
+}
+
+.cd-qa__list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Рядок зауваження (C7): колонка, gap 6, padding 16 0, лінія зверху. */
+.cd-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+/* Шапка — один mono-рядок: minor → --ink-2, major і critical → --danger. */
+.cd-issue__head {
+  color: var(--ink-2);
+  font: 400 12px / 1.5 var(--f-mono);
+  overflow-wrap: anywhere;
+}
+
+.cd-issue[data-severity="major"] .cd-issue__head,
+.cd-issue[data-severity="critical"] .cd-issue__head {
+  color: var(--danger);
+}
+
+.cd-issue__desc {
+  max-width: 640px;
+  color: var(--muted);
+  font: 400 14.5px / 1.5 var(--f-ui);
+  overflow-wrap: anywhere;
+}
+
+/* Примітка про шаблонні сцени — картка C7. */
+.cd-note {
+  max-width: 640px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-12);
+  background: var(--card);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+/* ───────────── Музика ───────────── */
+
+.cd-player {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.cd-wave {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 44px;
+}
+
+.cd-wave__bar {
+  flex: 1 1 0;
+  min-width: 1px;
+  max-width: 6px;
+  height: calc(var(--h, 0.5) * 100%);
+  border-radius: 1px;
+  background: var(--line-strong);
+  transition: background-color var(--t-hover);
+}
+
+.cd-wave__bar.is-played {
+  background: var(--ink);
+}
+
+.cd-time {
+  flex: none;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cd-music-pending {
+  color: var(--muted);
+}
+
+/* ───────────── Вузька сцена (1024×768: ~560 px контенту) ───────────── */
+
+@container (max-width: 640px) {
+  .cd .spec-row {
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .cd-stills {
+    gap: 24px 20px;
+  }
+
+  .cd-player {
+    gap: 12px;
+  }
+}
