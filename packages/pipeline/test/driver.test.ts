@@ -391,6 +391,14 @@ describe("driver — failures, duplicates, deferred messages, restart", () => {
 });
 
 describe("driver — fix/QA limits → template scenes", () => {
+  // Одне коло QA → fix (дефолт `Tuning.qaMaxRounds` — 2; два кола перевіряє machine.test.ts).
+  beforeEach(() => {
+    vi.stubEnv("ADC_QA_MAX_ROUNDS", "1");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("scene failing after 2 fix rounds becomes TemplateScene; one QA round; shown at checkpoint 3", async () => {
     const h = new Harness({
       behaviors: {
