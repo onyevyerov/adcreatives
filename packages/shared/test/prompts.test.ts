@@ -188,6 +188,7 @@ ${extra}---
         motionKitApi: "API",
         motionKitDeclarations: "DECL",
         examples: "EXAMPLES",
+        logoGeometryHint: "LOGO",
       };
       const codegen = loader.load("codegen", {
         ...vars,

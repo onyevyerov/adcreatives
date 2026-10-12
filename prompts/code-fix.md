@@ -59,7 +59,7 @@ The Remotion reference above is general; where it contradicts these rules (`<Img
 - **Monospace:** `theme.fonts.mono` for numbers, eyebrows and statuses, through `style={{ fontFamily: theme.fonts.mono }}` on short one-line texts, with about a quarter more width than the text seems to need (the components measure with the heading or body font).
 - **`eyebrow` and `status` items are in the frame** whenever the scene has them: the `eyebrow` small and letter-spaced right above the block it names (capitals through `textTransform: "uppercase"` are fine), the `status` in its row in the colour of its meaning.
 - **Layout:** the scene's main container (a card, a panel, a mock, a photo frame, the text block) is never at the same position and size as in the previous or the next scene unless the join visibly transforms it (it moves, resizes, splits, folds, turns into the next object). Check the neighbours in `<readonly_scenes>` before you move anything.
-- **The final:** when `logo.type` in `<brand>` is `svg`, `useLogoGeometry()` returns `{ viewBox, paths }` and the logo can draw itself with `<LogoPath draw={…} stroke={…} strokeWidth={…} size={…} />` (outline as `draw` goes 0 → 1, fill from 0.6, one colour; a multi-colour logo then cross-fades to a `<Logo>` of the same size and position). It returns `null` for raster and text logos and for an SVG without paths: always `const geo = useLogoGeometry();` with a fallback to `<Logo>`.
+- **The final:** when `logo.type` in `<brand>` is `svg`, `useLogoGeometry()` returns `{ viewBox, paths }` and the logo can draw itself with `<LogoPath draw={…} stroke={…} strokeWidth={…} size={…} />` (outline as `draw` goes 0 → 1, fill from 0.6, one colour; a multi-colour logo then cross-fades to a `<Logo>` of the same size and position). It returns `null` for raster and text logos and for an SVG without paths: always `const geo = useLogoGeometry();` with a fallback to `<Logo>`. `<logo_hint>` says which case this brand is.
 
 # Output format
 
@@ -69,6 +69,10 @@ Only one block `<file name="sN.tsx">…the full repaired code…</file>` (sN is 
 <brand>
 {{brand}}
 </brand>
+
+<logo_hint>
+{{logoGeometryHint}}
+</logo_hint>
 
 <assets>
 {{assets}}

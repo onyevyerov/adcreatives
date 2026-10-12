@@ -246,6 +246,7 @@ describe("codegenStage (sequential)", () => {
       motionKitApi: "A",
       motionKitDeclarations: "D",
       examples: "E",
+      logoGeometryHint: "LOGO",
       brand: {},
       assets: [],
       concept: "-",

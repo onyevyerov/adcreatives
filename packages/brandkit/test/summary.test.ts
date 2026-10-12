@@ -33,6 +33,60 @@ describe("brand summary", () => {
     expect(text).toContain("ще хоча б 2");
   });
 
+  it("shows semantic colours, mono and product substance; old kits without them stay as before", () => {
+    const old = summarizeBrandKit(
+      {
+        ...fixtureBrandKitFile,
+        palette: { ...fixtureBrandKitFile.palette, danger: null, warning: null, success: null },
+        typography: { ...fixtureBrandKitFile.typography, mono: null },
+      },
+      fixtureAssets.assets,
+      { publicUrl },
+    );
+    expect(old.semantic).toEqual([]);
+    expect(old.fonts.mono).toBeNull();
+    const oldText = formatBrandSummaryText(old);
+    expect(oldText).not.toContain("Кольори станів");
+    expect(oldText).not.toContain("цифри й мітки");
+
+    const kit = {
+      ...fixtureBrandKitFile,
+      palette: { ...fixtureBrandKitFile.palette, danger: "#E5484D", warning: null, success: "#30A46C" },
+      typography: {
+        ...fixtureBrandKitFile.typography,
+        mono: { family: "JetBrains Mono", weights: [400, 700], origin: "substitute" as const },
+      },
+      substance: {
+        ...fixtureBrandKitFile.substance,
+        checks: ["Обсмаження", "Помел"],
+        exampleIssues: [
+          {
+            title: "Зерно старше 30 днів",
+            severity: "critical" as const,
+            score: null,
+            explanation: null,
+            fix: null,
+            effort: null,
+          },
+        ],
+      },
+    };
+    const s = summarizeBrandKit(kit, fixtureAssets.assets, { publicUrl });
+    expect(s.semantic).toEqual([
+      { role: "danger", label: "помилка", hex: "#E5484D" },
+      { role: "success", label: "успіх", hex: "#30A46C" },
+    ]);
+    expect(s.substance).toMatchObject({
+      checks: ["Обсмаження", "Помел"],
+      examples: ["Зерно старше 30 днів"],
+    });
+    const text = formatBrandSummaryText(s);
+    expect(text).toContain("**Кольори станів:** помилка #E5484D, успіх #30A46C");
+    expect(text).toContain("цифри й мітки — JetBrains Mono 400/700 (замінник)");
+    expect(text).toContain("- Що перевіряє: Обсмаження; Помел");
+    expect(text).toContain("- Приклади результату: Зерно старше 30 днів");
+  });
+
   it("produces a valid brand checkpoint payload", () => {
     const payload = brandCheckpointPayload(fixtureBrandKitFile, fixtureAssets.assets, {
       publicUrl,

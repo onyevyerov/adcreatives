@@ -279,6 +279,9 @@ describe("reviseStage", () => {
     );
     const res = await reviseStage(ctx);
     expect(userText(ctx.anthropic.calls[0]?.params)).toContain("<client_message>");
+    // Правка бачить ту саму речовину продукту й кольори станів, що й сценарій.
+    expect(block(ctx.anthropic.calls[0]?.params, "substance")).toBe(EMPTY_SUBSTANCE_NOTE);
+    expect(block(ctx.anthropic.calls[0]?.params, "semantic_colors")).toContain("danger");
     expect(res.outputs).toEqual({
       scenesToRegenerate: ["s2", "s4"],
       musicChanged: false,
