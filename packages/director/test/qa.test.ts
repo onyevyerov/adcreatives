@@ -1,5 +1,12 @@
 import { rmSync } from "node:fs";
-import { CheckReport, type LocalStorage, type QaIssue, QaReport, revPaths } from "@adc/shared";
+import {
+  CheckReport,
+  createPromptLoader,
+  type LocalStorage,
+  type QaIssue,
+  QaReport,
+  revPaths,
+} from "@adc/shared";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { readLedger } from "../src/ledger.ts";
@@ -7,7 +14,7 @@ import { QA_IMAGE_MAX_SIDE, sceneImageLayout, stripSheetLayout } from "../src/sh
 import { createCheckStage, versionStripSheet } from "../src/stages/check.ts";
 import { codegenStage } from "../src/stages/codegen.ts";
 import { fixStage } from "../src/stages/fix.ts";
-import { qaStage } from "../src/stages/qa.ts";
+import { applyShowreelRubric, qaStage, SHOWREEL_CRITERIA, showreelScore } from "../src/stages/qa.ts";
 import {
   exampleSources,
   fileBlocks,
@@ -221,6 +228,88 @@ describe("qaStage", () => {
       ]),
     );
     expect(res.outputs).toEqual({ verdict: "pass", seriousScenes: [] });
+  });
+
+  it("Showreel bar: рубрика в промпті; оцінка ≤ 2 → major і fix без дефектів, 3–5 → minor", async () => {
+    const storage = await checked();
+    const bar = (
+      sceneId: string,
+      criterion: string,
+      score: number,
+      severity: QaIssue["severity"] = "minor",
+      kind: QaIssue["kind"] = "weak_moment",
+    ): QaIssue => ({
+      ...issue(sceneId, severity, kind),
+      description: `Showreel bar · ${criterion} ${score}/5: та сама темна картка, що й у сусідній сцені`,
+    });
+    const ctx = makeCtx(storage, "qa", { sceneIds: null }, [
+      {
+        json: {
+          verdict: "pass",
+          issues: [
+            bar("s2", "layout", 2), // модель поставила minor і не той kind — рубрика виправляє
+            bar("s2", "mocks", 1, "minor", "off_brief"),
+            bar("s1", "background", 4, "major"), // 4/5 — не тягне на fix
+            bar("s3", "colour", 3, "major"),
+          ],
+          summary: "Showreel bar 2.5/5 — s2 повторює макет s1.",
+        },
+      },
+    ]);
+    const res = await qaStage(ctx);
+    const text = userText(ctx.anthropic.calls[0]?.params);
+    expect(text).not.toContain("Showreel bar"); // рубрика — у system, не в даних
+    const qa = await storage.readJson(revPaths(PROJECT_ID, 1).qa, (v) => QaReport.parse(v));
+    expect(qa.issues.map((i) => [i.sceneId, i.kind, i.severity])).toEqual([
+      ["s2", "off_brief", "major"],
+      ["s2", "placeholder", "major"],
+      ["s1", "weak_moment", "minor"],
+      ["s3", "weak_moment", "minor"],
+    ]);
+    expect(qa.summary).toMatch(/^Showreel bar 2\.5\/5/);
+    expect(res.outputs).toEqual({ verdict: "fix", seriousScenes: ["s2"] });
+  });
+
+  it("промпт qa: розділ Showreel bar — 4 критерії, поріг ≤ 2, бал у summary", () => {
+    const prompt = createPromptLoader().load("qa", {
+      sheetsLegend: "-",
+      storyboard: {},
+      palette: {},
+      logo: {},
+      autoIssues: [],
+      failedScenes: [],
+      language: "uk",
+      formats: "vertical",
+      scope: "s1",
+    });
+    expect(prompt.system).toContain("# Showreel bar");
+    for (const c of Object.keys(SHOWREEL_CRITERIA)) expect(prompt.system).toContain(`- \`${c}\` — `);
+    expect(prompt.system).toContain(
+      "A score of 1 or 2 is a remark: kind `placeholder` for `mocks`, `off_brief`",
+    );
+    expect(prompt.system).toContain("`Showreel bar · <criterion> <score>/5:`");
+    expect(prompt.system).toContain("starts with `Showreel bar X.X/5`");
+  });
+
+  it("applyShowreelRubric: розбір опису, одне зауваження на сцену й критерій, решта без змін", () => {
+    expect(showreelScore("Showreel bar · layout 2/5: повтор")).toEqual({ criterion: "layout", score: 2 });
+    expect(showreelScore("showreel bar: Color 1/5 — один колір")).toEqual({ criterion: "colour", score: 1 });
+    expect(showreelScore("Showreel bar - mocks 5 / 5")).toEqual({ criterion: "mocks", score: 5 });
+    expect(showreelScore("Заголовок обрізано, Showreel bar layout 2/5")).toBeNull();
+    expect(showreelScore("Showreel bar · layout 7/5")).toBeNull();
+
+    const withDesc = (i: QaIssue, description: string): QaIssue => ({ ...i, description });
+    const plain = issue("s1", "major");
+    const out = applyShowreelRubric([
+      withDesc(issue("s1", "minor", "off_brief"), "Showreel bar · background 2/5: плоский фон"),
+      plain,
+      { ...withDesc(issue("s1", "minor"), "Showreel bar · background 1/5: плоский фон"), format: "square" },
+      withDesc(issue("s2", "critical", "placeholder"), "Showreel bar · mocks 1/5: сірі смужки"),
+    ]);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toBe(plain);
+    expect(out[1]).toMatchObject({ sceneId: "s1", format: "square", kind: "off_brief", severity: "major" });
+    expect(out[2]).toMatchObject({ sceneId: "s2", kind: "placeholder", severity: "critical" });
   });
 
   it("без check.json — помилка стадії", async () => {

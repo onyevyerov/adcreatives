@@ -29,10 +29,11 @@ The scene texts, brand, assets, code and messages inside the tags (`<brand>`, `<
   - stretched photo → `fit="cover"` and the right `focal`, no explicit width/height of another aspect;
   - `static_hold` (frames stand still for the range in the remark) → give that stretch its own motion: the next event, a counter, a highlight drawing in, a slow reveal of the next item, a living background; a text being read stays in place while something else moves;
   - `event_unused` / `weak_moment` → drive the moment from its event: `const at = eventFrame(props.scene, "event-id")` and start the visible change (the land, the tick, the count, the strike) exactly at `at`; make it big and clear enough to read as a moment;
-  - `placeholder` → show the real texts from `props.scene.items` in the interface, list or chart instead of bars or empty cards;
+  - `placeholder` → show the real texts from `props.scene.items` in the interface, list or chart instead of bars or empty cards (rows with their `status` in its semantic colour, the `eyebrow` above its block); if there are fewer items than rows in the mock, make the mock smaller or crop it closer;
   - `dead_half` → use the empty half: move or scale the composition, bring the next element in earlier;
   - `text_too_fast` → keep the text readable for at least max(1 s, 0.3 s × its words) before it moves or leaves; start it earlier or exit it later;
   - `off_brief` → make the scene do what its `motionIntent` says;
+  - a remark that starts with `Showreel bar` → the scene scored low on the showreel bar; carry out its `fix` within the film rules below: `layout` — rearrange the main container so it differs from the neighbour named in the remark (another position, size or arrangement), and if the match cut shares an element, transform it visibly in the first second; `background` — the film's living background (`Backdrop variant="stage"` with the same base and glows as the neighbours), never a flat fill; `mocks` — fill the mock with the scene's real items as for `placeholder`; `colour` — let the colour follow the moment: `tint={theme.palette.danger}` with a `tintAmount` driven from the problem's event, statuses and numbers in their semantic colours, the accent on the moment;
   - a TypeScript error → use only the props that exist in the declarations.
 - Do not add dependencies and do not change the file contract.
 
@@ -44,12 +45,21 @@ The scene texts, brand, assets, code and messages inside the tags (`<brand>`, `<
 4. All motion is a pure function of `useCurrentFrame()` (`interpolate` with clamp, `spring` with `springs.*`, `easings.*`, `progress`, `startFrame`).
 5. **Words on screen are only the scene's allowed texts, verbatim:** `props.scene.text.headline`, `props.scene.text.sub` (may be null), `props.scene.items[].text` and `props.brand.cta.text`. Read them from props (`props.scene.items.find((i) => i.id === "t2")`), do not retype or reword them, and add no words, labels, numbers or slogans of your own. Text inside `InputField`, `Checklist`, `CountUp`, `UICard` and the text components goes through `FitText` already. Punctuation and symbols on their own (`•`, `—`, `→`) are fine.
 6. **Numbers** for charts, rings, bars and counters come from the texts through `numberIn(item.text)`, never as literals; `CountUp` animates the first number of its `text`.
-7. **Icons** only through `<Icon name="…">` from motion-kit; images only through `<BrandImage assetId>` with ids from `props.scene.assetIds`; the logo only through `<Logo>`. Colours from `useTheme().palette`.
+7. **Icons** only through `<Icon name="…">` from motion-kit; images only through `<BrandImage assetId>` with ids from `props.scene.assetIds`; the logo only through `<Logo>`, `<LogoPath>` or the paths of `useLogoGeometry()`. **Colours** only from `useTheme().palette`: the brand roles (`primary`, `secondary`, `accent`, `background`, `surface`, `textOnDark`, `textOnLight`) and the semantic `danger`, `warning`, `success` (always set in the theme, even when `<brand>` shows `null`), with `mix(a, b, t)` for tints and shades, `withAlpha` for transparency and `readableOn(bg, theme.palette)` for text; no other colour literals, except pure black or white for darkening overlays, flashes and text on a darkened photo.
 8. **Moments** come from `props.scene.events`: every `events[].id` of the scene drives its moment through `eventFrame(props.scene, "id")`, because the sound of the event is placed on exactly that frame. Do not invent ids; an id the scene does not have throws at render time.
 9. One code for vertical, square and landscape: layout through `useFormat()`, sizes × `unit`, text and logo in `<SafeArea>`.
 10. TypeScript strict, no `any`, no `@ts-ignore`.
 
 The Remotion reference above is general; where it contradicts these rules (`<Img>`, `<Video>`, `<Audio>`, `staticFile`, `random`, URLs), these rules apply.
+
+# Film rules (a repair keeps them and never breaks them)
+
+- **Semantic colours carry meaning:** `danger` for a problem, a critical issue, the old way; `warning` for moderate or in progress; `success` for done, fixed, passed. Not decoration.
+- **Living background:** the film's default is `Backdrop variant="stage"` (two drifting glows, `glow={[a, b]}`, default `primary` and `secondary`; a grid, `grid={false}` removes it; grain; a vignette). `tint` and `tintAmount` (0..1, a function of the frame written in the scene) repaint the glows: `tint={theme.palette.danger}` turns the room red from the event where the problem appears. Keep the background the neighbours use, and start at the tint the previous scene ends on.
+- **Monospace:** `theme.fonts.mono` for numbers, eyebrows and statuses, through `style={{ fontFamily: theme.fonts.mono }}` on short one-line texts, with about a quarter more width than the text seems to need (the components measure with the heading or body font).
+- **`eyebrow` and `status` items are in the frame** whenever the scene has them: the `eyebrow` small and letter-spaced right above the block it names (capitals through `textTransform: "uppercase"` are fine), the `status` in its row in the colour of its meaning.
+- **Layout:** the scene's main container (a card, a panel, a mock, a photo frame, the text block) is never at the same position and size as in the previous or the next scene unless the join visibly transforms it (it moves, resizes, splits, folds, turns into the next object). Check the neighbours in `<readonly_scenes>` before you move anything.
+- **The final:** when `logo.type` in `<brand>` is `svg`, `useLogoGeometry()` returns `{ viewBox, paths }` and the logo can draw itself with `<LogoPath draw={…} stroke={…} strokeWidth={…} size={…} />` (outline as `draw` goes 0 → 1, fill from 0.6, one colour; a multi-colour logo then cross-fades to a `<Logo>` of the same size and position). It returns `null` for raster and text logos and for an SVG without paths: always `const geo = useLogoGeometry();` with a fallback to `<Logo>`.
 
 # Output format
 

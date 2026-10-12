@@ -301,6 +301,36 @@ describe("codegenStage (film)", () => {
     expect(ledger.scenes.s3?.versions[0]?.origin).toBe("carry");
   });
 
+  it("промпт film: живий фон stage, семантичні кольори, mono, правило макету, eyebrow/status, геометрія лого", async () => {
+    const storage = await seeded();
+    const ctx = makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
+      { text: files(["s1", "s2", "s3"]) },
+    ]);
+    await filmStage(ctx);
+    const p = paramsOf(ctx.anthropic.calls[0]?.params);
+    const system = systemText(p);
+    // правило 7: семантичні кольори й відтінки через mix
+    expect(system).toMatch(/semantic colours `danger`, `warning`, `success`/);
+    expect(system).toContain("mix(palette.surface, palette.danger, 0.18)");
+    // фон фільму за замовчуванням — stage, tint для проблемної сцени
+    expect(system).toContain('`variant="stage"` is the film\'s default background');
+    expect(system).toContain("tint={theme.palette.danger}");
+    expect(system).toContain('by default `Backdrop variant="stage"`');
+    // моношрифт для чисел / eyebrow / status
+    expect(system).toContain("`theme.fonts.mono`");
+    // нові ролі — обов'язково в кадрі
+    expect(system).toContain(
+      "Every item with the role `eyebrow` or `status` that a scene has is in the frame",
+    );
+    // правило «макет»: сусідні сцени без однакового контейнера на тій самій позиції
+    expect(system).toContain("**Layout rule: no two neighbouring scenes share a layout.**");
+    // фінал: геометрія лого з фолбеком
+    expect(system).toContain("`useLogoGeometry()` returns `{ viewBox, paths }`");
+    expect(system).toContain("fall back to `<Logo>` when it is `null`");
+    // модель бачить тип лого в <brand> (фікстура — svg)
+    expect(userText(p)).toMatch(/"logo": \{\s*"assetId": "a02",\s*"type": "svg"/);
+  });
+
   it("brandForCode: є identity.tagline", () => {
     const brand = structuredClone(fixtureBrandKitFile);
     brand.identity.tagline = "Кава, що будить";
