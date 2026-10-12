@@ -1,7 +1,7 @@
 ---
 model: claude-opus-5-5
-effort: medium
-max_tokens: 8000
+effort: high
+max_tokens: 16000
 cache: true
 description: "B5: бренд-кіт + розкадровка + таймлайн → AudioPlan"
 ---
