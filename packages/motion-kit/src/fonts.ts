@@ -21,6 +21,34 @@ export function fontStack(family: string): string {
   return `"${family.replace(/"/g, "")}", ${FALLBACK_STACK}`;
 }
 
+/** Моношрифт бренд-кіта без `typography.mono` (старі версії); ім'я узгоджене з fonts.json бренд-кіта. */
+export const MONO_FAMILY = "JetBrains Mono";
+
+/** Ваги моношрифту за замовчуванням: цифри й мітки (400) і акцентні числа (700). */
+export const MONO_WEIGHTS: readonly number[] = [400, 700];
+
+/** Системний моноширинний стек: резерв, поки моношрифт не завантажено або якщо його немає. */
+export const MONO_FALLBACK_STACK = "ui-monospace, monospace";
+
+/** CSS font-family моношрифту з системним моноширинним резервом. */
+export function monoStack(family: string): string {
+  return `"${family.replace(/"/g, "")}", ${MONO_FALLBACK_STACK}`;
+}
+
+/**
+ * Моношрифт бренду: `typography.mono` або `JetBrains Mono` 400/700. Завантажується, як heading і body,
+ * якщо рендер передав його метадані (`FontInfo`); інакше — системний моноширинний стек.
+ */
+export function monoChoice(typography: { mono?: { family: string; weights: number[] } | null }): {
+  family: string;
+  weights: number[];
+} {
+  const mono = typography.mono;
+  return mono
+    ? { family: mono.family, weights: [...mono.weights] }
+    : { family: MONO_FAMILY, weights: [...MONO_WEIGHTS] };
+}
+
 /** Найближча доступна вага (для 700 при наявних 600/800 — 600, при рівності — важча). */
 export function nearestWeight(wanted: number, available: readonly number[]): number {
   if (available.length === 0) return wanted;

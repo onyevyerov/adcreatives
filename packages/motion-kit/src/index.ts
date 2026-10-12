@@ -3,7 +3,7 @@
  *
  * Один вхід для сцен і хоста. Лише для хоста (`apps/remotion`, рендер), не для сцен:
  * ThemeProvider, AssetsProvider, SceneDurationProvider, QaProvider, qaLog, parseQaLog,
- * MusicTrack, Sfx, TemplateScene, templateVariantFor, шрифти (planFont, pruneFontInfo).
+ * MusicTrack, Sfx, TemplateScene, templateVariantFor, шрифти (planFont, pruneFontInfo, monoChoice).
  * Що реально імпортують сцени, обмежує AST-guard у codegen.
  * Типи даних реекспортуються з `@adc/shared` без змін.
  */
@@ -35,7 +35,15 @@ export {
 export { Breathe, useBeat } from "./devices/motion.tsx";
 export { ClipReveal, ColorField, type Side } from "./devices/reveal.tsx";
 export { DrawPath, type MorphKey, MorphShape } from "./devices/shape.tsx";
-export { type FontInfo, type FontPlan, fontStack, planFont, pruneFontInfo } from "./fonts.ts";
+export {
+  type FontInfo,
+  type FontPlan,
+  fontStack,
+  MONO_FAMILY,
+  monoChoice,
+  planFont,
+  pruneFontInfo,
+} from "./fonts.ts";
 export {
   FORMAT_SIZE,
   type FormatInfo,
@@ -66,7 +74,14 @@ export {
   type Mask,
   UPSCALE_LIMIT,
 } from "./media/BrandImage.tsx";
-export { Logo, type LogoProps } from "./media/Logo.tsx";
+export {
+  Logo,
+  type LogoGeometry,
+  LogoPath,
+  type LogoPathProps,
+  type LogoProps,
+  useLogoGeometry,
+} from "./media/Logo.tsx";
 export {
   defaultStagger,
   type EasingFn,

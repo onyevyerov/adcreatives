@@ -13,7 +13,7 @@
  *
  * Один вхід для сцен і хоста. Лише для хоста (`apps/remotion`, рендер), не для сцен:
  * ThemeProvider, AssetsProvider, SceneDurationProvider, QaProvider, qaLog, parseQaLog,
- * MusicTrack, Sfx, TemplateScene, templateVariantFor, шрифти (planFont, pruneFontInfo).
+ * MusicTrack, Sfx, TemplateScene, templateVariantFor, шрифти (planFont, pruneFontInfo, monoChoice).
  * Що реально імпортують сцени, обмежує AST-guard у codegen.
  * Типи даних реекспортуються з `@adc/shared` без змін.
  */
@@ -28,14 +28,14 @@ export { averageColor, contrastRatio, isDark, minContrastFor, mix, parseColor, r
 export { Breathe, useBeat } from "./devices/motion.tsx";
 export { ClipReveal, ColorField, type Side } from "./devices/reveal.tsx";
 export { DrawPath, type MorphKey, MorphShape } from "./devices/shape.tsx";
-export { type FontInfo, type FontPlan, fontStack, planFont, pruneFontInfo } from "./fonts.ts";
+export { type FontInfo, type FontPlan, fontStack, MONO_FAMILY, monoChoice, planFont, pruneFontInfo, } from "./fonts.ts";
 export { FORMAT_SIZE, type FormatInfo, formatFromSize, formatInfoFor, isInsideRect, type Rect, SAFE_MARGINS, SafeArea, sizeForFormat, useFormat, } from "./format.tsx";
 export { MusicTrack, musicVolumeAt, Sfx } from "./host/audio.tsx";
 export { firstAvailableAsset, TEMPLATE_VARIANTS, TemplateScene, type TemplateVariant, templateVariantFor, } from "./host/TemplateScene.tsx";
 export { ICON_NAMES, Icon, type IconName } from "./icons/Icon.tsx";
 export { Backdrop, type BackdropProps } from "./media/Backdrop.tsx";
 export { BrandImage, type BrandImageProps, coverScale, type KenBurns, type Mask, UPSCALE_LIMIT, } from "./media/BrandImage.tsx";
-export { Logo, type LogoProps } from "./media/Logo.tsx";
+export { Logo, type LogoGeometry, LogoPath, type LogoPathProps, type LogoProps, useLogoGeometry, } from "./media/Logo.tsx";
 export { defaultStagger, type EasingFn, easings, progress, type SpringConfig, springFor, springs, } from "./motion.ts";
 export { parseQaLog, QaProvider, qaLog, useQaEnabled } from "./qa.tsx";
 export { Body, CTAButton, FitText, Headline, KineticText, Pill, type TextAlign, type TextPreset, } from "./text/components.tsx";
@@ -113,17 +113,32 @@ export declare function SafeArea(props: {
 `src/theme`
 
 ```ts
-import type { BrandKit, MotionPersonality } from "@adc/shared/schemas/brandkit";
+import type { BrandKit, MotionPersonality, Palette } from "@adc/shared/schemas/brandkit";
 import type { AssetRef } from "@adc/shared/types/video";
 import { type ReactNode } from "react";
-import { type FontInfo } from "./fonts.ts";
+import { type FontInfo, MONO_FALLBACK_STACK } from "./fonts.ts";
+export { MONO_FALLBACK_STACK };
+/** Палітра теми: ролі бренд-кіта, семантичні (danger, warning, success) — завжди кольори. */
+export type ThemePalette = {
+    [K in keyof Palette]: string;
+};
+/**
+ * Семантичні кольори для бренд-кітів без них (старі версії) — ті самі базові кольори, від яких
+ * бренд-кіт виводить свої (B2): danger червоний, warning бурштиновий, success зелений.
+ */
+export declare const SEMANTIC_FALLBACK: {
+    readonly danger: "#EF4444";
+    readonly warning: "#F59E0B";
+    readonly success: "#22C55E";
+};
 export interface Theme {
-    /** primary, secondary, accent, background, surface, textOnDark, textOnLight */
-    palette: BrandKit["palette"];
-    /** CSS font-family, вже завантажені. */
+    /** primary, secondary, accent, background, surface, textOnDark, textOnLight, danger, warning, success */
+    palette: ThemePalette;
+    /** CSS font-family, вже завантажені; mono — для чисел, eyebrow і статусів. */
     fonts: {
         heading: string;
         body: string;
+        mono: string;
     };
     weights: {
         heading: number[];
@@ -369,6 +384,8 @@ export declare function BrandImage(props: BrandImageProps): import("react").JSX.
 `src/media/Logo`
 
 ```ts
+import type { BrandKit } from "@adc/shared/schemas/brandkit";
+import type { AssetRef } from "@adc/shared/types/video";
 import { type CSSProperties } from "react";
 export interface LogoProps {
     /** Висота, px (дефолт 120 × unit). */
@@ -380,6 +397,60 @@ export interface LogoProps {
 }
 /** Лого бренду; без зображення — brand.logo.textFallback шрифтом heading. */
 export declare function Logo(props: LogoProps): import("react").JSX.Element;
+/** Геометрія векторного лого: `viewBox` файлу і `d` усіх видимих фігур у його координатах. */
+export interface LogoGeometry {
+    viewBox: string;
+    paths: string[];
+}
+/** Фігура лого (внутрішнє): шлях і як вона намальована у файлі. */
+export interface LogoShape {
+    d: string;
+    /** Фігура залита (fill не none); інакше — лише контур. */
+    filled: boolean;
+    fillRule: "nonzero" | "evenodd";
+    /** Товщина власного контуру у viewBox-одиницях (з трансформацією); null — контуру немає. */
+    strokeWidth: number | null;
+}
+/** Розібране SVG лого (внутрішнє). */
+export interface LogoSvg {
+    viewBox: string;
+    shapes: LogoShape[];
+}
+/**
+ * SVG-текст лого → viewBox і фігури (внутрішнє; чиста функція, без DOM).
+ * path/rect/circle/ellipse/line/polyline/polygon стають шляхами з урахуванням `transform` груп;
+ * `<text>`, растр (`<image>`), `<use>`, вкладений `<svg>` — null (лого не зводиться до шляхів).
+ * Вміст defs/clipPath/mask/… і приховані елементи пропускаються; фон-прямокутник на весь viewBox — теж.
+ */
+export declare function parseLogoSvg(svg: string): LogoSvg | null;
+/** Шлях до SVG-файлу лого в public/ або null (лого растрове, текстове чи без асета). */
+export declare function vectorLogoSrc(brand: BrandKit, assets: Record<string, AssetRef>): string | null;
+/**
+ * Лише для хоста й тестів: читає SVG лого з public/ ревізії (`staticFile`, той самий локальний
+ * сервер бандла, з якого `<Logo>` бере `<Img>`) і розбирає його; помилка — null з попередженням.
+ */
+export declare function loadLogoSvg(src: string): Promise<LogoSvg | null>;
+/**
+ * Геометрія векторного лого бренду (`brand.logo.type === "svg"`): `viewBox` і `d` шляхів.
+ * null — лого растрове, текстове, з `<text>`/растром усередині або файл не прочитано: тоді `<Logo>`.
+ */
+export declare function useLogoGeometry(): LogoGeometry | null;
+export interface LogoPathProps {
+    /** 0..1: скільки кожного контуру намальовано (усі фігури — одночасно, кожна від свого початку). Дефолт 1. */
+    draw?: number;
+    /** Колір контуру і заливки; дефолт — як текст `<Logo>` на фоні бренду. */
+    stroke?: string;
+    /** Товщина контуру заливних фігур, px; дефолт max(1.5 × unit, size / 60). */
+    strokeWidth?: number;
+    /** Висота, px; ширина — з пропорцій viewBox. */
+    size: number;
+}
+/**
+ * Лого, що малюється контуром (`strokeDasharray` з `evolvePath`), одним кольором.
+ * Залиті фігури наприкінці (`draw` 0.6 → 1) заливаються, а контур гасне — на 1 це силует лого.
+ * Растрове/текстове лого — null (сцена малює `<Logo>`).
+ */
+export declare function LogoPath(props: LogoPathProps): import("react").JSX.Element | null;
 ```
 
 ## Фон
@@ -388,16 +459,39 @@ export declare function Logo(props: LogoProps): import("react").JSX.Element;
 
 ```ts
 export interface BackdropProps {
-    variant: "solid" | "gradient" | "noise" | "shapes";
+    variant: "solid" | "gradient" | "noise" | "shapes" | "stage";
     /** Дефолт palette.background. */
     color?: string;
     /** Для gradient/shapes. */
     colors?: string[];
     /** Для gradient, градуси. */
     angle?: number;
-    /** Повільний дрейф (функція від кадру). */
+    /** Повільний дрейф (функція від кадру). `stage` рухається завжди. */
     animate?: boolean;
+    /** stage: base + 2 дрейфуючі радіальні свічення + сітка + зерно + віньєтка. Кольори свічень, дефолт [primary, secondary]. */
+    glow?: [string, string];
+    /** stage: сітка 96 px × unit з маскою до центру, дрейф 0.4 px × unit на кадр; дефолт true. */
+    grid?: boolean;
+    /** stage: колір, у який «кімната» перефарбовується (напр. palette.danger). */
+    tint?: string;
+    /** stage: 0..1, частка `tint` у свіченнях; функція від кадру задається сценою. Дефолт 1, якщо є `tint`. */
+    tintAmount?: number;
 }
+/** Розмір клітинки сітки `stage`, px для кадру з короткою стороною 1080. */
+export declare const STAGE_GRID = 96;
+/** Дрейф сітки `stage`, px на кадр (× unit). */
+export declare const STAGE_GRID_DRIFT = 0.4;
+/**
+ * Центри двох свічень `stage` у кадрі (px): повільні синуси від кадру з різними періодами,
+ * тож свічення не синхронні й ніколи не повторюють один одного. Чиста функція кадру.
+ */
+export declare function stageGlowCenters(frame: number, width: number, height: number): [{
+    x: number;
+    y: number;
+}, {
+    x: number;
+    y: number;
+}];
 /** Фон сцени. */
 export declare function Backdrop(props: BackdropProps): import("react").JSX.Element;
 ```
@@ -969,6 +1063,27 @@ export declare const FONT_SUBSETS: readonly ["latin", "cyrillic"];
 export declare const FALLBACK_STACK = "system-ui, -apple-system, \"Segoe UI\", Roboto, Arial, sans-serif";
 /** CSS font-family з резервним стеком. */
 export declare function fontStack(family: string): string;
+/** Моношрифт бренд-кіта без `typography.mono` (старі версії); ім'я узгоджене з fonts.json бренд-кіта. */
+export declare const MONO_FAMILY = "JetBrains Mono";
+/** Ваги моношрифту за замовчуванням: цифри й мітки (400) і акцентні числа (700). */
+export declare const MONO_WEIGHTS: readonly number[];
+/** Системний моноширинний стек: резерв, поки моношрифт не завантажено або якщо його немає. */
+export declare const MONO_FALLBACK_STACK = "ui-monospace, monospace";
+/** CSS font-family моношрифту з системним моноширинним резервом. */
+export declare function monoStack(family: string): string;
+/**
+ * Моношрифт бренду: `typography.mono` або `JetBrains Mono` 400/700. Завантажується, як heading і body,
+ * якщо рендер передав його метадані (`FontInfo`); інакше — системний моноширинний стек.
+ */
+export declare function monoChoice(typography: {
+    mono?: {
+        family: string;
+        weights: number[];
+    } | null;
+}): {
+    family: string;
+    weights: number[];
+};
 /** Найближча доступна вага (для 700 при наявних 600/800 — 600, при рівності — важча). */
 export declare function nearestWeight(wanted: number, available: readonly number[]): number;
 export interface FontPlan {
