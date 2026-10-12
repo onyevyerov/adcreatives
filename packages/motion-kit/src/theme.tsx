@@ -2,16 +2,26 @@ import type { BrandKit, MotionPersonality, Palette } from "@adc/shared/schemas/b
 import type { AssetRef } from "@adc/shared/types/video";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { useDelayRender } from "remotion";
-import { type FontInfo, fontStack, loadPlannedFont, planFont } from "./fonts.ts";
+import {
+  type FontInfo,
+  fontStack,
+  loadPlannedFont,
+  MONO_FALLBACK_STACK,
+  monoChoice,
+  monoStack,
+  planFont,
+} from "./fonts.ts";
+
+export { MONO_FALLBACK_STACK };
 
 /** Палітра теми: ролі бренд-кіта, семантичні (danger, warning, success) — завжди кольори. */
 export type ThemePalette = { [K in keyof Palette]: string };
 
-/** Семантичні кольори для бренд-кітів без них (старі версії). */
+/**
+ * Семантичні кольори для бренд-кітів без них (старі версії) — ті самі базові кольори, від яких
+ * бренд-кіт виводить свої (B2): danger червоний, warning бурштиновий, success зелений.
+ */
 export const SEMANTIC_FALLBACK = { danger: "#EF4444", warning: "#F59E0B", success: "#22C55E" } as const;
-
-/** Системний моноширинний стек, якщо бренд-кіт не задав `typography.mono`. */
-export const MONO_FALLBACK_STACK = "ui-monospace, monospace";
 
 export interface Theme {
   /** primary, secondary, accent, background, surface, textOnDark, textOnLight, danger, warning, success */
@@ -35,7 +45,6 @@ const RADIUS: Record<BrandKit["visualStyle"]["shapes"], Theme["radius"]> = {
 /** Тема з бренд-кіта (чиста функція; ваги — фактично завантажені). */
 export function buildTheme(brand: BrandKit, weights?: { heading: number[]; body: number[] }): Theme {
   const p = brand.palette;
-  const mono = brand.typography.mono;
   return {
     palette: {
       ...p,
@@ -46,7 +55,8 @@ export function buildTheme(brand: BrandKit, weights?: { heading: number[]; body:
     fonts: {
       heading: fontStack(brand.typography.heading.family),
       body: fontStack(brand.typography.body.family),
-      mono: mono ? `"${mono.family.replace(/"/g, "")}", ${MONO_FALLBACK_STACK}` : MONO_FALLBACK_STACK,
+      // Без `typography.mono` — JetBrains Mono (якщо рендер передав його метадані), далі системний monospace.
+      mono: monoStack(monoChoice(brand.typography).family),
     },
     weights: weights ?? {
       heading: [...brand.typography.heading.weights].sort((a, b) => a - b),
@@ -84,12 +94,14 @@ export function ThemeProvider(props: { brand: BrandKit; fonts?: FontInfo[]; chil
   const { brand, fonts } = props;
   const plans = useMemo(() => {
     const infos = fonts ?? [];
+    const mono = monoChoice(brand.typography);
     return {
       heading: planFont(brand.typography.heading.family, brand.typography.heading.weights, infos),
       body: planFont(brand.typography.body.family, brand.typography.body.weights, infos),
+      mono: planFont(mono.family, mono.weights, infos),
     };
   }, [brand, fonts]);
-  const needsLoading = plans.heading.info !== null || plans.body.info !== null;
+  const needsLoading = plans.heading.info !== null || plans.body.info !== null || plans.mono.info !== null;
   const { delayRender, continueRender } = useDelayRender();
   const [handle] = useState(() => (needsLoading ? delayRender("motion-kit: шрифти бренду") : null));
   const [ready, setReady] = useState(!needsLoading);
@@ -97,7 +109,7 @@ export function ThemeProvider(props: { brand: BrandKit; fonts?: FontInfo[]; chil
   useEffect(() => {
     if (!needsLoading) return;
     let cancelled = false;
-    Promise.all([loadPlannedFont(plans.heading), loadPlannedFont(plans.body)])
+    Promise.all([loadPlannedFont(plans.heading), loadPlannedFont(plans.body), loadPlannedFont(plans.mono)])
       .catch((err: unknown) => {
         console.warn(`motion-kit: шрифти не завантажились, резервний стек: ${String(err)}`);
       })

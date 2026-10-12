@@ -42,7 +42,7 @@ describe("тема", () => {
   it("будує токени з бренд-кіта", () => {
     const t = buildTheme(fixtureBrandKit);
     expect(t.palette).toEqual({ ...fixtureBrandKit.palette, ...SEMANTIC_FALLBACK });
-    expect(t.fonts.mono).toBe(MONO_FALLBACK_STACK);
+    expect(t.fonts.mono).toBe(`"JetBrains Mono", ${MONO_FALLBACK_STACK}`);
     expect(t.fonts.heading).toBe(fontStack("Montserrat"));
     expect(t.fonts.body.startsWith('"Inter"')).toBe(true);
     expect(t.radius.pill).toBe(999);
