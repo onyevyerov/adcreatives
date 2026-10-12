@@ -13,6 +13,8 @@ export const STAGE_QUEUE = {
   "brandkit-patch": "llm",
   storyboard: "llm",
   codegen: "llm",
+  /** Та сама черга режисера, що й codegen. */
+  author: "llm",
   fix: "llm",
   qa: "llm",
   revise: "llm",

@@ -26,8 +26,18 @@ export const Palette = z.object({
   surface: HexColor,
   textOnDark: HexColor,
   textOnLight: HexColor,
+  /** Семантичні кольори; null — бренд-кіт виводить їх кодом, у Theme вони завжди є. */
+  danger: HexColor.nullable().default(null),
+  warning: HexColor.nullable().default(null),
+  success: HexColor.nullable().default(null),
 });
 export type Palette = z.infer<typeof Palette>;
+
+/** Семантичні ролі палітри (можуть бути null у бренд-кіті; у темі motion-kit — завжди колір). */
+export const SEMANTIC_PALETTE_ROLES = ["danger", "warning", "success"] as const;
+export type SemanticPaletteRole = (typeof SEMANTIC_PALETTE_ROLES)[number];
+/** Брендові ролі палітри — завжди задані. */
+export type BasePaletteRole = Exclude<keyof Palette, SemanticPaletteRole>;
 
 export const FontChoice = z.object({
   /** Назва в Google Fonts. */
@@ -41,10 +51,49 @@ export type FontChoice = z.infer<typeof FontChoice>;
 export const Typography = z.object({
   heading: FontChoice,
   body: FontChoice,
+  /** Моношрифт для чисел, eyebrow і міток; null — підбирається з fonts.json. */
+  mono: FontChoice.nullable().default(null),
   /** Сімейства, виявлені на сайті як є. */
   detected: z.array(z.string()),
 });
 export type Typography = z.infer<typeof Typography>;
+
+/** Речовина продукту: що він робить і як виглядає результат. Кожен рядок — дослівно з тексту сайту. */
+export const ProductSubstance = z.object({
+  /** Кроки роботи з продуктом у порядку: "Вставте URL", "AI сканує сайт", "Отримуєте план". */
+  steps: z.array(z.object({ name: z.string(), detail: z.string().nullable() })).default([]),
+  /** Що перевіряє / з чого складається: категорії, напрями, модулі. */
+  checks: z.array(z.string()).default([]),
+  /** Приклади результату: проблема, серйозність, оцінка, пояснення, що робити. */
+  exampleIssues: z
+    .array(
+      z.object({
+        title: z.string(),
+        severity: z.enum(["critical", "moderate", "minor"]).nullable(),
+        score: z.string().nullable(),
+        explanation: z.string().nullable(),
+        fix: z.string().nullable(),
+        effort: z.string().nullable(),
+      }),
+    )
+    .default([]),
+  /** Рядки плану/списку задач з групою ("1 тиждень") і оцінкою ("3 години"). */
+  planRows: z
+    .array(z.object({ text: z.string(), group: z.string().nullable(), effort: z.string().nullable() }))
+    .default([]),
+  /** Продукти/модулі одним рядком. */
+  products: z.array(z.object({ name: z.string(), oneLiner: z.string().nullable() })).default([]),
+  /** Порівняння з альтернативою: критерій, ми, вони. */
+  comparisons: z
+    .array(z.object({ criterion: z.string(), us: z.string(), alternative: z.string() }))
+    .default([]),
+});
+export type ProductSubstance = z.infer<typeof ProductSubstance>;
+
+/** Порожня речовина (дефолт для старих бренд-кітів); щоразу новий об'єкт — масиви не діляться між парсами. */
+export function emptySubstance(): ProductSubstance {
+  return { steps: [], checks: [], exampleIssues: [], planRows: [], products: [], comparisons: [] };
+}
 
 export const LogoInfo = z.object({
   assetId: z.string().nullable(),
@@ -140,6 +189,8 @@ export const BrandKit = z.object({
     }),
   ),
   usps: z.array(z.string()),
+  /** Що продукт робить і як виглядає результат — дослівно з сайту (перевіряє `verifySubstance`). */
+  substance: ProductSubstance.default(emptySubstance),
   socialProof: z.object({
     rating: z.number().nullable(),
     reviewsCount: z.number().int().nullable(),

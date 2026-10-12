@@ -329,6 +329,8 @@ export class Harness {
       }
       case "codegen":
         return { sceneIds: ["s1", "s2", "s3"], guardRejected: [] };
+      case "author":
+        return { sceneIds: ["s1", "s2", "s3"], iterations: 1, renders: 0, usd: 0, stoppedBy: "done" };
       case "check": {
         const formats = state.project.formats;
         for (const f of FORMATS.filter((x) => formats.includes(x))) {

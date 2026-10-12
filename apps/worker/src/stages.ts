@@ -1,4 +1,5 @@
 import { audioStage } from "@adc/audio";
+import { authorStage } from "@adc/author";
 import { brandkitPatchStage, brandkitStage } from "@adc/brandkit";
 import { crawlStage, ingestStage } from "@adc/crawler";
 import {
@@ -60,6 +61,8 @@ export function createStageRegistry(deps: StageRegistryDeps = {}): StageRegistry
     brandkit: brandkitStage,
     "brandkit-patch": brandkitPatchStage,
     ...director,
+    /** Агентний режим генерації (`ADC_GENERATION_MODE=agent`), `@adc/author`. */
+    author: authorStage,
     audio: audioStage,
     render: createRenderStage({
       prepareRenderJob: deps.prepareRenderJob ?? prepareRenderJob,

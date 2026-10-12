@@ -473,6 +473,7 @@ describe("cp-brand · Google Fonts", () => {
           typography: {
             heading: { family: "Playfair Display", weights: [700], origin: "substitute" },
             body: { family: "Playfair Display", weights: [400, 700], origin: "substitute" },
+            mono: null,
             detected: [],
           },
         },

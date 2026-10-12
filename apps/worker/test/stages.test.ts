@@ -34,6 +34,7 @@ describe("stage registry", () => {
       "brandkit-patch",
       "storyboard",
       "codegen",
+      "author",
       "fix",
       "qa",
       "revise",

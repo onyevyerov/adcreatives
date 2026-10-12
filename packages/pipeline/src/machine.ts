@@ -600,6 +600,8 @@ function onStageEvent(d: Draft, ev: StageDoneEvent): void {
     storyboard: () => onStoryboardDone(d),
     revise: (e) => onReviseDone(d, e),
     codegen: () => onCodegenDone(d),
+    // Агентний режим (стадія `author`) поки не ставиться; після неї — те саме, що після codegen.
+    author: () => onCodegenDone(d),
     check: (e) => onCheckDone(d, e),
     fix: (e) => onFixDone(d, e, job),
     qa: (e) => onQaDone(d, e),

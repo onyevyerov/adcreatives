@@ -25,6 +25,8 @@ export interface StageParamsMap {
   storyboard: { durationSeconds: number | null };
   /** sceneIds = null — усі сцени (перша генерація). */
   codegen: { sceneIds: string[] | null; instructions: Array<{ sceneId: string; instruction: string }> };
+  /** Агентний режим: ті самі sceneIds/instructions, що й codegen. */
+  author: { sceneIds: string[] | null; instructions: Array<{ sceneId: string; instruction: string }> };
   check: { sceneIds: string[] | null };
   fix: { sceneIds: string[]; reason: "check" | "qa" };
   qa: { sceneIds: string[] | null };
@@ -42,6 +44,13 @@ export interface StageOutputsMap {
   "brandkit-patch": { version: number; summary: string };
   storyboard: { unverifiedClaims: number; totalFrames: number };
   codegen: { sceneIds: string[]; guardRejected: string[] };
+  author: {
+    sceneIds: string[];
+    iterations: number;
+    renders: number;
+    usd: number;
+    stoppedBy: "done" | "budget" | "iterations" | "time";
+  };
   check: { failedScenes: string[]; issueScenes: string[] };
   fix: { sceneIds: string[] };
   qa: { verdict: QaReport["verdict"]; seriousScenes: string[] };

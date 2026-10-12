@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@adc/audio": "workspace:*",
+    "@adc/author": "workspace:*",
     "@adc/brandkit": "workspace:*",
     "@adc/crawler": "workspace:*",
     "@adc/director": "workspace:*",

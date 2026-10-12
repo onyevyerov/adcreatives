@@ -98,6 +98,7 @@ describe("fixTypography", () => {
       {
         heading: { family: "Bebas Neue", weights: [400], origin: "site" },
         body: { family: "Inter", weights: [400], origin: "site" },
+        mono: null,
         detected: [],
       },
       { language: "en", brandName: "Зерно", siteFonts: ['"Inter", sans-serif'] },

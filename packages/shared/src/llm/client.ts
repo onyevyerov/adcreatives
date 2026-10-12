@@ -4,6 +4,7 @@ import type { CostRecorder } from "../cost/ledger.ts";
 import { type Logger, noopLogger } from "../logger.ts";
 import type { CostEvent, TokenUnits } from "../schemas/cost.ts";
 import type { Tracer } from "../trace.ts";
+import { runAgent } from "./agent.ts";
 import type { CacheTtl, Effort, LoadedPrompt, PromptLoader, PromptVars } from "./prompts.ts";
 import { toStrictJsonSchema } from "./structured.ts";
 
@@ -89,6 +90,40 @@ export interface LlmStructuredResult<T> extends LlmTextResult {
   data: T;
 }
 
+/** Інструмент агентного циклу (`Llm.agent`): модель викликає його через `tool_use`. */
+export interface AgentTool<I = unknown> {
+  name: string;
+  description: string;
+  /** Схема входу: з неї будується `input_schema` інструмента, нею ж перевіряється вхід перед `run`. */
+  input: z.ZodType<I>;
+  /** Результат інструмента: текст і/або зображення, що йдуть у tool_result. */
+  run(input: I, signal?: AbortSignal): Promise<{ text?: string; images?: ImageInput[] }>;
+}
+
+export interface LlmAgentOptions extends Omit<LlmCallOptions, "images" | "onText"> {
+  tools: AgentTool[];
+  maxIterations: number;
+  /** Сумарні токени (input + output + cacheWrite + cacheRead) на весь цикл; при перевищенні — зупинка. */
+  tokenBudget: number;
+  onIteration?: (info: { iteration: number; tool: string | null; usd: number; tokens: number }) => void;
+}
+
+export interface LlmAgentResult extends LlmTextResult {
+  iterations: number;
+  stoppedBy: "done" | "budget" | "iterations" | "signal";
+}
+
+/** Залежності циклу з інструментами (`agent.ts`) — ті самі, що в `createLlm`, з розв'язаними дефолтами. */
+export interface AgentRuntime {
+  client: AnthropicLike;
+  prompts: PromptLoader;
+  cost: CostRecorder;
+  trace?: Tracer | undefined;
+  logger: Logger;
+  maxTransportRetries: number;
+  sleep: (ms: number) => Promise<void>;
+}
+
 export interface Llm {
   /** Structured output за Zod-схемою; обмеження, яких не гарантує API, перевіряються після відповіді. */
   structured<S extends z.ZodType>(
@@ -107,13 +142,25 @@ export interface Llm {
    * (`detail` — `opts.costDetail`, дефолт "warm").
    */
   warm(name: string, vars: PromptVars, opts?: LlmWarmOptions): Promise<LlmWarmResult>;
+  /**
+   * Цикл з інструментами (стадія `author`): модель викликає `opts.tools`, бачить їхні результати
+   * (текст, зображення) і продовжує, доки не завершить сама або не вичерпає ітерації/токени.
+   */
+  agent(name: string, vars: PromptVars, opts: LlmAgentOptions): Promise<LlmAgentResult>;
 }
 
 export class LlmError extends Error {
   override name = "LlmError";
   constructor(
     message: string,
-    public readonly code: "refusal" | "max_tokens" | "validation" | "prompt" | "api" | "empty",
+    public readonly code:
+      | "refusal"
+      | "max_tokens"
+      | "validation"
+      | "prompt"
+      | "api"
+      | "empty"
+      | "agent_not_implemented",
     public readonly costs: CostEvent[] = [],
     options?: { cause?: unknown },
   ) {
@@ -537,5 +584,12 @@ export function createLlm(options: CreateLlmOptions): Llm {
     text: (name, vars, opts) => run<undefined>("text", name, vars, null, opts),
     stream: (name, vars, opts) => run<undefined>("stream", name, vars, null, opts),
     warm,
+    agent: (name, vars, opts) =>
+      runAgent(
+        { client, prompts, cost, trace, logger, maxTransportRetries: maxTransport, sleep },
+        name,
+        vars,
+        opts,
+      ),
   };
 }

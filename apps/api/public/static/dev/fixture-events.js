@@ -63,10 +63,14 @@ export const brandkitFile = {
     surface: "#F3E6D8",
     textOnDark: "#FFFFFF",
     textOnLight: "#1E1410",
+    danger: null,
+    warning: null,
+    success: null,
   },
   typography: {
     heading: { family: "Montserrat", weights: [700, 800], origin: "site" },
     body: { family: "Inter", weights: [400, 600], origin: "site" },
+    mono: null,
     detected: ["Montserrat", "Inter"],
   },
   logo: { assetId: "a02", type: "svg", needsBackground: false, textFallback: "Зерно" },
@@ -82,6 +86,7 @@ export const brandkitFile = {
     { name: "Сніданки", description: "До 12:00", price: null },
   ],
   usps: ["Обсмажуємо зерно щотижня"],
+  substance: { steps: [], checks: [], exampleIssues: [], planRows: [], products: [], comparisons: [] },
   socialProof: { rating: 4.8, reviewsCount: 320, quotes: [] },
   location: { address: "Львів, вул. Руська, 1", city: "Львів", hours: "щодня 8:00–21:00" },
   contacts: {

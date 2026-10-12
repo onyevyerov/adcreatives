@@ -1,4 +1,4 @@
-import type { Asset, BrandKitFile, Format, Palette } from "@adc/shared";
+import type { Asset, BasePaletteRole, BrandKitFile, Format, Palette } from "@adc/shared";
 import { PALETTE_ROLE_UK } from "./color.ts";
 import { countGoodPhotos, MIN_GOOD_PHOTOS, MIN_PHOTO_QUALITY } from "./finalize.ts";
 
@@ -89,7 +89,7 @@ export function summarizeBrandKit(
     tagline: kit.identity.tagline,
     category: kit.identity.category,
     language: kit.identity.language,
-    swatches: (Object.keys(PALETTE_ROLE_UK) as Array<keyof Palette>).map((role) => ({
+    swatches: (Object.keys(PALETTE_ROLE_UK) as BasePaletteRole[]).map((role) => ({
       role,
       label: PALETTE_ROLE_UK[role],
       hex: kit.palette[role],
