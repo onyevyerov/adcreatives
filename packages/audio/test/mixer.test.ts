@@ -9,13 +9,21 @@ import {
 } from "@adc/shared";
 import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
-import { MIX_SETTINGS, mixSections } from "../src/automation.ts";
+import { DUCK_RELEASE_BEATS, MIX_SETTINGS, mixSections } from "../src/automation.ts";
 import { lowBandOnsets } from "../src/beat.ts";
+import { Biquad } from "../src/dsp.ts";
 import { FALLBACK_KEY, parseKey, pentatonic, scaleFrequency } from "../src/key.ts";
 import {
+  ACCENT_DB,
   audibilityWindow,
+  CUE_LEVEL_DB,
   MASTER_CEILING_DBFS,
+  MASTER_RMS_DBFS,
+  MAX_CUE_DB,
+  MIX_VERSION,
+  type PlacedSound,
   renderSoundtrack,
+  type Soundtrack,
   sampleHashes,
   soundtrackHash,
 } from "../src/mixer.ts";
@@ -28,6 +36,7 @@ import {
   peakOf,
   rmsOf,
   SAMPLE_RATE,
+  type StereoPcm,
   secToSamples,
 } from "../src/pcm.ts";
 import {
@@ -111,6 +120,35 @@ function envelopePeak(pcm: Parameters<typeof envelope>[0], at: "center" | "end" 
 
 const music = () => metronome({ bpm: 120, offsetSec: 0.07, durationSec: 16, busy: true, pad: true });
 
+/** Опора рівня події: RMS музики без подій у вікні чутності або в ±200 мс навколо кадру (більше з двох). */
+function musicRef(plain: Soundtrack, s: PlacedSound): number {
+  const ctx = secToSamples(0.2);
+  return Math.max(rmsOf(plain.stems.music, ...s.window), rmsOf(plain.stems.music, s.at - ctx, s.at + ctx));
+}
+
+/** Смуга через два однакові біквади поспіль (24 дБ/окт). */
+function band(pcm: StereoPcm, make: () => Biquad): StereoPcm {
+  const out = createStereo(pcm.left.length, pcm.sampleRate);
+  for (const ch of ["left", "right"] as const) {
+    const f1 = make();
+    const f2 = make();
+    for (let i = 0; i < pcm[ch].length; i++) out[ch][i] = f2.process(f1.process(pcm[ch][i] as number));
+  }
+  return out;
+}
+/** Низ (бочка, бас) — нижче 120 Гц; верх — вище 1 кГц. */
+const lowBand = (pcm: StereoPcm) => band(pcm, () => new Biquad().setLowpass(120, pcm.sampleRate));
+const highBand = (pcm: StereoPcm) => band(pcm, () => new Biquad().setHighpass(1000, pcm.sampleRate));
+
+/** Відрізок [a, b) музики обох зведень побайтно однаковий (дакінгу там нема). */
+function sameMusic(x: Soundtrack, y: Soundtrack, a: number, b: number): boolean {
+  for (let i = a; i < b; i++) {
+    if (x.stems.music.left[i] !== y.stems.music.left[i]) return false;
+    if (x.stems.music.right[i] !== y.stems.music.right[i]) return false;
+  }
+  return true;
+}
+
 describe("automation by musicBrief.structure[].mix", () => {
   it("частини зливаються за mix; межа — from сцени", () => {
     expect(mixSections(storyboard({ mixes: ["filtered", "full", "full"] }))).toEqual([
@@ -167,16 +205,28 @@ describe("event layer", () => {
     );
   });
 
-  it("кожна подія чутна: пік у вікні 100 мс ≥ RMS музики в тому ж вікні + 6 дБ", () => {
+  it("рівень події: пік у вікні 100 мс ≈ CUE_LEVEL_DB + ACCENT_DB над RMS музики, не вище +6 дБ", () => {
+    expect(CUE_LEVEL_DB).toEqual({
+      impact: 5,
+      slam: 5,
+      riser: 2,
+      whoosh: 0,
+      swoosh: 0,
+      pop: -2,
+      ding: -2,
+      shimmer: -2,
+      tick: -4,
+      click: -4,
+    });
+    expect(ACCENT_DB).toEqual({ soft: -3, normal: 0, hard: 3 });
+    expect(MAX_CUE_DB).toBe(6);
     for (const s of withEvents.sounds) {
-      const [a, b] = s.window;
-      const peak = peakOf(withEvents.stems.events, a, b);
-      // Музика без подій (до дакінгу) — суворіша опора, ніж музика після дакінгу.
-      const musicRms = Math.max(rmsOf(noEvents.stems.music, a, b), rmsOf(withEvents.stems.music, a, b));
-      expect(
-        gainToDb(peak) - gainToDb(musicRms),
-        `${s.sceneId}:${s.eventId} (${s.cue})`,
-      ).toBeGreaterThanOrEqual(6);
+      const level = Math.min(MAX_CUE_DB, CUE_LEVEL_DB[s.cue] + ACCENT_DB[s.accent]);
+      const over = gainToDb(peakOf(withEvents.stems.events, ...s.window)) - gainToDb(musicRef(noEvents, s));
+      const label = `${s.sceneId}:${s.eventId} (${s.cue}, ${s.accent})`;
+      // Вгору — лише хвости сусідніх подій у вікні; вниз — пік звуку поза вікном (підтяжка ≤ ×1.5).
+      expect(over, label).toBeLessThanOrEqual(level + 0.5);
+      expect(over, label).toBeGreaterThanOrEqual(level - 4);
     }
   });
 
@@ -213,20 +263,122 @@ describe("event layer", () => {
         samples: LIB,
       }).sounds.find((s) => s.eventId === "p")?.gain ?? 0;
     expect(gainToDb(one("hard")) - gainToDb(one("normal"))).toBeCloseTo(3, 1);
-    expect(gainToDb(one("normal")) - gainToDb(one("soft"))).toBeCloseTo(2, 1);
+    expect(gainToDb(one("normal")) - gainToDb(one("soft"))).toBeCloseTo(3, 1);
   });
 
-  it("дакінг: після impact/slam музика просідає на ~d і відновлюється за кілька τ", () => {
+  it("дакінг impact/slam: HPF 150 Гц на музиці рівно на одну долю від кадру, верх не чіпається", () => {
     const imp = withEvents.sounds.find((s) => s.eventId === "price-hit");
     if (!imp) throw new Error("немає price-hit");
-    const w = Math.round(0.02 * SAMPLE_RATE);
-    const ducked = rmsOf(withEvents.stems.music, imp.at + w, imp.at + 2 * w);
-    const plain = rmsOf(noEvents.stems.music, imp.at + w, imp.at + 2 * w);
-    expect(ducked / plain).toBeLessThan(0.6);
-    const later = imp.at + Math.round(0.9 * SAMPLE_RATE);
-    expect(
-      rmsOf(withEvents.stems.music, later, later + w) / rmsOf(noEvents.stems.music, later, later + w),
-    ).toBeGreaterThan(0.97);
+    const beat = f2s(15); // 120 BPM при 30 fps
+    const ms = (x: number) => secToSamples(x / 1000);
+    const lowDucked = lowBand(withEvents.stems.music);
+    const lowPlain = lowBand(noEvents.stems.music);
+    const hold: [number, number] = [imp.at + ms(10), imp.at + Math.round(beat * (1 - DUCK_RELEASE_BEATS))];
+    expect(rmsOf(lowDucked, ...hold) / rmsOf(lowPlain, ...hold)).toBeLessThan(0.3);
+    // Верх (хети, пед 1760 Гц) лишається: дакінг — не гучність, а «звільнений низ».
+    const high =
+      rmsOf(highBand(withEvents.stems.music), ...hold) / rmsOf(highBand(noEvents.stems.music), ...hold);
+    expect(high).toBeGreaterThan(0.95);
+    expect(high).toBeLessThan(1.05);
+    // До кадру і після долі — побайтно сухий трек.
+    expect(sameMusic(withEvents, noEvents, imp.at - ms(100), imp.at)).toBe(true);
+    expect(sameMusic(withEvents, noEvents, imp.at + beat, imp.at + beat + ms(200))).toBe(true);
+    expect(sameMusic(withEvents, noEvents, imp.at + beat - ms(20), imp.at + beat)).toBe(false);
+  });
+
+  it("дакінг riser: HPF музики відкривається від 300 Гц до 20 Гц і закінчується на кадрі події", () => {
+    const rise = withEvents.sounds.find((s) => s.eventId === "rise");
+    if (!rise) throw new Error("немає rise");
+    const ms = (x: number) => secToSamples(x / 1000);
+    expect(rise.at - rise.start).toBeGreaterThan(ms(500));
+    const lowDucked = lowBand(withEvents.stems.music);
+    const lowPlain = lowBand(noEvents.stems.music);
+    const ratio = (a: number, b: number) => rmsOf(lowDucked, a, b) / rmsOf(lowPlain, a, b);
+    // Початок riser — низ зрізаний; останні 30 мс — фільтр майже відкритий.
+    expect(ratio(rise.start + ms(10), rise.start + ms(200))).toBeLessThan(0.3);
+    expect(ratio(rise.at - ms(30), rise.at)).toBeGreaterThan(0.8);
+    // Низ відкривається монотонно (по чвертях riser).
+    const q = Math.floor((rise.at - rise.start) / 4);
+    const quarters = [0, 1, 2, 3].map((k) => ratio(rise.start + k * q, rise.start + (k + 1) * q));
+    for (let k = 1; k < 4; k++) expect(quarters[k] ?? 0).toBeGreaterThan(quarters[k - 1] ?? 0);
+    // До riser і з кадру події — сухий трек.
+    expect(sameMusic(withEvents, noEvents, rise.start - ms(100), rise.start)).toBe(true);
+    expect(sameMusic(withEvents, noEvents, rise.at, rise.at + ms(200))).toBe(true);
+  });
+
+  it("шина подій: EQ (HPF 80 Гц / LPF 9 кГц) і спільний реверб — хвіст після сухого звуку", () => {
+    const out = renderSoundtrack({
+      music: null,
+      storyboard: only({ s1: [ev("p", 60, "pop")] }),
+      key: null,
+      samples: LIB,
+    });
+    const s = out.sounds[0];
+    if (!s) throw new Error("pop");
+    const reverb = out.stems.reverb;
+    expect(reverb.left.length).toBe(out.stems.events.left.length);
+    // Предзатримка 10 мс: до кадру + 10 мс реверба немає (лише похибка FFT, < −160 дБ).
+    expect(peakOf(reverb, 0, s.at + secToSamples(0.009))).toBeLessThan(1e-8);
+    expect(peakOf(reverb, s.at + secToSamples(0.011), s.at + secToSamples(0.05))).toBeGreaterThan(1e-4);
+    // Після кінця сухого звуку реверб ще звучить, тихіше за пік звуку.
+    let end = out.stems.events.left.length;
+    while (end > 0 && out.stems.events.left[end - 1] === 0 && out.stems.events.right[end - 1] === 0) end--;
+    const tail = rmsOf(reverb, end + secToSamples(0.05), end + secToSamples(0.15));
+    expect(tail).toBeGreaterThan(0);
+    expect(gainToDb(tail)).toBeLessThan(gainToDb(peakOf(out.stems.events)) - 20);
+    // Мастер = музика + сухі події + реверб (без перенормування).
+    const j = s.at + secToSamples(0.02);
+    expect(out.pcm.left[j]).toBeCloseTo((out.stems.events.left[j] ?? 0) + (reverb.left[j] ?? 0), 5);
+  });
+});
+
+describe("рівні: проєкт-фікстура", () => {
+  // Фікстура зі своїми подіями (impact hard + legacy whoosh/pop/shimmer), усі частини — full.
+  const sb = storyboard();
+  const out = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor", samples: LIB });
+  const plain = renderSoundtrack({
+    music: music(),
+    storyboard: { ...sb, scenes: sb.scenes.map((s) => ({ ...s, sfxCue: null, events: [] })) },
+    key: "A minor",
+    samples: LIB,
+  });
+
+  it("музика нормалізована до −14 dBFS до подій: від рівня входу не залежить, події її не тиснуть", () => {
+    const quiet = music();
+    for (const ch of [quiet.left, quiet.right])
+      for (let i = 0; i < ch.length; i++) ch[i] = (ch[i] ?? 0) * 0.1;
+    const fromQuiet = renderSoundtrack({ music: quiet, storyboard: sb, key: "A minor", samples: LIB });
+    const first = f2s(15 * 30 - 30); // без останньої секунди (fade-out)
+    expect(gainToDb(rmsOf(plain.stems.music, 0, first))).toBeCloseTo(MASTER_RMS_DBFS, 0);
+    expect(gainToDb(rmsOf(fromQuiet.stems.music, 0, first))).toBeCloseTo(
+      gainToDb(rmsOf(out.stems.music, 0, first)),
+      3,
+    );
+    expect(gainToDb(fromQuiet.masterGain) - gainToDb(out.masterGain)).toBeCloseTo(20, 3);
+  });
+
+  it("RMS музики в міксі ≥ −16 dBFS у секундах без подій", () => {
+    const sec = SAMPLE_RATE;
+    const beat = f2s(15);
+    const busy = (a: number, b: number) =>
+      peakOf(out.stems.events, a, b) > 0 ||
+      out.sounds.some((s) => (s.cue === "impact" || s.cue === "slam") && s.at < b && s.at + beat > a);
+    const free: number[] = [];
+    for (let k = 0; k < 14; k++) if (!busy(k * sec, (k + 1) * sec)) free.push(k);
+    expect(free.length).toBeGreaterThanOrEqual(5);
+    for (const k of free) {
+      expect(gainToDb(rmsOf(out.pcm, k * sec, (k + 1) * sec)), `секунда ${k}`).toBeGreaterThanOrEqual(-16);
+    }
+  });
+
+  it("пік подій ≤ +6 дБ над RMS музики", () => {
+    expect(out.sounds.map((s) => `${s.cue}:${s.accent}`).sort()).toEqual(
+      ["impact:hard", "pop:normal", "shimmer:normal", "whoosh:normal"].sort(),
+    );
+    for (const s of out.sounds) {
+      const over = gainToDb(peakOf(out.stems.events, ...s.window)) - gainToDb(musicRef(plain, s));
+      expect(over, `${s.sceneId}:${s.eventId} (${s.cue}, ${s.accent})`).toBeLessThanOrEqual(6);
+    }
   });
 });
 
@@ -288,6 +440,14 @@ describe("soundtrackHash", () => {
     expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: longer, samples })).not.toBe(base);
     const mixes = storyboard({ events: ALL_EVENTS, mixes: ["full", "full", "breakdown"] });
     expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: mixes, samples })).not.toBe(base);
+  });
+
+  it("MIX_VERSION = 3 входить у хеш: зміна версії інвалідує зведення", () => {
+    expect(MIX_VERSION).toBe(3);
+    const input = { planHash: "p", key: "A minor", storyboard: sb, samples };
+    expect(soundtrackHash(input, MIX_VERSION)).toBe(base);
+    expect(soundtrackHash(input, 2)).not.toBe(base);
+    expect(soundtrackHash(input, 4)).not.toBe(base);
   });
 });
 
