@@ -303,6 +303,7 @@ describe("fixStage (записані відповіді LLM)", () => {
     const prompts = ctx.anthropic.calls.map((c) => userText(c.params));
     const s2Prompt = prompts.find((p) => p.includes("Repair scene s2")) ?? "";
     expect(s2Prompt).toMatch(/TS\d+:.*huge/);
+    expect(s2Prompt).toContain("<logo_hint>\nThe logo is vector (SVG)");
     expect(s2Prompt).toContain('size="huge"');
     const s3Prompt = prompts.find((p) => p.includes("Repair scene s3")) ?? "";
     expect(s3Prompt).toMatch(/AST-guard[\s\S]*Date/);

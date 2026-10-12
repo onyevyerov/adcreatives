@@ -1,12 +1,14 @@
 import type { Asset, BrandKit, Fact, RankedAsset, SiteData } from "@adc/shared";
-import { contrastRatio, fixPalette, normalizeHex } from "./color.ts";
+import { contrastRatio, deriveSemanticPalette, fixPalette, normalizeHex } from "./color.ts";
 import { assignFactIds, dedupeFacts, verifySiteFacts } from "./facts.ts";
 import { fixTypography, primaryFamily } from "./fonts.ts";
+import { verifySubstance } from "./substance.ts";
 
 /**
  * Програмна перевірка бренд-кіта після LLM (і після патча): однакова для обох стадій.
- * Модель пропонує, код гарантує: існуючі assetId, контраст, Google Fonts з кирилицею,
- * перевірені цитати фактів, `few_photos`, ліміти списків.
+ * Модель пропонує, код гарантує: існуючі assetId, контраст, семантичні кольори, Google Fonts
+ * з кирилицею (і моношрифт), перевірені цитати фактів, дослівна «речовина продукту»,
+ * `few_photos`, ліміти списків.
  */
 
 /** Мінімум придатних фото (quality ≥ 3), нижче — gap `few_photos`. */
@@ -25,6 +27,11 @@ export interface FinalizeInput {
   assets: readonly Asset[];
   /** id фактів попередньої версії, які мають лишитися стабільними (для патча). */
   keepFactIds?: ReadonlySet<string>;
+  /**
+   * Текст сайту, який бачив бренд-кіт (`brandkit/site-text.txt`): за ним перевіряється `substance`.
+   * null чи порожній — перевірити нема з чим, уся речовина продукту прибирається.
+   */
+  siteText: string | null;
   /** Перша версія: беремо languageVersions і контакти з site.json. */
   initial?: boolean;
 }
@@ -131,8 +138,9 @@ export function finalizeBrandKit(
 
   // --- Палітра.
   const pal = fixPalette(kit.palette);
-  kit.palette = pal.palette;
-  fixes.push(...pal.fixes);
+  const semantic = deriveSemanticPalette(pal.palette);
+  kit.palette = semantic.palette;
+  fixes.push(...pal.fixes, ...semantic.fixes);
 
   // --- Типографіка.
   const siteFonts = (ctx.site?.design?.fonts ?? [])
@@ -151,6 +159,11 @@ export function finalizeBrandKit(
   fixes.push(...checked.fixes);
   const facts: Fact[] = dedupeFacts(checked.facts);
   kit.facts = assignFactIds(facts, ctx.keepFactIds ?? new Set());
+
+  // --- Речовина продукту: лише дослівні рядки з тексту сайту.
+  const substance = verifySubstance(kit.substance, ctx.siteText);
+  kit.substance = substance.substance;
+  fixes.push(...substance.fixes);
 
   // --- Мовні версії й контакти беремо з краулера (вони точніші за переказ моделі).
   if (ctx.initial && ctx.site) {

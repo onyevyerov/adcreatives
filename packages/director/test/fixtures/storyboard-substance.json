@@ -1,0 +1,139 @@
+{
+  "siteText": "<page url=\"https://audit.example.com/\" title=\"Аудит сайту\">\n# Що ми перевіряємо\nТехнічне SEO\nШвидкість на телефонах\nUX/UI\nПозиції конкурентів\n\n# Як це працює\nВставте адресу сайту\nAI сканує сайт\nОтримуєте план\n\n# Приклад звіту\n> Повільне завантаження на телефонах\n> Критично\n> Оцінка 47 зі 100\n> Головний елемент з'являється понад 7 секунд\n> Стиснути зображення першого екрана\n> 3 години\n> Дублікати сторінок\n> Середньо\n> Canonical і редиректи\n> Незначно\n\n# План робіт\nТиждень 1 | Стиснути зображення першого екрана | 3 години\nТиждень 1 | Прибрати дублікати сторінок | 2 години\nТиждень 2 | Налаштувати canonical і редиректи | 1 година\n</page>",
+  "substance": {
+    "steps": [
+      { "name": "Вставте адресу сайту", "detail": null },
+      { "name": "AI сканує сайт", "detail": null },
+      { "name": "Отримуєте план", "detail": null }
+    ],
+    "checks": ["Технічне SEO", "Швидкість на телефонах", "UX/UI", "Позиції конкурентів"],
+    "exampleIssues": [
+      {
+        "title": "Повільне завантаження на телефонах",
+        "severity": "critical",
+        "score": "47 зі 100",
+        "explanation": "Головний елемент з'являється понад 7 секунд",
+        "fix": "Стиснути зображення першого екрана",
+        "effort": "3 години"
+      },
+      {
+        "title": "Дублікати сторінок",
+        "severity": "moderate",
+        "score": null,
+        "explanation": null,
+        "fix": null,
+        "effort": null
+      },
+      {
+        "title": "Canonical і редиректи",
+        "severity": "minor",
+        "score": null,
+        "explanation": null,
+        "fix": null,
+        "effort": null
+      }
+    ],
+    "planRows": [
+      { "text": "Стиснути зображення першого екрана", "group": "Тиждень 1", "effort": "3 години" },
+      { "text": "Прибрати дублікати сторінок", "group": "Тиждень 1", "effort": "2 години" },
+      { "text": "Налаштувати canonical і редиректи", "group": "Тиждень 2", "effort": "1 година" }
+    ],
+    "products": [],
+    "comparisons": []
+  },
+  "scene": {
+    "id": "s4",
+    "purpose": "problem",
+    "durationFrames": 180,
+    "transitionFrames": 0,
+    "text": { "headline": "Звіт показує, що зламано", "sub": null, "emphasis": ["зламано"] },
+    "items": [
+      { "id": "t1", "role": "eyebrow", "text": "ПРИКЛАД ЗВІТУ", "group": null, "factIds": [] },
+      {
+        "id": "t2",
+        "role": "heading",
+        "text": "Повільне завантаження на телефонах",
+        "group": null,
+        "factIds": []
+      },
+      { "id": "t3", "role": "number", "text": "47 зі 100", "group": null, "factIds": [] },
+      {
+        "id": "t4",
+        "role": "item",
+        "text": "Головний елемент з'являється понад 7 секунд",
+        "group": "row:speed",
+        "factIds": []
+      },
+      { "id": "t5", "role": "status", "text": "Критично", "group": "row:speed", "factIds": [] },
+      { "id": "t6", "role": "item", "text": "Дублікати сторінок", "group": "row:duplicates", "factIds": [] },
+      { "id": "t7", "role": "status", "text": "Середньо", "group": "row:duplicates", "factIds": [] },
+      {
+        "id": "t8",
+        "role": "item",
+        "text": "Canonical і редиректи",
+        "group": "row:canonical",
+        "factIds": []
+      },
+      { "id": "t9", "role": "status", "text": "Незначно", "group": "row:canonical", "factIds": [] },
+      {
+        "id": "t10",
+        "role": "caption",
+        "text": "Стиснути зображення першого екрана",
+        "group": "row:fix",
+        "factIds": []
+      },
+      { "id": "t11", "role": "status", "text": "3 години", "group": "row:fix", "factIds": [] }
+    ],
+    "events": [
+      {
+        "id": "card-in",
+        "at": 0,
+        "what": "The report card slides up under its eyebrow.",
+        "sound": { "cue": "whoosh", "accent": "soft" },
+        "textIds": ["t1", "t2"]
+      },
+      {
+        "id": "score-stop",
+        "at": 40,
+        "what": "The counter stops on 47 of 100 as the stage finishes tinting towards danger.",
+        "sound": { "cue": "pop", "accent": "normal" },
+        "textIds": ["t3"]
+      },
+      {
+        "id": "row-1",
+        "at": 80,
+        "what": "The first row slides in with its Critical status.",
+        "sound": { "cue": "pop", "accent": "normal" },
+        "textIds": ["t4", "t5"]
+      },
+      {
+        "id": "row-2",
+        "at": 100,
+        "what": "The second row slides in with its Moderate status.",
+        "sound": { "cue": "pop", "accent": "normal" },
+        "textIds": ["t6", "t7"]
+      },
+      {
+        "id": "row-3",
+        "at": 120,
+        "what": "The third row slides in with its Minor status.",
+        "sound": { "cue": "pop", "accent": "normal" },
+        "textIds": ["t8", "t9"]
+      },
+      {
+        "id": "fix-note",
+        "at": 140,
+        "what": "The fix line and its estimate type in under the rows.",
+        "sound": { "cue": "tick", "accent": "soft" },
+        "textIds": ["t10", "t11"]
+      }
+    ],
+    "factIds": [],
+    "assetIds": [],
+    "layoutIntent": "custom",
+    "motionIntent": "A report card rises on the stage background with the eyebrow above it. The score counts up to 47 of 100 while the stage tints towards danger. Three rows arrive one per beat, each with its status pill: Critical in danger, Moderate in warning, Minor in a muted surface tone. The fix line types in with its estimate; the next scene turns the rows into a plan and the tint returns to the base colour.",
+    "transitionIn": "cut",
+    "sfxCue": null,
+    "musicEnergy": 0.7
+  }
+}

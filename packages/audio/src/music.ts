@@ -3,6 +3,7 @@ import {
   type CostRecorder,
   type Logger,
   MusicMeta,
+  type MusicTrackCheck,
   noopLogger,
   projectPaths,
   type Storage,
@@ -13,10 +14,20 @@ import {
   type ElevenLabsLike,
   type ElevenLabsRequestOptions,
 } from "./client.ts";
-import { MUSIC_MODEL_ID, MUSIC_OUTPUT_FORMAT, MUSIC_TIMEOUT_SECONDS } from "./constants.ts";
-import { classifyElevenLabsError } from "./errors.ts";
+import {
+  MAX_MUSIC_RETRIES,
+  MUSIC_MODEL_ID,
+  MUSIC_OUTPUT_FORMAT,
+  MUSIC_TIMEOUT_SECONDS,
+  MUSIC_WINDOW_TAIL_MS,
+} from "./constants.ts";
+import { type DecodeAudio, decodeAudio } from "./decode.ts";
+import { classifyElevenLabsError, type ElevenLabsErrorInfo } from "./errors.ts";
 import type { ElevenLabsGate } from "./gate.ts";
-import { musicPlanHash, planTrackMs, toCompositionPlan } from "./plan.ts";
+import { pcmLength, type StereoPcm } from "./pcm.ts";
+import { musicPlanHash, planBpm, planTrackMs, planVideoMs, toCompositionPlan } from "./plan.ts";
+import { betterCheck, checkTrack, chooseWindowOffset, cutWindow } from "./trackCheck.ts";
+import { encodeWav } from "./wav.ts";
 
 export interface MusicDeps {
   storage: Storage;
@@ -26,6 +37,8 @@ export interface MusicDeps {
   logger?: Logger;
   signal?: AbortSignal;
   now?: () => Date;
+  /** Декодер треку для перевірки й обрізання; дефолт — ffmpeg зі збірки Remotion. */
+  decode?: DecodeAudio;
 }
 
 export interface GeneratedMusic {
@@ -34,6 +47,11 @@ export interface GeneratedMusic {
   /** Промпт, що реально спрацював (compose), або null для composeDetailed. */
   promptUsed: string | null;
   durationMs: number;
+}
+
+export interface GenerateOptions {
+  /** Номер спроби (1 — перша); з 2-ї — у `detail` витрат, щоб кожна спроба була окремим рядком. */
+  attempt?: number;
 }
 
 function isV2Plan(v: unknown): v is CompositionPlanV2 {
@@ -52,17 +70,27 @@ function planMs(plan: CompositionPlanV2): number {
   );
 }
 
+/** Відхилений запит (промпт чи план), а не збій мережі чи ключа: є сенс спробувати інший шлях. */
+const isRejected = (info: ElevenLabsErrorInfo) =>
+  info.kind === "bad_prompt" || (info.kind === "other" && (info.status === 400 || info.status === 422));
+
 /**
- * Музика за планом:
- * 1) `composeDetailed` з композиційним планом; якщо API відхилив план і запропонував заміну —
- *    один повтор із нею (запропонований промпт → одразу `compose` з ним);
- * 2) інакше фолбек `compose({prompt, musicLengthMs, forceInstrumental})`; на відхилений промпт
- *    із пропозицією — один повтор із запропонованим промптом.
- * 429 і тимчасові відмови повторює `ElevenLabsGate`.
+ * Музика за планом — один трек одним запитом:
+ * 1) `compose({prompt: promptFallback, musicLengthMs, forceInstrumental})` — основний шлях
+ *    (єдиний промпт з тактовою структурою; генератор не будує аранжування наново на межах чанків);
+ *    на відхилений промпт із пропозицією — один повтор із запропонованим промптом;
+ * 2) лише якщо промпт відхилено — фолбек `composeDetailed` з композиційним планом (один чанк);
+ *    якщо API відхилив і план, але запропонував заміну — один повтор із нею.
+ * Решта помилок (ключ, квота, мережа) кидається одразу. 429 і тимчасові відмови повторює `ElevenLabsGate`.
  */
-export async function generateMusic(deps: MusicDeps, plan: AudioPlan): Promise<GeneratedMusic> {
+export async function generateMusic(
+  deps: MusicDeps,
+  plan: AudioPlan,
+  opts: GenerateOptions = {},
+): Promise<GeneratedMusic> {
   const logger = deps.logger ?? noopLogger;
   const trackMs = planTrackMs(plan);
+  const suffix = (opts.attempt ?? 1) > 1 ? `:attempt${opts.attempt}` : "";
   const reqOpts: ElevenLabsRequestOptions = {
     timeoutInSeconds: MUSIC_TIMEOUT_SECONDS,
     maxRetries: 0,
@@ -76,29 +104,11 @@ export async function generateMusic(deps: MusicDeps, plan: AudioPlan): Promise<G
         kind: "music",
         model: MUSIC_MODEL_ID,
         seconds,
-        detail,
+        detail: `${detail}${suffix}`,
       });
     } catch (err) {
       logger.error("не вдалося записати витрати музики", { err: String(err) });
     }
-  };
-
-  const detailed = async (compositionPlan: CompositionPlanV2, detail: string): Promise<GeneratedMusic> => {
-    const result = await deps.gate.run(
-      "music:composeDetailed",
-      () =>
-        deps
-          .client()
-          .music.composeDetailed(
-            { compositionPlan, modelId: MUSIC_MODEL_ID, outputFormat: MUSIC_OUTPUT_FORMAT },
-            reqOpts,
-          ),
-      deps.signal,
-    );
-    const audio = await audioBytes(result);
-    const ms = planMs(compositionPlan) || trackMs;
-    await record(ms / 1000, detail);
-    return { audio, method: "composeDetailed", promptUsed: null, durationMs: ms };
   };
 
   const compose = async (prompt: string, detail: string): Promise<GeneratedMusic> => {
@@ -122,41 +132,58 @@ export async function generateMusic(deps: MusicDeps, plan: AudioPlan): Promise<G
     return { audio, method: "compose", promptUsed: prompt, durationMs: trackMs };
   };
 
-  const composeWithSuggestion = async (prompt: string, detail: string): Promise<GeneratedMusic> => {
-    try {
-      return await compose(prompt, detail);
-    } catch (err) {
-      const info = classifyElevenLabsError(err);
-      if (info.kind === "bad_prompt" && info.promptSuggestion && info.promptSuggestion !== prompt) {
-        logger.warn("ElevenLabs відхилив промпт, повтор із запропонованим", { code: info.code });
-        return compose(info.promptSuggestion, "music:compose:suggested");
-      }
-      throw err;
-    }
+  const detailed = async (compositionPlan: CompositionPlanV2, detail: string): Promise<GeneratedMusic> => {
+    const result = await deps.gate.run(
+      "music:composeDetailed",
+      () =>
+        deps
+          .client()
+          .music.composeDetailed(
+            { compositionPlan, modelId: MUSIC_MODEL_ID, outputFormat: MUSIC_OUTPUT_FORMAT },
+            reqOpts,
+          ),
+      deps.signal,
+    );
+    const audio = await audioBytes(result);
+    const ms = planMs(compositionPlan) || trackMs;
+    await record(ms / 1000, detail);
+    return { audio, method: "composeDetailed", promptUsed: null, durationMs: ms };
   };
 
-  let fallbackPrompt = plan.promptFallback;
+  /** Помилка, після якої фолбеку немає: скасування або не-відмова (ключ, квота, мережа). */
+  const fatal = (err: unknown): ElevenLabsErrorInfo => {
+    const info = classifyElevenLabsError(err);
+    if (info.kind === "aborted" || deps.signal?.aborted || !isRejected(info)) throw err;
+    return info;
+  };
+
+  const prompt = plan.promptFallback;
+  try {
+    return await compose(prompt, "music:compose");
+  } catch (err) {
+    const info = fatal(err);
+    logger.warn("ElevenLabs відхилив промпт", { kind: info.kind, code: info.code, status: info.status });
+    if (info.promptSuggestion && info.promptSuggestion !== prompt) {
+      try {
+        return await compose(info.promptSuggestion, "music:compose:suggested");
+      } catch (err2) {
+        const info2 = fatal(err2);
+        logger.warn("запропонований промпт теж відхилено — фолбек composeDetailed", { code: info2.code });
+      }
+    }
+  }
+
   try {
     return await detailed(toCompositionPlan(plan), "music:composeDetailed");
   } catch (err) {
     const info = classifyElevenLabsError(err);
     if (info.kind === "aborted" || deps.signal?.aborted) throw err;
-    logger.warn("composeDetailed не вдався", { kind: info.kind, code: info.code, status: info.status });
     if (info.kind === "bad_prompt" && isV2Plan(info.planSuggestion)) {
-      try {
-        return await detailed(info.planSuggestion, "music:composeDetailed:suggested");
-      } catch (err2) {
-        const info2 = classifyElevenLabsError(err2);
-        if (info2.kind === "aborted" || deps.signal?.aborted) throw err2;
-        logger.warn("composeDetailed із запропонованим планом не вдався", { kind: info2.kind });
-      }
-    } else if (info.kind === "bad_prompt" && info.promptSuggestion) {
-      // Запропонована заміна — промпт, а не план: це і є наш один повтор, уже через compose.
-      fallbackPrompt = info.promptSuggestion;
-      return compose(fallbackPrompt, "music:compose:suggested");
+      logger.warn("composeDetailed відхилив план, повтор із запропонованим", { code: info.code });
+      return detailed(info.planSuggestion, "music:composeDetailed:suggested");
     }
+    throw err;
   }
-  return composeWithSuggestion(fallbackPrompt, "music:compose");
 }
 
 export interface EnsuredMusic {
@@ -167,38 +194,138 @@ export interface EnsuredMusic {
   cached: boolean;
 }
 
-/** Музика з кешу `audio/<planHash>/` або нова генерація з записом `music.mp3` + `music.json`. */
+/**
+ * Обрізаний на вікно відео трек: `audio/<planHash>/music.wav` (поруч із сирим `music.mp3`,
+ * за яким стадія шукає трек для повторного використання).
+ */
+export function musicWavKey(projectId: string, planHash: string): string {
+  return `${projectPaths(projectId).audioDir}/${planHash}/music.wav`;
+}
+
+interface Attempt {
+  music: GeneratedMusic;
+  pcm: StereoPcm | null;
+  check: MusicTrackCheck | null;
+}
+
+/**
+ * Музика з кешу `audio/<planHash>/` або нова генерація:
+ * 1) генерація → декодування → `checkTrack` у вікні відео (трек мінус 8 с запасу);
+ * 2) `ok=false` → до 2 повторних генерацій (витрати кожної — окремий рядок `costs.jsonl`);
+ * 3) найкраща спроба (пройшла / найменше провалів) → вікно відео без провалів у межах треку
+ *    (зсув кратний такту, `offsetMs`) → `music.wav` (вікно + 1 с хвоста) і перевірка вже його;
+ * 4) сирий трек найкращої спроби — у `music.mp3`, метадані з `check`, `attempts`, `offsetMs` — у `music.json`.
+ * Не вдалося декодувати (немає ffmpeg) або в плані немає темпу — лишається сирий `music.mp3`,
+ * `check: null`, `offsetMs: 0`.
+ */
 export async function ensureMusic(
   deps: MusicDeps,
   projectId: string,
   plan: AudioPlan,
   briefHash: string,
 ): Promise<EnsuredMusic> {
+  const logger = deps.logger ?? noopLogger;
   const planHash = musicPlanHash(plan);
   const paths = projectPaths(projectId);
-  const key = paths.music(planHash);
+  const rawKey = paths.music(planHash);
+  const wavKey = musicWavKey(projectId, planHash);
   const metaKey = paths.musicMeta(planHash);
-  if ((await deps.storage.exists(key)) && (await deps.storage.exists(metaKey))) {
+  if (await deps.storage.exists(metaKey)) {
     try {
       const meta = await deps.storage.readJson(metaKey, (v) => MusicMeta.parse(v));
-      return { planHash, key, meta, cached: true };
+      const key =
+        meta.check !== null && (await deps.storage.exists(wavKey))
+          ? wavKey
+          : (await deps.storage.exists(rawKey))
+            ? rawKey
+            : null;
+      if (key) return { planHash, key, meta, cached: true };
     } catch {
       // битий music.json — генеруємо заново
     }
   }
-  const music = await generateMusic(deps, plan);
-  const meta: MusicMeta = {
+
+  const videoMs = planVideoMs(plan);
+  const bpm = planBpm(plan);
+  const decode = deps.decode ?? decodeAudio;
+  const decodeOpts = deps.signal ? { signal: deps.signal } : {};
+  let best: Attempt | null = null;
+  let attempts = 0;
+  for (let n = 1; n <= 1 + MAX_MUSIC_RETRIES; n++) {
+    let music: GeneratedMusic;
+    try {
+      music = await generateMusic(deps, plan, { attempt: n });
+    } catch (err) {
+      // Перша спроба — без треку нема що віддати; повторна — лишаємо найкращу з наявних.
+      if (!best || deps.signal?.aborted) throw err;
+      logger.warn("повторна генерація музики не вдалася — беремо найкращу спробу", { attempt: n });
+      break;
+    }
+    attempts = n;
+    if (bpm === null) {
+      logger.warn("у плані немає темпу — трек без перевірки");
+      best = { music, pcm: null, check: null };
+      break;
+    }
+    let pcm: StereoPcm;
+    try {
+      pcm = await decode(music.audio, decodeOpts);
+    } catch (err) {
+      if (deps.signal?.aborted) throw err;
+      logger.warn("музику не вдалося розкодувати — без перевірки й обрізання", {
+        attempt: n,
+        err: String(err),
+      });
+      if (!best) best = { music, pcm: null, check: null };
+      break;
+    }
+    const check = checkTrack(pcm, bpm, { videoMs });
+    logger.info("перевірка треку", {
+      attempt: n,
+      ok: check.ok,
+      kickOnsets: check.kickOnsets,
+      beatConfidence: check.beatConfidence,
+      gaps: check.gaps.length,
+    });
+    if (!best?.check || betterCheck(check, best.check)) best = { music, pcm, check };
+    if (check.ok) break;
+  }
+  if (!best) throw new Error("музика: немає жодної спроби");
+
+  const base = {
     planHash,
-    durationMs: music.durationMs,
     modelId: MUSIC_MODEL_ID,
-    method: music.method,
-    promptUsed: music.promptUsed,
+    method: best.music.method,
+    promptUsed: best.music.promptUsed,
     briefHash,
     createdAt: (deps.now ?? (() => new Date()))().toISOString(),
-    check: null,
-    attempts: 1,
+    attempts: Math.max(1, attempts),
   };
-  await deps.storage.write(key, music.audio);
+  await deps.storage.write(rawKey, best.music.audio);
+
+  if (!best.pcm || !best.check || bpm === null) {
+    const meta: MusicMeta = { ...base, durationMs: best.music.durationMs, check: null, offsetMs: 0 };
+    await deps.storage.writeJson(metaKey, meta);
+    return { planHash, key: rawKey, meta, cached: false };
+  }
+
+  const sr = best.pcm.sampleRate;
+  const offsetMs = chooseWindowOffset(best.check.gaps, {
+    trackMs: (pcmLength(best.pcm) / sr) * 1000,
+    videoMs,
+    tailMs: MUSIC_WINDOW_TAIL_MS,
+    bpm,
+  });
+  const cut = cutWindow(best.pcm, offsetMs, videoMs + MUSIC_WINDOW_TAIL_MS);
+  const check = checkTrack(cut, bpm, { videoMs });
+  if (offsetMs > 0) logger.info("вікно відео зсунуто з провалу", { offsetMs, ok: check.ok });
+  const meta: MusicMeta = {
+    ...base,
+    durationMs: Math.round((pcmLength(cut) / sr) * 1000),
+    check,
+    offsetMs,
+  };
+  await deps.storage.write(wavKey, encodeWav(cut));
   await deps.storage.writeJson(metaKey, meta);
-  return { planHash, key, meta, cached: false };
+  return { planHash, key: wavKey, meta, cached: false };
 }

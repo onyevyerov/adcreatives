@@ -25,7 +25,14 @@ import {
   readProject,
 } from "../io.ts";
 import { normalizeStoryboard } from "../normalize.ts";
-import { assetsForPrompt, brandForScript, knownAssetIds, readSiteText } from "./storyboard.ts";
+import {
+  assetsForPrompt,
+  brandForScript,
+  knownAssetIds,
+  readSiteText,
+  semanticForScript,
+  substanceForScript,
+} from "./storyboard.ts";
 
 export const REVISE_PROMPT = "revise";
 
@@ -104,6 +111,8 @@ export function createReviseStage(opts: { now?: () => Date } = {}): Stage<"revis
       durationSeconds: project?.durationSeconds ?? null,
       storyboard: current,
       brand: brandForScript(brandFile),
+      substance: substanceForScript(brandFile),
+      semantic: semanticForScript(brandFile.palette),
       facts: brandFile.facts,
       site: siteText.trim() || "(текст сайту недоступний)",
       assets: assetsForPrompt(brandFile, manifest),

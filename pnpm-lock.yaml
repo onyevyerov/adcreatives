@@ -155,9 +155,18 @@ importers:
 
   packages/author:
     dependencies:
+      '@adc/director':
+        specifier: workspace:*
+        version: link:../director
+      '@adc/render':
+        specifier: workspace:*
+        version: link:../render
       '@adc/shared':
         specifier: workspace:*
         version: link:../shared
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/brandkit:
     dependencies:

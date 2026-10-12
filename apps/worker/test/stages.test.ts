@@ -1,4 +1,5 @@
 import { audioStage } from "@adc/audio";
+import { authorStage } from "@adc/author";
 import { brandkitPatchStage, brandkitStage } from "@adc/brandkit";
 import { crawlStage, ingestStage } from "@adc/crawler";
 import { QUEUE_NAMES, STAGE_NAMES, STAGE_QUEUE } from "@adc/shared";
@@ -25,6 +26,13 @@ describe("stage registry", () => {
     expect(registry.brandkit).toBe(brandkitStage);
     expect(registry["brandkit-patch"]).toBe(brandkitPatchStage);
     expect(registry.audio).toBe(audioStage);
+  });
+
+  it("wires the agent author stage (ADC_GENERATION_MODE=agent) to the director queue", () => {
+    const registry = createStageRegistry();
+    expect(registry.author).toBe(authorStage);
+    expect(resolveStage(registry, "llm", "author")).toBe(authorStage);
+    expect(queueOf("author")).toBe(queueOf("codegen"));
   });
 
   it("routes stages to queues by STAGE_QUEUE", () => {

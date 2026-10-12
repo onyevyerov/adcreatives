@@ -398,6 +398,24 @@
       "weights": [300, 400, 500, 600, 700]
     },
     {
+      "family": "IBM Plex Mono",
+      "category": "monospace",
+      "subsets": ["cyrillic", "cyrillic-ext", "latin", "latin-ext", "vietnamese"],
+      "weights": [100, 200, 300, 400, 500, 600, 700]
+    },
+    {
+      "family": "Source Code Pro",
+      "category": "monospace",
+      "subsets": ["cyrillic", "cyrillic-ext", "greek", "greek-ext", "latin", "latin-ext", "vietnamese"],
+      "weights": [200, 300, 400, 500, 600, 700, 800, 900]
+    },
+    {
+      "family": "Space Mono",
+      "category": "monospace",
+      "subsets": ["latin", "latin-ext", "vietnamese"],
+      "weights": [400, 700]
+    },
+    {
       "family": "Lato",
       "category": "sans-serif",
       "subsets": ["latin", "latin-ext"],
@@ -585,6 +603,12 @@
     "didot": "Playfair Display",
     "bodoni": "Playfair Display",
     "courier new": "Roboto Mono",
+    "sf mono": "JetBrains Mono",
+    "menlo": "JetBrains Mono",
+    "monaco": "JetBrains Mono",
+    "consolas": "JetBrains Mono",
+    "geist mono": "JetBrains Mono",
+    "space mono": "JetBrains Mono",
     "poppins": "Montserrat",
     "lato": "Open Sans",
     "work sans": "Inter",

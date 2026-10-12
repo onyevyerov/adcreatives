@@ -88,6 +88,15 @@ function llmBrandKit(): BrandKit {
     },
   ];
   kit.gaps = [];
+  // Речовина продукту: справжній рядок сайту, вигаданий крок і вигадана подробиця.
+  kit.substance = {
+    ...kit.substance,
+    steps: [
+      { name: "Обсмажуємо зерно щотижня", detail: null },
+      { name: "Мелемо під кожну чашку", detail: null },
+    ],
+    products: [{ name: "Капучино", oneLiner: "75 грн за чашку" }],
+  };
   return kit;
 }
 
@@ -150,6 +159,19 @@ describe("brandkitStage", () => {
     expect(file.gaps[0]).toMatchObject({ kind: "few_photos" });
     expect(file.fixes.join("\n")).toMatch(/a99/);
     expect(file.fixes.join("\n")).toMatch(/Найкраща кава/);
+    // Семантичні кольори й моношрифт заповнено кодом.
+    for (const role of ["danger", "warning", "success"] as const) {
+      const c = file.palette[role] as string;
+      expect(c).toMatch(/^#[0-9A-F]{6}$/);
+      expect(contrastRatio(c, file.palette.background)).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(c, file.palette.surface)).toBeGreaterThanOrEqual(3);
+    }
+    expect(file.typography.mono).toMatchObject({ family: "JetBrains Mono" });
+    // Речовина продукту — лише дослівно з тексту сайту (site-text.txt).
+    expect(file.substance.steps).toEqual([{ name: "Обсмажуємо зерно щотижня", detail: null }]);
+    expect(file.substance.products).toEqual([{ name: "Капучино", oneLiner: null }]);
+    expect(file.fixes.join("\n")).toMatch(/Мелемо під кожну чашку/);
+    expect(file.fixes.join("\n")).toMatch(/75 грн за чашку/);
 
     const sheet = await sharp(await storage.read(contactSheetKey(PROJECT))).metadata();
     expect(sheet.format).toBe("png");
@@ -234,6 +256,36 @@ describe("brandkitPatchStage", () => {
     const v1 = BrandKitFile.parse(await storage.readJson(projectPaths(PROJECT).brandkit(1)));
     expect(v2.palette).toEqual(v1.palette);
     expect(v2.facts).toEqual(v1.facts);
+  });
+
+  it("re-checks substance against site-text.txt, or the same compression of site.json for old projects", async () => {
+    const { storage } = await seedWithV1();
+    const v1 = BrandKitFile.parse(await storage.readJson(projectPaths(PROJECT).brandkit(1)));
+    expect(v1.substance.products).toHaveLength(1);
+
+    // Текст, який бачив бренд-кіт, — джерело правди: «Капучино» в ньому немає.
+    await storage.write(
+      projectPaths(PROJECT).siteText,
+      '<page url="x" title="x">\nОбсмажуємо зерно щотижня.\n</page>',
+    );
+    const ctx = makeCtx("brandkit-patch", storage, { instruction: null, logoAssetId: "a04", facts: [] }, []);
+    await createBrandkitPatchStage({ now: NOW })(ctx);
+    const v2 = BrandKitFile.parse(await storage.readJson(projectPaths(PROJECT).brandkit(2)));
+    expect(v2.substance.steps).toEqual(v1.substance.steps);
+    expect(v2.substance.products).toEqual([]);
+    expect(v2.fixes.join("\n")).toMatch(/Капучино/);
+
+    // Старий проєкт без site-text.txt: стиснення site.json, як у сценариста.
+    const old = tempStorage();
+    await seedProject(old, { site: richSite() });
+    await old.writeJson(projectPaths(PROJECT).brandkit(1), {
+      ...fixtureBrandKitFile,
+      substance: v1.substance,
+    });
+    const ctxOld = makeCtx("brandkit-patch", old, { instruction: null, logoAssetId: "a02", facts: [] }, []);
+    await createBrandkitPatchStage({ now: NOW })(ctxOld);
+    const old2 = BrandKitFile.parse(await old.readJson(projectPaths(PROJECT).brandkit(2)));
+    expect(old2.substance).toEqual(v1.substance);
   });
 
   it("rejects an unknown logo asset", async () => {

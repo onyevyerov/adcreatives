@@ -13,16 +13,18 @@ import {
   stableStringify,
 } from "@adc/shared";
 import { z } from "zod";
-import type { ChunkLayout } from "./chunks.ts";
+import { type ChunkLayout, clampChunkMs } from "./chunks.ts";
 import type { CompositionPlanV2 } from "./client.ts";
 import {
   CUSTOM_SFX_MAX_SECONDS,
   CUSTOM_SFX_MIN_SECONDS,
+  LEGACY_TRACK_TAIL_MS,
   MAX_CUSTOM_SFX,
   MUSIC_MODEL_ID,
   MUSIC_OUTPUT_FORMAT,
   REQUIRED_NEGATIVE_STYLES,
   REQUIRED_POSITIVE_STYLES,
+  TRACK_TAIL_MS,
 } from "./constants.ts";
 import { parseKey } from "./key.ts";
 import type { Sanitizer } from "./sanitize.ts";
@@ -135,6 +137,7 @@ export function audioPlanVars(
     })),
     videoMs: layout.videoMs,
     trackMs: layout.trackMs,
+    steadySeconds: steadySeconds(layout.videoMs),
     standardCues: [...STANDARD_SFX_CUES],
     customCues: cues.custom,
   };
@@ -148,14 +151,50 @@ function ensureIncluded(list: string[], required: readonly string[]): string[] {
 }
 
 /**
- * Стилі чанка, коли модель їх не дала. Однакові для всіх чанків: генератор план аранжування
- * однаково ігнорує, а арку (вступ / брейкдаун) робить зведення, тож трек має бути рівним.
+ * Стилі чанка, коли модель їх не дала: генератор план аранжування однаково ігнорує,
+ * а арку (вступ / брейкдаун) робить зведення, тож трек має бути рівним.
  */
 function steadyStyles(): string[] {
   return ["steady groove", "full arrangement", "kick on every beat"];
 }
 
 const BPM_STYLE = /\b\d{2,3}\s*bpm\b/i;
+const BPM_ANY = /\b\d{2,3}\s*bpm\b/gi;
+
+/** Секція єдиного чанка, коли модель її не дала. */
+const MAIN_SECTION = "main groove";
+
+/** Скільки перших секунд трек мусить іти рівно: вся тривалість відео, з округленням угору. */
+export const steadySeconds = (videoMs: number) => Math.max(1, Math.ceil(videoMs / 1000));
+
+const NO_STOP = /no stop in the first \d+ seconds/i;
+
+/**
+ * Промпт `compose` (основний запит): темп рівно `bpm`, тональність, тактова структура
+ * (4/4, фрази по 4 такти) і явні заборони брейку, філу й зупинки в перших N секундах.
+ * Додає лише те, чого бракує; число N завжди з таймлайну.
+ */
+export function withTrackStructure(
+  prompt: string,
+  opts: { bpm: number; key: string | null; videoMs: number },
+) {
+  const n = steadySeconds(opts.videoMs);
+  const tempo = `${opts.bpm} BPM`;
+  let out = prompt.replace(BPM_ANY, tempo).replace(NO_STOP, `no stop in the first ${n} seconds`).trim();
+  out = out.replace(/[\s.,;]+$/, "");
+  const add: string[] = [];
+  if (!out.toLowerCase().includes(tempo.toLowerCase())) add.push(tempo);
+  if (opts.key && !out.toLowerCase().includes(opts.key.toLowerCase())) add.push(`in ${opts.key}`);
+  if (!/\b4\/4\b/.test(out)) add.push("4/4 time");
+  if (!/phrases of 4 bars|4-bar phrases/i.test(out)) add.push("phrases of 4 bars");
+  if (!/kick on every beat/i.test(out)) add.push("kick on every beat");
+  if (!/no breakdown/i.test(out)) add.push("no breakdown");
+  if (!/no fill/i.test(out)) add.push("no fill");
+  if (!NO_STOP.test(out)) add.push(`no stop in the first ${n} seconds`);
+  if (add.length > 0) out = out ? `${out}. ${add.join(", ")}` : add.join(", ");
+  if (!/instrumental/i.test(out)) out = `${out}, instrumental`;
+  return out;
+}
 
 /** Темп у глобальних стилях — рівно `musicBrief.bpm` (інший темп зламав би сітку долей). */
 function withBriefTempo(styles: string[], bpm: number): string[] {
@@ -173,7 +212,8 @@ export interface NormalizeOptions {
 
 /**
  * Доводить чернетку LLM до валідного `AudioPlan` кодом:
- * межі й тривалості чанків — з таймлайну; стилі очищені від назв; "instrumental" і
+ * рівно один чанк на весь трек (відео + 8 с) — навіть якщо чернетка чи каркас мають кілька;
+ * промпт `compose` — з тактовою структурою і заборонами брейку; стилі очищені від назв; "instrumental" і
  * ["vocals","lyrics"] гарантовані; темп — рівно `musicBrief.bpm`; розпізнана тональність — у `key`
  * і в глобальних стилях; contextAdherence "high"; SFX — стандартні з бібліотеки
  * і до 3 кастомних з тривалістю 0.5–1.5 с.
@@ -198,24 +238,20 @@ export function normalizeAudioPlan(draft: AudioPlanDraft, opts: NormalizeOptions
     REQUIRED_NEGATIVE_STYLES,
   );
 
-  const chunks: MusicChunk[] = layout.chunks.map((sk, i) => {
-    const key = sk.sceneIds.join(",");
-    const match =
-      draftChunks.find((d) => d.sceneIds.join(",") === key) ??
-      (draftChunks.length === layout.chunks.length ? draftChunks[i] : undefined) ??
-      draftChunks.find((d) => d.sceneIds.some((id) => sk.sceneIds.includes(id)));
-    const positive = sanitizer.styles(match?.positiveStyles ?? []);
-    const section = sanitizer.text(match?.section ?? "");
-    return {
-      label: sk.label,
-      ...(section ? { section } : {}),
-      sceneIds: sk.sceneIds,
-      durationMs: sk.durationMs,
-      positiveStyles: positive.length > 0 ? positive : steadyStyles(),
-      negativeStyles: sanitizer.styles(match?.negativeStyles ?? []).filter((s) => !/instrumental/i.test(s)),
-      contextAdherence: "high",
-    };
-  });
+  // Один чанк: стилі — з першого чанка чернетки, де вони є (модель копіює їх між чанками).
+  const match = draftChunks.find((d) => sanitizer.styles(d.positiveStyles).length > 0) ?? draftChunks[0];
+  const positive = sanitizer.styles(match?.positiveStyles ?? []);
+  const section = sanitizer.text(match?.section ?? "") || MAIN_SECTION;
+  const labels = [...new Set(layout.chunks.map((c) => c.label))];
+  const chunk: MusicChunk = {
+    label: labels.join("+").slice(0, 100) || "section",
+    section,
+    sceneIds: layout.chunks.flatMap((c) => c.sceneIds),
+    durationMs: clampChunkMs(layout.trackMs),
+    positiveStyles: positive.length > 0 ? positive : steadyStyles(),
+    negativeStyles: sanitizer.styles(match?.negativeStyles ?? []).filter((s) => !/instrumental/i.test(s)),
+    contextAdherence: "high",
+  };
 
   let promptFallback = sanitizer.text(draft.promptFallback);
   if (!promptFallback) {
@@ -223,8 +259,11 @@ export function normalizeAudioPlan(draft: AudioPlanDraft, opts: NormalizeOptions
       [brief.genre, ...brief.mood, `${brief.bpm} BPM`, ...brief.instrumentation].join(", "),
     );
   }
-  if (!/instrumental/i.test(promptFallback))
-    promptFallback = `${promptFallback}, instrumental`.replace(/^, /, "");
+  promptFallback = withTrackStructure(promptFallback, {
+    bpm: brief.bpm,
+    key: trackKey,
+    videoMs: layout.videoMs,
+  });
 
   const cues = referencedCues({ scenes: storyboard.scenes as Storyboard["scenes"] });
   const sfx: SfxSpec[] = [];
@@ -246,7 +285,11 @@ export function normalizeAudioPlan(draft: AudioPlanDraft, opts: NormalizeOptions
   }
 
   return AudioPlan.parse({
-    compositionPlan: { positiveGlobalStyles: positiveGlobal, negativeGlobalStyles: negativeGlobal, chunks },
+    compositionPlan: {
+      positiveGlobalStyles: positiveGlobal,
+      negativeGlobalStyles: negativeGlobal,
+      chunks: [chunk],
+    },
     key: trackKey,
     promptFallback,
     sfx,
@@ -283,6 +326,23 @@ export function toCompositionPlan(plan: AudioPlan): CompositionPlanV2 {
 /** Тривалість треку за планом, мс. */
 export function planTrackMs(plan: AudioPlan): number {
   return plan.compositionPlan.chunks.reduce((a, c) => a + c.durationMs, 0);
+}
+
+/**
+ * Тривалість відео за планом, мс: трек мінус запас (8 с; у старих багаточанкових планах — 1 с).
+ */
+export function planVideoMs(plan: AudioPlan): number {
+  const tail = plan.compositionPlan.chunks.length > 1 ? LEGACY_TRACK_TAIL_MS : TRACK_TAIL_MS;
+  return Math.max(0, planTrackMs(plan) - tail);
+}
+
+/** Темп плану зі стилю «<bpm> BPM» (`withBriefTempo` кладе його завжди); null — не знайдено. */
+export function planBpm(plan: AudioPlan): number | null {
+  for (const s of plan.compositionPlan.positiveGlobalStyles) {
+    const m = /\b(\d{2,3})\s*bpm\b/i.exec(s);
+    if (m) return Number(m[1]);
+  }
+  return null;
 }
 
 /** Хеш плану музики = ключ кешу `audio/<planHash>/`. */

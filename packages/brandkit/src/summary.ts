@@ -1,4 +1,12 @@
-import type { Asset, BasePaletteRole, BrandKitFile, Format, Palette } from "@adc/shared";
+import {
+  type Asset,
+  type BasePaletteRole,
+  type BrandKitFile,
+  type Format,
+  type Palette,
+  SEMANTIC_PALETTE_ROLES,
+  type SemanticPaletteRole,
+} from "@adc/shared";
 import { PALETTE_ROLE_UK } from "./color.ts";
 import { countGoodPhotos, MIN_GOOD_PHOTOS, MIN_PHOTO_QUALITY } from "./finalize.ts";
 
@@ -19,6 +27,8 @@ export interface BrandSummary {
   category: string;
   language: BrandKitFile["identity"]["language"];
   swatches: Array<{ role: keyof Palette; label: string; hex: string }>;
+  /** Семантичні кольори (помилка / попередження / успіх); null у старих бренд-кітах пропускаються. */
+  semantic: Array<{ role: SemanticPaletteRole; label: string; hex: string }>;
   logo: {
     assetId: string | null;
     url: string | null;
@@ -30,6 +40,8 @@ export interface BrandSummary {
   fonts: {
     heading: { family: string; weights: number[]; origin: "site" | "substitute" };
     body: { family: string; weights: number[]; origin: "site" | "substitute" };
+    /** Моношрифт для чисел і міток; null — старий бренд-кіт (тема візьме JetBrains Mono). */
+    mono: { family: string; weights: number[]; origin: "site" | "substitute" } | null;
   };
   tone: string[];
   formality: BrandKitFile["voice"]["formality"];
@@ -39,6 +51,15 @@ export interface BrandSummary {
   usps: string[];
   geo: { city: string | null; address: string | null; hours: string | null; serviceArea: string | null };
   cta: string;
+  /** Речовина продукту для сцен «що перевіряє» і «приклад результату» — дослівно з сайту. */
+  substance: {
+    steps: string[];
+    checks: string[];
+    examples: string[];
+    planRows: string[];
+    products: string[];
+    comparisons: string[];
+  };
   facts: Array<{
     id: string;
     kind: string;
@@ -60,6 +81,12 @@ export interface BrandSummary {
   languageOptions: Array<{ lang: string; url: string }>;
   fixes: string[];
 }
+
+const SEMANTIC_ROLE_UK: Record<SemanticPaletteRole, string> = {
+  danger: "помилка",
+  warning: "попередження",
+  success: "успіх",
+};
 
 export interface SummaryOptions {
   /** Ключ сховища → URL для браузера (`storage.publicUrl`). */
@@ -94,6 +121,10 @@ export function summarizeBrandKit(
       label: PALETTE_ROLE_UK[role],
       hex: kit.palette[role],
     })),
+    semantic: SEMANTIC_PALETTE_ROLES.flatMap((role) => {
+      const hex = kit.palette[role];
+      return hex ? [{ role, label: SEMANTIC_ROLE_UK[role], hex }] : [];
+    }),
     logo: {
       assetId: kit.logo.assetId,
       url: kit.logo.assetId ? (link(kit.logo.assetId)?.url ?? null) : null,
@@ -105,6 +136,7 @@ export function summarizeBrandKit(
     fonts: {
       heading: { ...kit.typography.heading },
       body: { ...kit.typography.body },
+      mono: kit.typography.mono ? { ...kit.typography.mono } : null,
     },
     tone: kit.voice.tone,
     formality: kit.voice.formality,
@@ -119,6 +151,14 @@ export function summarizeBrandKit(
       serviceArea: kit.identity.serviceArea,
     },
     cta: kit.cta.text,
+    substance: {
+      steps: kit.substance.steps.map((st) => st.name),
+      checks: [...kit.substance.checks],
+      examples: kit.substance.exampleIssues.map((e) => e.title),
+      planRows: kit.substance.planRows.map((r) => r.text),
+      products: kit.substance.products.map((p) => p.name),
+      comparisons: kit.substance.comparisons.map((c) => c.criterion),
+    },
     facts: kit.facts.map((f) => ({
       id: f.id,
       kind: f.kind,
@@ -147,12 +187,16 @@ export function formatBrandSummaryText(s: BrandSummary): string {
   lines.push(`**${s.name}**${s.tagline ? ` — ${s.tagline}` : ""} (${s.category})`);
   lines.push("");
   lines.push(`**Палітра:** ${s.swatches.map((w) => `${w.label} ${w.hex}`).join(", ")}`);
+  if (s.semantic.length) {
+    lines.push(`**Кольори станів:** ${s.semantic.map((w) => `${w.label} ${w.hex}`).join(", ")}`);
+  }
   const logo = s.logo.assetId ? `зображення ${s.logo.assetId}` : `текстом «${s.logo.textFallback}»`;
   const others = s.logoCandidates.filter((c) => c.assetId !== s.logo.assetId).map((c) => c.assetId);
   lines.push(`**Лого:** ${logo}${others.length ? `; інші варіанти: ${others.join(", ")}` : ""}`);
   const font = (f: BrandSummary["fonts"]["heading"]) =>
     `${f.family} ${f.weights.join("/")}${f.origin === "substitute" ? " (замінник)" : ""}`;
-  lines.push(`**Шрифти:** заголовки — ${font(s.fonts.heading)}; текст — ${font(s.fonts.body)}`);
+  const mono = s.fonts.mono ? `; цифри й мітки — ${font(s.fonts.mono)}` : "";
+  lines.push(`**Шрифти:** заголовки — ${font(s.fonts.heading)}; текст — ${font(s.fonts.body)}${mono}`);
   lines.push(`**Тон:** ${s.tone.join(", ")} — ${FORMALITY_UK[s.formality]}`);
   if (s.offerings.length) {
     lines.push(
@@ -165,6 +209,20 @@ export function formatBrandSummaryText(s: BrandSummary): string {
   const geo = [s.geo.address ?? s.geo.city, s.geo.hours, s.geo.serviceArea].filter(Boolean);
   if (geo.length) lines.push(`**Гео:** ${geo.join(" · ")}`);
   lines.push(`**CTA:** ${s.cta}`);
+  const product = [
+    ["Кроки", s.substance.steps],
+    ["Що перевіряє", s.substance.checks],
+    ["Приклади результату", s.substance.examples],
+    ["План", s.substance.planRows],
+    ["Продукти", s.substance.products],
+    ["Порівняння", s.substance.comparisons],
+  ] as const;
+  if (product.some(([, items]) => items.length)) {
+    lines.push("", "**Продукт у ролику (дослівно з сайту):**");
+    for (const [label, items] of product) {
+      if (items.length) lines.push(`- ${label}: ${items.slice(0, 6).join("; ")}`);
+    }
+  }
   if (s.facts.length) {
     lines.push("", "**Факти:**");
     for (const f of s.facts) lines.push(`- ${f.text} — ${f.sourceLabel}`);

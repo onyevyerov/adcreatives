@@ -112,3 +112,96 @@ export function applyMixAutomation(
   }
   return out;
 }
+
+/**
+ * Музичний дакінг: замість просідання гучності музика «звільняє низ» під подію — HPF на музиці.
+ * impact/slam — HPF 150 Гц рівно на одну долю від кадру (бочка вирізана на долю, качання — по сітці);
+ * riser — HPF, що відкривається від 300 Гц до 20 Гц за час riser і закінчується на кадрі події.
+ */
+
+/** Зріз HPF на долю після impact/slam, Гц. */
+export const DUCK_HPF_HZ = 150;
+/** Riser: HPF відкривається з `RISER_HPF_FROM_HZ` до `DUCK_OPEN_HZ`. */
+export const RISER_HPF_FROM_HZ = 300;
+export const DUCK_OPEN_HZ = 20;
+/** Рампа на вході (і на виході riser), с; вихід impact/slam — чверть долі. */
+export const DUCK_ATTACK_SEC = 0.005;
+export const DUCK_RELEASE_BEATS = 0.25;
+
+/** Дакінг у семплах треку: `beat` — доля від `at`; `riser` — від `from` до `at` (кадр події). */
+export type MusicDuck = { kind: "beat"; at: number } | { kind: "riser"; from: number; at: number };
+
+interface DuckShape {
+  from: number;
+  to: number;
+  /** Частка відфільтрованого сигналу (0 — сухий трек, 1 — повністю через HPF). */
+  mix(j: number): number;
+  cutoff(j: number): number;
+}
+
+function duckShape(d: MusicDuck, beatSamples: number, attack: number): DuckShape {
+  if (d.kind === "beat") {
+    const to = d.at + beatSamples;
+    const release = Math.max(1, Math.round(beatSamples * DUCK_RELEASE_BEATS));
+    return {
+      from: d.at,
+      to,
+      mix: (j) => Math.min(1, (j - d.at + 1) / attack, (to - j) / release),
+      cutoff: () => DUCK_HPF_HZ,
+    };
+  }
+  const span = Math.max(1, d.at - d.from);
+  const lo = Math.log2(DUCK_OPEN_HZ);
+  const hi = Math.log2(RISER_HPF_FROM_HZ);
+  return {
+    from: d.from,
+    to: d.at,
+    mix: (j) => Math.min(1, (j - d.from + 1) / attack, (d.at - j) / attack),
+    cutoff: (j) => 2 ** (hi + (lo - hi) * Math.min(1, Math.max(0, (j - d.from) / span))),
+  };
+}
+
+/** Нова копія музики з дакінгом; поза дакінгами — побайтно сухий трек. HPF — 24 дБ/окт (два біквади). */
+export function duckMusic(
+  music: StereoPcm,
+  ducks: readonly MusicDuck[],
+  opts: { beatSamples: number },
+): StereoPcm {
+  const sr = music.sampleRate;
+  const n = pcmLength(music);
+  const out = createStereo(n, sr);
+  out.left.set(music.left);
+  out.right.set(music.right);
+  if (ducks.length === 0 || n === 0) return out;
+  const attack = Math.max(1, Math.round(DUCK_ATTACK_SEC * sr));
+  const shapes = ducks.map((d) => duckShape(d, Math.max(1, opts.beatSamples), attack));
+  const mix = new Float32Array(n);
+  const cutoff = new Float64Array(n).fill(DUCK_OPEN_HZ);
+  for (const s of shapes) {
+    for (let j = Math.max(0, s.from); j < Math.min(n, s.to); j++) {
+      const m = Math.max(0, s.mix(j));
+      if (m > (mix[j] as number)) mix[j] = m;
+      const c = s.cutoff(j);
+      if (c > (cutoff[j] as number)) cutoff[j] = c;
+    }
+  }
+  // Фільтри йдуть через увесь трек (без розриву стану), а звук бере їх лише там, де mix > 0.
+  const filters = [new Biquad(), new Biquad(), new Biquad(), new Biquad()] as const;
+  const [l1, l2, r1, r2] = filters;
+  for (let b = 0; b < n; b += BLOCK) {
+    const c = cutoff[Math.min(n - 1, b + BLOCK / 2)] as number;
+    for (const f of filters) f.setHighpass(c, sr);
+    const end = Math.min(n, b + BLOCK);
+    for (let i = b; i < end; i++) {
+      const l = music.left[i] as number;
+      const r = music.right[i] as number;
+      const yl = l2.process(l1.process(l));
+      const yr = r2.process(r1.process(r));
+      const m = mix[i] as number;
+      if (m <= 0) continue;
+      out.left[i] = l + (yl - l) * m;
+      out.right[i] = r + (yr - r) * m;
+    }
+  }
+  return out;
+}

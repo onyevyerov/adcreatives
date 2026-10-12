@@ -233,7 +233,7 @@ export function createCodegenStage(deps: CodegenStageDeps = {}): Stage<"codegen"
       readonly: string,
       instructionIds: readonly string[] = targets,
     ) => ({
-      ...contextVars(context),
+      ...contextVars(context, brandFile),
       mode,
       targets: targets.join(", "),
       language: project?.language ?? brandFile.identity.language,

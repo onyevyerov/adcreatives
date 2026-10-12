@@ -2,9 +2,10 @@ import { computeTimeline, framesToMs, type Storyboard } from "@adc/shared";
 import { MAX_CHUNK_MS, MIN_CHUNK_MS, TRACK_TAIL_MS } from "./constants.ts";
 
 /**
- * Каркас чанків композиції, порахований кодом (без LLM).
- * Межа сцени = кадр початку її послідовності за `computeTimeline` (там же, де стоїть її SFX).
- * Сцени коротші за 3 с зливаються з сусідньою; останній чанк включає хвіст треку (+1 с).
+ * Каркас композиції, порахований кодом (без LLM): один чанк на весь трек.
+ * Генератор однаково ігнорує зміну аранжування між чанками, а на межах чанків будує
+ * аранжування наново (провали, брейки) — тому трек просимо одним шматком, а арку робить зведення.
+ * Трек довший за відео на `TRACK_TAIL_MS` (8 с): запас, щоб зсунути вікно відео з провалу.
  */
 export interface ChunkSkeleton {
   label: string;
@@ -12,113 +13,52 @@ export interface ChunkSkeleton {
   /** Початок чанка в треку, мс. */
   startMs: number;
   durationMs: number;
-  /** Середня енергія сцен чанка (зважена за тривалістю), 0..1. */
+  /** Середня енергія сцен (зважена за тривалістю), 0..1. */
   energy: number;
 }
 
 export interface ChunkLayout {
   /** Тривалість відео, мс. */
   videoMs: number;
-  /** Тривалість треку = відео + 1000 мс. */
+  /** Тривалість треку = відео + 8000 мс (у межах 3–120 с). */
   trackMs: number;
+  /** Рівно один чанк на весь трек. */
   chunks: ChunkSkeleton[];
 }
 
-interface Segment {
-  sceneIds: string[];
-  purposes: string[];
-  startMs: number;
-  endMs: number;
-  /** Сума energy × мс — для зваженого середнього. */
-  energyMs: number;
-}
-
-const len = (s: Segment) => s.endMs - s.startMs;
-
-function mergeInto(a: Segment, b: Segment): Segment {
-  return {
-    sceneIds: [...a.sceneIds, ...b.sceneIds],
-    purposes: [...a.purposes, ...b.purposes],
-    startMs: Math.min(a.startMs, b.startMs),
-    endMs: Math.max(a.endMs, b.endMs),
-    energyMs: a.energyMs + b.energyMs,
-  };
-}
-
+/** Назва чанка — purpose сцен без повторів («hook+offer+cta»). */
 function labelOf(purposes: string[]): string {
   const uniq = [...new Set(purposes)];
   return uniq.join("+").slice(0, 100) || "section";
+}
+
+/** Обмежує тривалість чанка межами API. */
+export function clampChunkMs(ms: number): number {
+  return Math.min(MAX_CHUNK_MS, Math.max(MIN_CHUNK_MS, Math.round(ms)));
 }
 
 export function computeChunkLayout(storyboard: Pick<Storyboard, "fps" | "scenes">): ChunkLayout {
   const timeline = computeTimeline(storyboard);
   const fps = timeline.fps;
   const videoMs = framesToMs(timeline.totalFrames, fps);
-  const trackMs = videoMs + TRACK_TAIL_MS;
+  const trackMs = clampChunkMs(videoMs + TRACK_TAIL_MS);
 
-  let segments: Segment[] = timeline.scenes.map((ts, i) => {
-    const scene = storyboard.scenes[i];
-    const next = timeline.scenes[i + 1];
-    const startMs = i === 0 ? 0 : framesToMs(ts.from, fps);
-    // Останній сегмент тягнеться до кінця треку (включно з хвостом).
-    const endMs = next ? framesToMs(next.from, fps) : trackMs;
-    const energy = scene?.musicEnergy ?? 0.5;
-    return {
-      sceneIds: [ts.id],
-      purposes: [scene?.purpose ?? "section"],
-      startMs,
-      endMs,
-      energyMs: energy * (endMs - startMs),
-    };
+  // Енергія — середня за сценами, зважена тривалістю сцени на таймлайні.
+  let energyMs = 0;
+  let totalMs = 0;
+  timeline.scenes.forEach((ts, i) => {
+    const ms = framesToMs(ts.durationInFrames, fps);
+    energyMs += (storyboard.scenes[i]?.musicEnergy ?? 0.5) * ms;
+    totalMs += ms;
   });
+  const energy = totalMs > 0 ? Math.round((energyMs / totalMs) * 100) / 100 : 0.5;
 
-  // Зливаємо короткі сегменти (< 3 с) з коротшим сусідом, доки всі не стануть ≥ 3 с.
-  while (segments.length > 1) {
-    const idx = segments.findIndex((s) => len(s) < MIN_CHUNK_MS);
-    if (idx === -1) break;
-    const prev = segments[idx - 1];
-    const next = segments[idx + 1];
-    const withNext = !prev || (next !== undefined && len(next) <= len(prev));
-    const merged: Segment[] = [];
-    segments.forEach((s, i) => {
-      if (withNext && i === idx) merged.push(mergeInto(s, next as Segment));
-      else if (withNext && i === idx + 1) return;
-      else if (!withNext && i === idx - 1) merged.push(mergeInto(s, segments[idx] as Segment));
-      else if (!withNext && i === idx) return;
-      else merged.push(s);
-    });
-    segments = merged;
-  }
-
-  // Довгі сегменти (> 120 с) ділимо навпіл — для роликів 15–30 с не трапляється, але межа API жорстка.
-  const split: Segment[] = [];
-  for (const s of segments) {
-    const parts = Math.ceil(len(s) / MAX_CHUNK_MS);
-    if (parts <= 1) {
-      split.push(s);
-      continue;
-    }
-    const step = Math.ceil(len(s) / parts);
-    for (let p = 0; p < parts; p++) {
-      const startMs = s.startMs + p * step;
-      const endMs = Math.min(s.endMs, startMs + step);
-      split.push({ ...s, startMs, endMs, energyMs: (s.energyMs / len(s)) * (endMs - startMs) });
-    }
-  }
-
-  // Однакові назви (дві сцени benefit) розрізняємо номером чанка.
-  const bases = split.map((s) => labelOf(s.purposes));
-  const chunks = split.map((s, i) => ({
-    label: bases.filter((b) => b === bases[i]).length > 1 ? `${bases[i]} ${i + 1}` : (bases[i] as string),
-    sceneIds: s.sceneIds,
-    startMs: s.startMs,
-    durationMs: len(s),
-    energy: Math.round((s.energyMs / Math.max(1, len(s))) * 100) / 100,
-  }));
-  return { videoMs, trackMs, chunks };
-}
-
-/** Обмежує тривалість чанка межами API. */
-export function clampChunkMs(ms: number): number {
-  return Math.min(MAX_CHUNK_MS, Math.max(MIN_CHUNK_MS, Math.round(ms)));
+  const chunk: ChunkSkeleton = {
+    label: labelOf(storyboard.scenes.map((s) => s.purpose ?? "section")),
+    sceneIds: timeline.scenes.map((ts) => ts.id),
+    startMs: 0,
+    durationMs: trackMs,
+    energy,
+  };
+  return { videoMs, trackMs, chunks: [chunk] };
 }

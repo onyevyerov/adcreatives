@@ -1,5 +1,7 @@
-import { readTuning, revPaths } from "@adc/shared";
+import { createPromptLoader, readTuning, revPaths } from "@adc/shared";
+import { fixtureBrandKitFile } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
+import { type CodegenContext, contextVars, logoGeometryHint, logoIsVector } from "../src/context.ts";
 import { directorPaths } from "../src/io.ts";
 import { readLedger } from "../src/ledger.ts";
 import { CodegenReport, createCodegenStage } from "../src/stages/codegen.ts";
@@ -211,6 +213,61 @@ describe("codegenStage (sequential)", () => {
     expect(userText(ctx.anthropic.calls[0]?.params)).toContain("Generate the scenes: s2.");
     const ledger = await readLedger(storage, PROJECT_ID, 1);
     expect(ledger.scenes.s1?.versions).toHaveLength(1);
+  });
+
+  it("logoGeometryHint: векторність лого з бренд-кіта (svg + assetId), без бренду — правило за logo.type", () => {
+    const svg = { type: "svg", assetId: "a02" } as const;
+    expect(logoIsVector(svg)).toBe(true);
+    expect(logoIsVector({ type: "svg", assetId: null })).toBe(false);
+    expect(logoIsVector({ type: "image", assetId: "a01" })).toBe(false);
+    expect(logoGeometryHint(svg)).toMatch(/^The logo is vector \(SVG\)/);
+    expect(logoGeometryHint(svg)).toContain("fall back to `<Logo>`");
+    expect(logoGeometryHint({ type: "image", assetId: "a01" })).toMatch(/^The logo is a raster image/);
+    expect(logoGeometryHint({ type: "text", assetId: null })).toMatch(/^The brand has no logo image/);
+    expect(logoGeometryHint(null)).toContain("Look at `logo.type` in `<brand>`");
+
+    const context: CodegenContext = {
+      remotionSystemPrompt: "R",
+      motionKitApi: "A",
+      motionKitDeclarations: "D",
+      examples: {},
+      examplesText: "E",
+      hash: "h",
+    };
+    // без бренду (так кличуть codegen / fix) — загальна підказка; з бренд-кітом — конкретна
+    expect(contextVars(context).logoGeometryHint).toBe(logoGeometryHint(null));
+    expect(contextVars(context, fixtureBrandKitFile).logoGeometryHint).toBe(logoGeometryHint(svg));
+    expect(contextVars(context)).toMatchObject({ examples: "E", motionKitApi: "A" });
+  });
+
+  it("промпт code-fix: ті самі правила фільму, що й codegen (кольори, stage, mono, макет, eyebrow/status, лого)", () => {
+    const fix = createPromptLoader().load("code-fix", {
+      remotionSystemPrompt: "R",
+      motionKitApi: "A",
+      motionKitDeclarations: "D",
+      examples: "E",
+      logoGeometryHint: "LOGO",
+      brand: {},
+      assets: [],
+      concept: "-",
+      scene: {},
+      readonlyScenes: "-",
+      code: "-",
+      problems: "-",
+      language: "uk",
+      formats: "vertical",
+      reason: "qa",
+      sceneId: "s1",
+    });
+    expect(fix.system).toContain("the semantic `danger`, `warning`, `success`");
+    expect(fix.system).toContain("`mix(a, b, t)` for tints and shades");
+    expect(fix.system).toContain('`Backdrop variant="stage"`');
+    expect(fix.system).toContain("`theme.fonts.mono`");
+    expect(fix.system).toContain("**`eyebrow` and `status` items are in the frame**");
+    expect(fix.system).toContain("**Layout:** the scene's main container");
+    expect(fix.system).toContain("`useLogoGeometry()` returns `{ viewBox, paths }`");
+    // зауваження рубрики QA «Showreel bar» — як їх лагодити
+    expect(fix.system).toContain("a remark that starts with `Showreel bar`");
   });
 
   it("усі виклики впали — помилка стадії з кодом LLM", async () => {

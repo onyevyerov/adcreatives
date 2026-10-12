@@ -1,10 +1,13 @@
 /**
- * Еталон: типографічна сцена без фото. Великий текст на кольоровому полі, акценти підсвічуються
- * маркером (preset highlight). Декоративне коло з @remotion/shapes (форма, не гліф) розкривається
- * пружиною бренду і далі повільно доростає до кінця сцени, щоб кадр не завмирав після тексту.
+ * Еталон: типографічна сцена без фото. Великий текст у «живій кімнаті» (`Backdrop variant="stage"`:
+ * поле бренду, два свічення, що повільно дрейфують, сітка до центру, зерно, віньєтка), акценти
+ * підсвічуються маркером (preset highlight). Декоративне коло з @remotion/shapes (форма, не гліф)
+ * розкривається пружиною бренду і далі повільно доростає до кінця сцени, щоб кадр не завмирав після тексту.
  * Та сама пружина, що розкриває коло, саджає текстовий блок на місце — елементи реагують один на одного.
  * Колір поля — перший з primary / secondary / background, на якому читається accent: маркери
  * підсвітки малюються акцентним кольором, а бренд-кіт гарантує його контраст лише з background.
+ * Під текстом — підпис лого: векторне лого малюється контуром (`LogoPath` з `useLogoGeometry`),
+ * растрове чи текстове — звичайний `<Logo>` (фолбек).
  * Landscape: текст у лівій колонці, коло — за правою половиною кадру.
  * Старти виводяться з довжини сцени, вхідного переходу, кількості слів і темпу бренду.
  */
@@ -15,12 +18,16 @@ import {
   contrastRatio,
   defaultStagger,
   easings,
+  isDark,
   KineticText,
+  Logo,
+  LogoPath,
   progress,
   readableOn,
   SafeArea,
   springFor,
   useFormat,
+  useLogoGeometry,
   useTheme,
 } from "@adc/motion-kit";
 import { Circle } from "@remotion/shapes";
@@ -61,6 +68,10 @@ export default function Scene(props: SceneProps) {
   // (кількість рядків відома лише після верстки, тому беремо maxLines).
   const maxLines = 4;
   const subStart = start + (byWord ? words - 1 : maxLines - 1) * stagger;
+  // Підпис лого: малюється за 30 кадрів слідом за підзаголовком і встигає до кінця сцени.
+  const logoAt = Math.min(subStart + 8, Math.max(0, d - 40));
+  const geometry = useLogoGeometry();
+  const logoSize = Math.round((isLandscape ? 52 : 64) * unit);
 
   // Коло: пружина бренду розкриває його зі старту сцени до ~42 % короткої сторони, а далі воно
   // повільно доростає ще на 8 % аж до останнього кадру — тому кадр рухається і після тексту.
@@ -83,7 +94,8 @@ export default function Scene(props: SceneProps) {
 
   return (
     <AbsoluteFill>
-      <Backdrop variant="solid" color={field} />
+      {/* Свічення — кольором кола й акцентом, не кольором поля (на ньому свічення не видно). */}
+      <Backdrop variant="stage" color={field} glow={[circleColor, palette.accent]} />
       <div style={{ position: "absolute", left: cx - radius, top: cy - radius, opacity: 0.18 }}>
         <Circle radius={radius} fill={circleColor} />
       </div>
@@ -120,6 +132,13 @@ export default function Scene(props: SceneProps) {
               width={textWidth}
             />
           ) : null}
+          <div style={{ alignSelf: isLandscape ? "flex-start" : "center", marginTop: gap }}>
+            {geometry ? (
+              <LogoPath size={logoSize} stroke={color} draw={progress(frame, logoAt, 30, easings.inOut)} />
+            ) : (
+              <Logo size={logoSize} variant={isDark(field) ? "onDark" : "onLight"} startFrame={logoAt} />
+            )}
+          </div>
         </div>
       </SafeArea>
     </AbsoluteFill>

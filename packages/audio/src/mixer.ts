@@ -1,4 +1,5 @@
 import {
+  beatFrames,
   computeEventPlacements,
   computeTimeline,
   type EventPlacement,
@@ -8,8 +9,9 @@ import {
   type SoundCue,
   type Storyboard,
 } from "@adc/shared";
-import { applyMixAutomation, mixSections } from "./automation.ts";
+import { applyMixAutomation, duckMusic, type MusicDuck, mixSections } from "./automation.ts";
 import { alignToBeatGrid, type BeatAlignment } from "./beat.ts";
+import { EVENT_BUS_EQ, eqChannel } from "./eq.ts";
 import { FALLBACK_KEY, parseKey } from "./key.ts";
 import {
   createStereo,
@@ -22,6 +24,7 @@ import {
   type StereoPcm,
   secToSamples,
 } from "./pcm.ts";
+import { applyReverb, REVERB_SEND } from "./reverb.ts";
 import {
   analyzeSample,
   type PreparedSound,
@@ -34,44 +37,47 @@ import {
 import { encodeWav } from "./wav.ts";
 
 /**
- * Зведення: музика (вирівняна по долі, з автоматизацією частин) + звуки подій з бібліотеки SFX
- * (ElevenLabs) за спільним таймлайном + дакінг + мастер. Результат — `soundtrack.wav`, який хост
- * грає замість музики й SFX.
+ * Зведення: музика (вирівняна по долі, нормалізована до −14 dBFS, з автоматизацією частин) + звуки
+ * подій з бібліотеки SFX (ElevenLabs) за спільним таймлайном — під музикою, а не над нею: шина подій
+ * з EQ, спільний реверб для подій і музики, музичний дакінг (HPF на долю), мастер лише з кліпером.
+ * Результат — `soundtrack.wav`, який хост грає замість музики й SFX.
  */
 
 /** Версія алгоритму зведення: входить у хеш повторного використання. */
-export const MIX_VERSION = 2;
+export const MIX_VERSION = 3;
 
-/** Мастер: RMS ≈ −14 dBFS, м'який кліпер від −6 dBFS, пік ≤ −1 dBFS. */
+/**
+ * Рівень: музика нормалізується до RMS −14 dBFS до додавання подій; сума не перенормовується —
+ * лише м'який кліпер від −6 dBFS з потолком −1 dBFS.
+ */
 export const MASTER_RMS_DBFS = -14;
 export const MASTER_CEILING_DBFS = -1;
 const MASTER_KNEE_DBFS = -6;
-/** Максимальне підсилення мастера (тиха музика не стає шумом). */
+/** Максимальне підсилення музики при нормалізації (тиха музика не стає шумом). */
 const MASTER_MAX_GAIN_DB = 24;
 /** Fade-out музики в останню секунду ролика і короткий антиклік мастера. */
 export const MUSIC_TAIL_FADE_SEC = 1;
 const MASTER_END_FADE_SEC = 0.01;
 
-/** Пік події над RMS музики навколо неї, дБ (поріг чутності +6 дБ, тож усі з запасом). */
+/** Пік події над RMS музики у вікні, дБ: удари трохи над музикою, дрібниці — під нею. */
 export const CUE_LEVEL_DB: Record<SoundCue, number> = {
-  impact: 15,
-  slam: 15,
-  riser: 12,
-  whoosh: 11,
-  swoosh: 10,
-  pop: 11,
-  ding: 11,
-  shimmer: 10,
-  tick: 10,
-  click: 10,
+  impact: 5,
+  slam: 5,
+  riser: 2,
+  whoosh: 0,
+  swoosh: 0,
+  pop: -2,
+  ding: -2,
+  shimmer: -2,
+  tick: -4,
+  click: -4,
 };
-export const ACCENT_DB: Record<SoundAccent, number> = { soft: -2, normal: 0, hard: 3 };
+export const ACCENT_DB: Record<SoundAccent, number> = { soft: -3, normal: 0, hard: 3 };
+/** Стеля рівня події над музикою (cue + accent), дБ: hard impact/slam не вище +6. */
+export const MAX_CUE_DB = 6;
 
-/** Дакінг музики: × (1 − d·e^(−t/τ)) після impact/slam і кінця riser. */
-export const DUCK_DEPTH: Record<SoundAccent, number> = { soft: 0.45, normal: 0.55, hard: 0.6 };
-export const DUCK_TAU_SEC = 0.15;
-const DUCK_ATTACK_SEC = 0.005;
-const DUCK_CUES: ReadonlySet<SoundCue> = new Set(["impact", "slam", "riser"]);
+/** Дакінг музики (HPF, див. `duckMusic`): impact/slam — на долю від кадру, riser — до кадру. */
+const BEAT_DUCK_CUES: ReadonlySet<SoundCue> = new Set(["impact", "slam"]);
 
 /** Вікно чутності події (100 мс навколо моменту, коли її видно) і ширше вікно для опори гучності. */
 const WINDOW_SEC = 0.1;
@@ -79,8 +85,8 @@ const CONTEXT_SEC = 0.2;
 /** Нижня межа опорного рівня: −12 дБ від середнього RMS музики, абсолютна — −40 dBFS. */
 const REF_FLOOR_REL_DB = -12;
 const REF_FLOOR_ABS_DB = -40;
-/** Подія не гучніша за свою ціль більш ніж на 8 дБ (коли пік звуку поза вікном). */
-const MAX_WINDOW_BOOST = 2.5;
+/** Подія не гучніша за свою ціль більш ніж на 3.5 дБ (коли пік звуку поза вікном). */
+const MAX_WINDOW_BOOST = 1.5;
 
 export interface PlacedSound {
   sceneId: string;
@@ -120,8 +126,9 @@ export interface Soundtrack {
   pcm: StereoPcm;
   wav: Buffer;
   durationMs: number;
-  /** Доріжки до мастера: музика (з автоматизацією й дакінгом) і події. */
-  stems: { music: StereoPcm; events: StereoPcm };
+  /** Доріжки до мастера: музика (з автоматизацією й дакінгом), сухі події (після EQ) і повернення реверба. */
+  stems: { music: StereoPcm; events: StereoPcm; reverb: StereoPcm };
+  /** Підсилення нормалізації музики до −14 dBFS (суму мастер не підсилює); без музики — 1. */
   masterGain: number;
   alignment: BeatAlignment | null;
   sounds: PlacedSound[];
@@ -182,6 +189,26 @@ export function sampleHashes(samples: SfxSampleLibrary): Partial<Record<SoundCue
   return out;
 }
 
+/**
+ * EQ шини подій для одного звуку: фільтри лінійні й стаціонарні, тож фільтр кожного звуку окремо
+ * = фільтр шини (стан з нуля, бо шина до першого звуку тиха). Після EQ — знову пік 1, щоб рівні
+ * подій рахувались за тим, що звучить.
+ */
+function eventBusEq(sound: PreparedSound, sr: number): PreparedSound {
+  const left = eqChannel(sound.left, sr, EVENT_BUS_EQ);
+  const right = eqChannel(sound.right, sr, EVENT_BUS_EQ);
+  let peak = 0;
+  for (let i = 0; i < left.length; i++)
+    peak = Math.max(peak, Math.abs(left[i] as number), Math.abs(right[i] as number));
+  if (peak > 0) {
+    for (let i = 0; i < left.length; i++) {
+      left[i] = (left[i] as number) / peak;
+      right[i] = (right[i] as number) / peak;
+    }
+  }
+  return { left, right, anchor: sound.anchor };
+}
+
 const softClip = (x: number, knee: number, ceiling: number) => {
   const a = Math.abs(x);
   if (a <= knee) return x;
@@ -197,23 +224,33 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
   const timeline = computeTimeline(storyboard);
   const total = frameToSample(timeline.totalFrames, fps, sr);
 
-  // 1. Музика: долі на сітку → довжина відео → автоматизація частин і fade-out останньої секунди.
+  // 1. Музика: долі на сітку → довжина відео → RMS −14 dBFS (до подій) → автоматизація частин
+  // і fade-out останньої секунди.
   let alignment: BeatAlignment | null = null;
   let music = createStereo(total, sr);
+  let masterGain = 1;
   if (input.music && pcmLength(input.music) > 0) {
     const aligned = alignToBeatGrid(input.music, bpm, fps);
     alignment = aligned.alignment;
-    music = applyMixAutomation(fitLength(aligned.pcm, total), mixSections(storyboard), {
+    const fitted = fitLength(aligned.pcm, total);
+    const rms = rmsOf(fitted);
+    masterGain = rms > 0 ? Math.min(dbToGain(MASTER_MAX_GAIN_DB), dbToGain(MASTER_RMS_DBFS) / rms) : 1;
+    for (let j = 0; j < total; j++) {
+      fitted.left[j] = (fitted.left[j] as number) * masterGain;
+      fitted.right[j] = (fitted.right[j] as number) * masterGain;
+    }
+    music = applyMixAutomation(fitted, mixSections(storyboard), {
       fps,
       bpm,
       fadeOutSamples: secToSamples(MUSIC_TAIL_FADE_SEC, sr),
     });
   }
 
-  // 2. Події: семпл бібліотеки (варіанти по колу, висота — у тональності), розміщення
-  // за семантикою кадру, гучність відносно музики навколо.
+  // 2. Події: семпл бібліотеки (варіанти по колу, висота — у тональності) через EQ шини, розміщення
+  // за семантикою кадру, гучність відносно музики навколо (без музики — відносно −14 dBFS).
   const key = parseKey(input.key) ?? FALLBACK_KEY;
   const musicRms = rmsOf(music);
+  const nominal = dbToGain(MASTER_RMS_DBFS);
   const floor = Math.max(musicRms * dbToGain(REF_FLOOR_REL_DB), dbToGain(REF_FLOOR_ABS_DB));
   const events = createStereo(total, sr);
   const library = prepareLibrary(input.samples);
@@ -247,16 +284,19 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
     const renderKey = `${entry.sample.hash}:${entry.sample.variant}:${semitones}`;
     let sound = rendered.get(renderKey);
     if (!sound) {
-      sound = renderSample(entry.sample.pcm, entry.analysis, { semitones, sampleRate: sr });
+      sound = eventBusEq(renderSample(entry.sample.pcm, entry.analysis, { semitones, sampleRate: sr }), sr);
       rendered.set(renderKey, sound);
     }
     const at = frameToSample(p.frame, fps, sr);
     const start = at - sound.anchor;
     const window = audibilityWindow(p.cue, at, sr);
     const ctx = secToSamples(CONTEXT_SEC, sr);
-    const ref = Math.max(rmsOf(music, window[0], window[1]), rmsOf(music, at - ctx, at + ctx), floor);
-    const target = ref * dbToGain(CUE_LEVEL_DB[p.cue] + ACCENT_DB[p.accent]);
-    // Звук нормалізований до піку 1; якщо його пік поза вікном — підтягуємо вікно до цілі (≤ +8 дБ).
+    const ref =
+      musicRms > 0
+        ? Math.max(rmsOf(music, window[0], window[1]), rmsOf(music, at - ctx, at + ctx), floor)
+        : nominal;
+    const target = ref * dbToGain(Math.min(MAX_CUE_DB, CUE_LEVEL_DB[p.cue] + ACCENT_DB[p.accent]));
+    // Звук нормалізований до піку 1; якщо його пік поза вікном — підтягуємо вікно до цілі (≤ +3.5 дБ).
     const inWindow = Math.max(
       peakIn(sound.left, window[0] - start, window[1] - start),
       peakIn(sound.right, window[0] - start, window[1] - start),
@@ -286,49 +326,44 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
     });
   }
 
-  // 3. Дакінг музики після impact/slam і кінця riser.
-  const duck = new Float32Array(total).fill(1);
-  const attackN = Math.max(1, secToSamples(DUCK_ATTACK_SEC, sr));
-  const tauN = DUCK_TAU_SEC * sr;
+  // 3. Музичний дакінг: HPF на музиці — на долю після impact/slam і відкриття до кадру riser.
+  const ducks: MusicDuck[] = [];
   for (const s of sounds) {
-    if (!DUCK_CUES.has(s.cue)) continue;
-    const d = DUCK_DEPTH[s.accent];
-    const end = Math.min(total, s.at + Math.ceil(5 * tauN));
-    for (let j = Math.max(0, s.at); j < end; j++) {
-      const t = j - s.at;
-      const shape = Math.min(1, t / attackN) * Math.exp(-Math.max(0, t - attackN) / tauN);
-      const g = 1 - d * shape;
-      if (g < (duck[j] ?? 1)) duck[j] = g;
-    }
+    if (BEAT_DUCK_CUES.has(s.cue)) ducks.push({ kind: "beat", at: s.at });
+    else if (s.cue === "riser") ducks.push({ kind: "riser", from: Math.max(0, s.start), at: s.at });
   }
-  for (let j = 0; j < total; j++) {
-    const g = duck[j] ?? 1;
-    music.left[j] = (music.left[j] ?? 0) * g;
-    music.right[j] = (music.right[j] ?? 0) * g;
+  if (musicRms > 0) {
+    music = duckMusic(music, ducks, { beatSamples: frameToSample(beatFrames(bpm, fps), fps, sr) });
   }
 
-  // 4. Мастер: сума → RMS −14 dBFS → м'який кліпер (пік < −1 dBFS) → антиклік у кінці.
-  const sum = createStereo(total, sr);
+  // 4. Спільний реверб: посил подій 0.25 і музики 0.08 в один простір.
+  const send = createStereo(total, sr);
   for (let j = 0; j < total; j++) {
-    sum.left[j] = (music.left[j] ?? 0) + (events.left[j] ?? 0);
-    sum.right[j] = (music.right[j] ?? 0) + (events.right[j] ?? 0);
+    send.left[j] =
+      (events.left[j] as number) * REVERB_SEND.events + (music.left[j] as number) * REVERB_SEND.music;
+    send.right[j] =
+      (events.right[j] as number) * REVERB_SEND.events + (music.right[j] as number) * REVERB_SEND.music;
   }
-  const rms = rmsOf(sum);
-  const masterGain = rms > 0 ? Math.min(dbToGain(MASTER_MAX_GAIN_DB), dbToGain(MASTER_RMS_DBFS) / rms) : 1;
+  const reverb = applyReverb(send);
+
+  // 5. Мастер: сума без перенормування → м'який кліпер (пік < −1 dBFS) → антиклік у кінці.
+  const sum = createStereo(total, sr);
   const knee = dbToGain(MASTER_KNEE_DBFS);
   const ceiling = dbToGain(MASTER_CEILING_DBFS);
   const endFade = Math.min(total, secToSamples(MASTER_END_FADE_SEC, sr));
   for (let j = 0; j < total; j++) {
     const tail = j >= total - endFade ? (total - 1 - j) / Math.max(1, endFade) : 1;
-    sum.left[j] = softClip((sum.left[j] ?? 0) * masterGain, knee, ceiling) * tail;
-    sum.right[j] = softClip((sum.right[j] ?? 0) * masterGain, knee, ceiling) * tail;
+    const l = (music.left[j] as number) + (events.left[j] as number) + (reverb.left[j] as number);
+    const r = (music.right[j] as number) + (events.right[j] as number) + (reverb.right[j] as number);
+    sum.left[j] = softClip(l, knee, ceiling) * tail;
+    sum.right[j] = softClip(r, knee, ceiling) * tail;
   }
 
   return {
     pcm: sum,
     wav: encodeWav(sum),
     durationMs: framesToMs(timeline.totalFrames, fps),
-    stems: { music, events },
+    stems: { music, events, reverb },
     masterGain,
     alignment,
     sounds,
@@ -339,21 +374,25 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
 /**
  * Хеш повторного використання зведення: трек (`planHash`), тональність, темп і `mix` частин,
  * таймлайн сцен, усі події з кадрами й звуком, хеші варіантів семплів використаних cue
- * (у порядку варіантів — від нього залежить ротація), плюс версія алгоритму.
+ * (у порядку варіантів — від нього залежить ротація), плюс версія алгоритму (`version` — лише
+ * для перевірки, що зміна версії інвалідує кеш).
  */
-export function soundtrackHash(input: {
-  planHash: string;
-  key: string | null;
-  storyboard: Pick<Storyboard, "fps" | "scenes" | "musicBrief">;
-  /** Хеші варіантів бібліотеки по cue (`sampleHashes`). */
-  samples: Partial<Record<SoundCue, readonly string[]>>;
-}): string {
+export function soundtrackHash(
+  input: {
+    planHash: string;
+    key: string | null;
+    storyboard: Pick<Storyboard, "fps" | "scenes" | "musicBrief">;
+    /** Хеші варіантів бібліотеки по cue (`sampleHashes`). */
+    samples: Partial<Record<SoundCue, readonly string[]>>;
+  },
+  version: number = MIX_VERSION,
+): string {
   const { storyboard } = input;
   const timeline = computeTimeline(storyboard);
   const placements = computeEventPlacements(storyboard);
   const used = [...new Set(placements.map((p) => p.cue).filter((c): c is SoundCue => c !== null))].sort();
   return inputsHash({
-    version: MIX_VERSION,
+    version,
     planHash: input.planHash,
     key: input.key,
     bpm: storyboard.musicBrief.bpm,

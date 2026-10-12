@@ -19,12 +19,12 @@ import {
 } from "@adc/shared";
 import { computeChunkLayout } from "./chunks.ts";
 import { createElevenLabsClient, type ElevenLabsLike } from "./client.ts";
-import { PUBLIC_MIX_FILE, PUBLIC_MUSIC_FILE, publicSfxFile } from "./constants.ts";
+import { PUBLIC_MIX_FILE, publicMusicFile, publicSfxFile } from "./constants.ts";
 import { type DecodeAudio, decodeAudio } from "./decode.ts";
 import { defaultGate, type ElevenLabsGate } from "./gate.ts";
 import { buildAudioManifest } from "./manifest.ts";
 import { renderSoundtrack, soundtrackHash } from "./mixer.ts";
-import { ensureMusic } from "./music.ts";
+import { ensureMusic, musicWavKey } from "./music.ts";
 import { gainToDb } from "./pcm.ts";
 import {
   AUDIO_PLAN_PROMPT,
@@ -102,7 +102,10 @@ interface PreviousMusic {
   key: string;
 }
 
-/** Трек, що використовується зараз (project.audioPlanHash або audio.json ревізії-основи). */
+/**
+ * Трек, що використовується зараз (project.audioPlanHash або audio.json ревізії-основи):
+ * обрізаний `music.wav`, якщо він є і трек перевірено (`check`), інакше сирий `music.mp3`.
+ */
 async function findPreviousMusic(
   storage: Storage,
   projectId: string,
@@ -117,10 +120,12 @@ async function findPreviousMusic(
     planHash = manifest?.music?.planHash ?? null;
   }
   if (!planHash) return null;
-  const key = paths.music(planHash);
-  if (!(await storage.exists(key))) return null;
   const meta = await readOptional(storage, paths.musicMeta(planHash), (v) => MusicMeta.parse(v));
-  return meta ? { rev: baseRev, meta, key } : null;
+  if (!meta) return null;
+  const wavKey = musicWavKey(projectId, planHash);
+  if (meta.check !== null && (await storage.exists(wavKey))) return { rev: baseRev, meta, key: wavKey };
+  const rawKey = paths.music(planHash);
+  return (await storage.exists(rawKey)) ? { rev: baseRev, meta, key: rawKey } : null;
 }
 
 /**
@@ -224,6 +229,8 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
     const musicDeps = {
       storage,
       client: getClient,
+      // Той самий декодер, що й у зведенні: перевірка треку бачить те саме, що чує мікс.
+      decode: deps.decode ?? decodeAudio,
       gate,
       cost: ctx.cost,
       logger,
@@ -341,7 +348,8 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
     }
 
     // Файли для staticFile() хоста.
-    const musicPublic = revPaths.publicFile(PUBLIC_MUSIC_FILE);
+    const musicSrc = publicMusicFile(music.key);
+    const musicPublic = revPaths.publicFile(musicSrc);
     await storage.copy(music.key, musicPublic);
     artifacts.push(musicPublic);
     for (const f of sfxFiles) {
@@ -435,7 +443,7 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
     const manifest = AudioManifest.parse(
       buildAudioManifest({
         storyboard,
-        music: { planHash: music.planHash, durationMs: music.meta.durationMs },
+        music: { planHash: music.planHash, durationMs: music.meta.durationMs, src: musicSrc },
         sfx: sfxFiles.map((f) => ({ cue: f.cue, durationMs: f.durationMs })),
         mix,
       }),

@@ -542,3 +542,40 @@ describe("driver — speculative render (ADC_SPECULATIVE_RENDER)", () => {
     expect(h.jobsOf("render")).toEqual([]);
   });
 });
+
+describe("driver — агентний режим (ADC_GENERATION_MODE=agent)", () => {
+  const agent = () => ({ speculativeRender: false, generationMode: "agent" as const });
+
+  it("сцени пише author, далі check → qa → чекпоінт 3; правка після стілів — теж author", async () => {
+    const h = new Harness({ tuning: agent });
+    await toStoryboard(h);
+    let s = await h.project();
+    expect(s.project.status).toBe("awaiting_storyboard");
+    expect(h.jobsOf("codegen")).toHaveLength(0);
+    expect(h.jobsOf("author").map((j) => j.params)).toEqual([{ sceneIds: null, instructions: [] }]);
+    expect(h.jobsOf("check").map((j) => j.params.sceneIds)).toEqual([null]);
+    expect(h.jobsOf("qa")).toHaveLength(1);
+
+    await h.say("у другій сцені інший заголовок", intent({ kind: "edit", edits: "s2" }));
+    await h.runNext("revise");
+    const author = h.pendingJobs().find((j) => j.stage === "author");
+    expect(author).toMatchObject({
+      rev: 2,
+      params: {
+        sceneIds: ["s2"],
+        instructions: [{ sceneId: "s2", instruction: "у другій сцені інший заголовок" }],
+      },
+    });
+    await h.runUntilIdle();
+    s = await h.project();
+    expect(s.project.status).toBe("awaiting_storyboard");
+    expect(h.jobsOf("codegen")).toHaveLength(0);
+  });
+
+  it("pipeline за замовчуванням: author не ставиться", async () => {
+    const h = new Harness({ tuning: () => ({ speculativeRender: false }) });
+    await toStoryboard(h);
+    expect(h.jobsOf("author")).toHaveLength(0);
+    expect(h.jobsOf("codegen")).toHaveLength(1);
+  });
+});

@@ -34,8 +34,8 @@ const TITLES = {
   revising: "Вношу правки",
 };
 
-/** Стадії гілки «Сцени» в directing (X6). */
-export const SCENE_STAGES = ["codegen", "check", "fix", "qa"];
+/** Стадії гілки «Сцени» в directing (X6); `author` — агентний режим (ADC_GENERATION_MODE=agent). */
+export const SCENE_STAGES = ["codegen", "author", "check", "fix", "qa"];
 /** Стадія гілки «Музика». */
 export const MUSIC_STAGE = "audio";
 

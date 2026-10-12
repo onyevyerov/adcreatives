@@ -57,6 +57,7 @@ describe("prompts", () => {
     expect(names.sort()).toEqual(
       [
         "audio-plan",
+        "author",
         "brandkit",
         "brandkit-patch",
         "chat-intent",
@@ -188,6 +189,7 @@ ${extra}---
         motionKitApi: "API",
         motionKitDeclarations: "DECL",
         examples: "EXAMPLES",
+        logoGeometryHint: "LOGO",
       };
       const codegen = loader.load("codegen", {
         ...vars,

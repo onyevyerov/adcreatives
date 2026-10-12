@@ -70,6 +70,61 @@ describe("пріоритизація сторінок", () => {
     ]);
   });
 
+  it("сторінки продукту в роботі: how-it-works, features, pricing, faq, приклади/демо/звіти, кейси, порівняння, about", () => {
+    const score = (url: string, text = "") => scoreCandidate(link(url, text));
+    const how = score("https://x.com/how-it-works");
+    const features = score("https://x.com/features");
+    const pricing = score("https://x.com/pricing");
+    const faq = score("https://x.com/faq");
+    const sample = score("https://x.com/sample-report");
+    const cases = score("https://x.com/case-studies");
+    const compare = score("https://x.com/webreport-vs-semrush");
+    const about = score("https://x.com/about");
+    const services = score("https://x.com/services");
+    expect(how).toBeGreaterThan(features);
+    expect(features).toBeGreaterThan(pricing);
+    expect(pricing).toBe(faq);
+    expect(faq).toBe(sample);
+    expect(sample).toBeGreaterThan(cases);
+    expect(cases).toBe(compare);
+    expect(compare).toBeGreaterThan(about);
+    expect(about).toBeGreaterThan(services);
+    // Мова сайту: ті самі розділи українською й російською, в URL і в анкорі.
+    expect(score("https://x.com/%D1%8F%D0%BA-%D1%86%D0%B5-%D0%BF%D1%80%D0%B0%D1%86%D1%8E%D1%94")).toBe(how);
+    expect(score("https://x.com/p1", "Можливості")).toBe(features);
+    expect(score("https://x.com/p2", "Приклад звіту")).toBe(sample);
+    expect(score("https://x.com/p3", "Тарифы")).toBe(pricing);
+    expect(score("https://x.com/p4", "Book a demo")).toBe(sample);
+    // Слово має починати слово анкора: «Showcase» — не кейси.
+    expect(score("https://x.com/p5", "Showcase")).toBe(score("https://x.com/p6", "Щось"));
+  });
+
+  it("selectPages: блог і новини — лише якщо після інших сторінок лишився ліміт", () => {
+    const candidates = [
+      link("https://saas.com/blog", "Blog", true),
+      link("https://saas.com/blog/how-we-audit", "How we audit"),
+      link("https://saas.com/news", "News", true),
+      link("https://saas.com/careers", "Careers"),
+      link("https://saas.com/features", "Features", true),
+      link("https://saas.com/legal/terms", "Terms"),
+    ];
+    const pick = (limit: number) =>
+      selectPages({ home: "https://saas.com/", lang: "en", otherVersions: [], limit, candidates });
+    expect(pick(3)).toEqual([
+      "https://saas.com/features",
+      "https://saas.com/careers",
+      "https://saas.com/legal/terms",
+    ]);
+    expect(pick(10)).toEqual([
+      "https://saas.com/features",
+      "https://saas.com/careers",
+      "https://saas.com/legal/terms",
+      "https://saas.com/blog",
+      "https://saas.com/news",
+      "https://saas.com/blog/how-we-audit",
+    ]);
+  });
+
   it("selectPages: якщо введено /en/, краулимо лише /en/…", () => {
     const pages = selectPages({
       home: "https://cafe.com/en/",

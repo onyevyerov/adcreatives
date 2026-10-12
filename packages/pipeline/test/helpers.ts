@@ -24,6 +24,7 @@ import {
   type StageJob,
   type StageName,
   type StageOutputsMap,
+  type Tuning,
 } from "@adc/shared";
 import { fixtureAssets, fixtureBrandKitFile, fixtureStoryboard } from "@adc/shared/fixtures";
 import { createChatLlmFactory, createInitialProject, createPipelineDriver } from "../src/driver.ts";
@@ -60,6 +61,8 @@ export interface HarnessOptions {
   /** Непідтверджені твердження в claims.json сценарію. */
   unverified?: Array<{ sceneId: string; text: string; kind: "price" | "percent" }>;
   echoUserMessages?: boolean;
+  /** Перемикачі драйвера (`generationMode: "agent"` — сцени пише стадія author). */
+  tuning?: () => Pick<Tuning, "speculativeRender"> & Partial<Pick<Tuning, "generationMode">>;
 }
 
 /**
@@ -104,6 +107,7 @@ export class Harness {
       }),
       now: this.now,
       echoUserMessages: opts.echoUserMessages ?? false,
+      ...(opts.tuning ? { tuning: opts.tuning } : {}),
     });
   }
 

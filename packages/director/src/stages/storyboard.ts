@@ -6,11 +6,15 @@ import {
   computeTimeline,
   type Format,
   inputsHash,
+  type Palette,
+  type ProductSubstance,
   type ProjectState,
   projectPaths,
   revPaths,
   SceneId,
   SceneText,
+  SEMANTIC_PALETTE_ROLES,
+  type SemanticPaletteRole,
   SiteData,
   type Stage,
   type StageContext,
@@ -79,6 +83,35 @@ export function brandForScript(brand: BrandKit) {
       textFallback: brand.logo.textFallback,
     },
   };
+}
+
+/** Заглушка `<substance>`: бренд-кіт (старий або з тонким сайтом) не виділив речовину продукту. */
+export const EMPTY_SUBSTANCE_NOTE =
+  "(бренд-кіт не виділив речовину продукту — кроки, категорії перевірки й приклади результату шукай у <site>)";
+
+/** Речовина продукту для сценарію (`<substance>`); усі списки порожні — заглушка. */
+export function substanceForScript(brand: BrandKit): ProductSubstance | string {
+  const s = brand.substance;
+  return Object.values(s).every((list) => list.length === 0) ? EMPTY_SUBSTANCE_NOTE : s;
+}
+
+const SEMANTIC_HUE: Record<SemanticPaletteRole, string> = {
+  danger: "червоний",
+  warning: "бурштиновий",
+  success: "зелений",
+};
+
+/**
+ * Семантичні кольори для сценарію (`<semantic_colors>`): колір бренд-кіта або примітка, що його
+ * виведе код (`deriveSemanticPalette`, B2) — у темі motion-kit роль є завжди.
+ */
+export function semanticForScript(palette: Palette): Record<SemanticPaletteRole, string> {
+  const out = {} as Record<SemanticPaletteRole, string>;
+  for (const role of SEMANTIC_PALETTE_ROLES) {
+    out[role] =
+      palette[role] ?? `null — колір виведе код: ${SEMANTIC_HUE[role]}, підлаштований під палітру бренду`;
+  }
+  return out;
 }
 
 /** Асети для промптів: ранжовані бренд-кітом + метадані з assets.json. */
@@ -271,6 +304,8 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
       durationRule: durationRule(duration),
       site: siteText.trim() || "(текст сайту недоступний — працюй з <brand> і <facts>)",
       brand: brandForScript(brandFile),
+      substance: substanceForScript(brandFile),
+      semantic: semanticForScript(brandFile.palette),
       facts: brandFile.facts,
       assets: assetsForPrompt(brandFile, manifest),
       answers: answersFor(brandFile, input.project),

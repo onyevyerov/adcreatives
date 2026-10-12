@@ -1003,3 +1003,170 @@ describe("nextStep — speculative render (Tuning.speculativeRender)", () => {
     ]);
   });
 });
+
+describe("nextStep — агентний режим (стадія author)", () => {
+  const AGENT = { generationMode: "agent" } as const;
+  const advance = (s: MachineState, input: StepInput, over: Partial<StepContext> = {}) => {
+    const r = nextStep(s, input, ctx(over));
+    return { r, s: { project: r.state, pipe: r.pipe } as MachineState };
+  };
+  const approveScript = (over: Partial<StepContext>) =>
+    advance(state("awaiting_script"), cmd({ type: "approve", rev: null }), { unverifiedClaims: [], ...over });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("затвердження сценарію: author замість codegen з тими самими параметрами", () => {
+    const { r } = approveScript(AGENT);
+    expect(r.state.status).toBe("directing");
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "author", params: { sceneIds: null, instructions: [] } }),
+      expect.objectContaining({ stage: "audio" }),
+    ]);
+    expect(r.events).toContainEqual(expect.objectContaining({ type: "progress", stage: "author" }));
+  });
+
+  it("pipeline-режим не змінюється: той самий сценарій подій — та сама послідовність джобів і стан", () => {
+    const run = (over: Partial<StepContext>) => {
+      let { r, s } = approveScript(over);
+      const jobs = [...stages(r)];
+      const results: StepResult[] = [r];
+      for (const input of [
+        () => running(s, "codegen", {}, { sceneIds: ["s1", "s2", "s3"], guardRejected: [] }),
+        () => running(s, "check", {}, { failedScenes: ["s2"], issueScenes: [] }),
+        () => running(s, "fix", {}, { sceneIds: ["s2"] }),
+        () => running(s, "check", {}, { failedScenes: [], issueScenes: [] }),
+        () => running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1"] }),
+        () => running(s, "fix", {}, { sceneIds: ["s1"] }),
+        () => running(s, "check", {}, { failedScenes: [], issueScenes: [] }),
+        () => running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1"] }),
+        () => running(s, "fix", {}, { sceneIds: ["s1"] }),
+        () => running(s, "check", {}, { failedScenes: [], issueScenes: [] }),
+        () => running(s, "qa", {}, { verdict: "pass", seriousScenes: [] }),
+        () => running(s, "audio", {}, { planHash: "ph", reusedMusic: false }),
+      ]) {
+        ({ r, s } = advance(s, input(), over));
+        jobs.push(...stages(r));
+        results.push(r);
+      }
+      return { jobs, results, final: s };
+    };
+    const base = run({});
+    expect(base.jobs).toEqual([
+      "codegen",
+      "audio",
+      "check",
+      "fix",
+      "check",
+      "qa",
+      "fix",
+      "check",
+      "qa",
+      "fix",
+      "check",
+      "qa",
+    ]);
+    expect(base.final.project.status).toBe("awaiting_storyboard");
+    const explicit = run({ generationMode: "pipeline" });
+    expect(JSON.stringify(explicit.results)).toBe(JSON.stringify(base.results));
+  });
+
+  it("author → check(усі) ↔ fix → qa; QA після агента — не більше 1 кола за замовчуванням", () => {
+    let { r, s } = approveScript(AGENT);
+    ({ r, s } = advance(
+      s,
+      running(
+        s,
+        "author",
+        {},
+        { sceneIds: ["s1", "s2", "s3"], iterations: 12, renders: 40, usd: 9, stoppedBy: "done" },
+      ),
+      AGENT,
+    ));
+    expect(r.jobs).toEqual([expect.objectContaining({ stage: "check", params: { sceneIds: null } })]);
+    ({ r, s } = advance(s, running(s, "check", {}, { failedScenes: ["s3"], issueScenes: [] }), AGENT));
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "fix", params: { sceneIds: ["s3"], reason: "check" } }),
+    ]);
+    ({ r, s } = advance(s, running(s, "fix", {}, { sceneIds: ["s3"] }), AGENT));
+    ({ r, s } = advance(s, running(s, "check", {}, { failedScenes: [], issueScenes: [] }), AGENT));
+    expect(stages(r)).toEqual(["qa"]);
+    ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s2"] }), AGENT));
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "fix", params: { sceneIds: ["s2"], reason: "qa" } }),
+    ]);
+    ({ r, s } = advance(s, running(s, "fix", {}, { sceneIds: ["s2"] }), AGENT));
+    ({ r, s } = advance(s, running(s, "check", {}, { failedScenes: [], issueScenes: [] }), AGENT));
+    ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s2"] }), AGENT));
+    // Друге коло не ставиться: відео готове, чекаємо аудіо.
+    expect(r.jobs).toEqual([]);
+    expect(r.state.branches.video).toBe("done");
+    ({ r } = advance(s, running(s, "audio", {}, { planHash: "ph", reusedMusic: false }), AGENT));
+    expect(r.state.status).toBe("awaiting_storyboard");
+  });
+
+  it("ADC_QA_MAX_ROUNDS=0 вимикає QA-фікси і після агента; явний ctx.qaMaxRounds має пріоритет", () => {
+    vi.stubEnv("ADC_QA_MAX_ROUNDS", "0");
+    const authored = state(
+      "directing",
+      { branches: { video: "running", audio: "done" } },
+      { attempts: { author: 1 } },
+    );
+    const qaFix = (s: MachineState) => running(s, "qa", {}, { verdict: "fix", seriousScenes: ["s1"] });
+    expect(nextStep(authored, qaFix(authored), ctx(AGENT)).jobs).toEqual([]);
+    vi.stubEnv("ADC_QA_MAX_ROUNDS", "3");
+    const s2 = state(
+      "directing",
+      { branches: { video: "running", audio: "done" } },
+      { attempts: { author: 1 } },
+    );
+    expect(stages(nextStep(s2, qaFix(s2), ctx({ ...AGENT, qaMaxRounds: 2 })))).toEqual(["fix"]);
+  });
+
+  it("правка після стілів іде через author (підмножина); після нього — check лише цих сцен", () => {
+    const s0 = state("awaiting_storyboard", {}, { attempts: { author: 1 } });
+    const r1 = nextStep(
+      s0,
+      msg("у другій сцені інший заголовок", intent({ kind: "edit", edits: "s2" })),
+      ctx(AGENT),
+    );
+    const s1: MachineState = { project: r1.state, pipe: r1.pipe };
+    const r2 = nextStep(
+      s1,
+      running(s1, "revise", {}, { scenesToRegenerate: ["s2"], musicChanged: false, durationChanged: false }),
+      ctx(AGENT),
+    );
+    expect(r2.jobs).toEqual([
+      expect.objectContaining({
+        stage: "author",
+        params: {
+          sceneIds: ["s2"],
+          instructions: [{ sceneId: "s2", instruction: "у другій сцені інший заголовок" }],
+        },
+      }),
+      expect.objectContaining({ stage: "audio" }),
+    ]);
+    const s2: MachineState = { project: r2.state, pipe: r2.pipe };
+    const r3 = nextStep(
+      s2,
+      running(
+        s2,
+        "author",
+        {},
+        { sceneIds: ["s2"], iterations: 3, renders: 10, usd: 2, stoppedBy: "budget" },
+      ),
+      ctx(AGENT),
+    );
+    expect(r3.jobs).toEqual([expect.objectContaining({ stage: "check", params: { sceneIds: ["s2"] } })]);
+  });
+
+  it("збій author: відеогілка failed, retry ставить author знову", () => {
+    let { r, s } = approveScript(AGENT);
+    ({ r, s } = advance(s, running(s, "author", {}, {}, { fail: true }), AGENT));
+    expect(r.state.status).toBe("failed");
+    expect(r.state.branches.video).toBe("failed");
+    ({ r, s } = advance(s, cmd({ type: "retry" }), AGENT));
+    expect(r.jobs).toEqual([expect.objectContaining({ stage: "author", attempt: 2 })]);
+    expect(r.state.branches.video).toBe("running");
+  });
+});

@@ -2,66 +2,47 @@ import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { clampChunkMs, computeChunkLayout } from "../src/chunks.ts";
 
-const sb = (scenes: Array<[number, number, string?]>) => ({
+const sb = (scenes: Array<[number, number, string?, number?]>) => ({
   fps: 30 as const,
-  scenes: scenes.map(([durationFrames, transitionFrames, purpose], i) => ({
+  scenes: scenes.map(([durationFrames, transitionFrames, purpose, musicEnergy], i) => ({
     ...(fixtureStoryboard.scenes[0] as (typeof fixtureStoryboard.scenes)[number]),
     id: `s${i + 1}`,
     durationFrames,
     transitionFrames,
     purpose: (purpose ?? "benefit") as "benefit",
-    musicEnergy: 0.5,
+    musicEnergy: musicEnergy ?? 0.5,
   })),
 });
 
 describe("computeChunkLayout", () => {
-  it("chunk boundaries = scene starts from computeTimeline; last chunk carries the +1 s tail", () => {
+  it("один чанк на весь трек; трек = відео + 8 с запасу", () => {
     const layout = computeChunkLayout(fixtureStoryboard);
     expect(layout.videoMs).toBe(15_000);
-    expect(layout.trackMs).toBe(16_000);
-    expect(layout.chunks.map((c) => [c.sceneIds, c.startMs, c.durationMs])).toEqual([
-      [["s1"], 0, 4_500],
-      [["s2"], 4_500, 5_000],
-      [["s3"], 9_500, 6_500],
-    ]);
-    expect(layout.chunks.map((c) => c.label)).toEqual(["hook", "offer", "cta"]);
-    expect(layout.chunks.reduce((a, c) => a + c.durationMs, 0)).toBe(layout.trackMs);
+    expect(layout.trackMs).toBe(23_000);
+    expect(layout.chunks).toHaveLength(1);
+    expect(layout.chunks[0]).toMatchObject({
+      label: "hook+offer+cta",
+      sceneIds: ["s1", "s2", "s3"],
+      startMs: 0,
+      durationMs: 23_000,
+    });
   });
 
-  it("merges scenes shorter than 3 s with the shorter neighbour", () => {
-    // s2 = 2 с (60 кадрів): сусіди 5 с і 4 с → зливається з s3.
+  it("короткі сцени більше не ділять трек: усі сцени — в одному чанку, без повторів назв", () => {
     const layout = computeChunkLayout(
       sb([
-        [150, 0, "hook"],
-        [60, 0, "problem"],
-        [120, 0, "offer"],
-        [120, 0, "cta"],
+        [45, 0, "hook"],
+        [45, 0, "benefit"],
+        [45, 0, "benefit"],
+        [300, 0, "cta"],
       ]),
     );
-    expect(layout.chunks.map((c) => c.sceneIds)).toEqual([["s1"], ["s2", "s3"], ["s4"]]);
-    expect(layout.chunks.map((c) => c.durationMs)).toEqual([5_000, 6_000, 5_000]);
-    expect(layout.chunks[1]?.label).toBe("problem+offer");
+    expect(layout.chunks).toHaveLength(1);
+    expect(layout.chunks[0]?.sceneIds).toEqual(["s1", "s2", "s3", "s4"]);
+    expect(layout.chunks[0]?.label).toBe("hook+benefit+cta");
   });
 
-  it("merges a short first scene forward and a short last scene back; every chunk ≥ 3 s", () => {
-    const layout = computeChunkLayout(
-      sb([
-        [60, 0],
-        [200, 0],
-        [200, 0],
-        [45, 0],
-      ]),
-    );
-    expect(layout.chunks.map((c) => c.sceneIds)).toEqual([
-      ["s1", "s2"],
-      ["s3", "s4"],
-    ]);
-    for (const c of layout.chunks) expect(c.durationMs).toBeGreaterThanOrEqual(3_000);
-    // Однакові назви чанків розрізняються номером.
-    expect(layout.chunks.map((c) => c.label)).toEqual(["benefit 1", "benefit 2"]);
-  });
-
-  it("accounts for transitions: boundary is the start of the incoming scene's sequence", () => {
+  it("переходи враховано: відео за таймлайном, трек = відео + 8 с", () => {
     const layout = computeChunkLayout(
       sb([
         [150, 0],
@@ -69,28 +50,28 @@ describe("computeChunkLayout", () => {
         [150, 30],
       ]),
     );
-    // Сцена 2 стартує на кадрі 120 (4 с), сцена 3 — на 240 (8 с); відео 390 кадрів = 13 с.
-    expect(layout.chunks.map((c) => c.startMs)).toEqual([0, 4_000, 8_000]);
+    // 450 кадрів − 2 переходи по 30 = 390 кадрів = 13 с.
     expect(layout.videoMs).toBe(13_000);
-    expect(layout.chunks.at(-1)?.durationMs).toBe(6_000);
+    expect(layout.trackMs).toBe(21_000);
+    expect(layout.chunks[0]?.durationMs).toBe(21_000);
   });
 
-  it("several consecutive short scenes collapse until all chunks are long enough", () => {
+  it("енергія — середня за сценами, зважена тривалістю", () => {
     const layout = computeChunkLayout(
       sb([
-        [45, 0],
-        [45, 0],
-        [45, 0],
-        [45, 0],
-        [300, 0],
+        [90, 0, "hook", 0.2],
+        [270, 0, "cta", 1],
       ]),
     );
-    for (const c of layout.chunks) expect(c.durationMs).toBeGreaterThanOrEqual(3_000);
-    expect(layout.chunks.flatMap((c) => c.sceneIds)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
-    expect(layout.chunks.reduce((a, c) => a + c.durationMs, 0)).toBe(layout.trackMs);
+    // (0.2 × 3 с + 1 × 9 с) / 12 с = 0.8
+    expect(layout.chunks[0]?.energy).toBe(0.8);
   });
 
-  it("clampChunkMs keeps durations within 3 000–120 000 ms", () => {
+  it("межі API: трек у 3 000–120 000 мс", () => {
+    const long = computeChunkLayout(sb([[3_500, 0]]));
+    expect(long.videoMs).toBe(116_667);
+    expect(long.trackMs).toBe(120_000);
+    expect(long.chunks[0]?.durationMs).toBe(120_000);
     expect(clampChunkMs(1_200)).toBe(3_000);
     expect(clampChunkMs(500_000)).toBe(120_000);
     expect(clampChunkMs(4_500.4)).toBe(4_500);

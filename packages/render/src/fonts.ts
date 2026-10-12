@@ -1,4 +1,4 @@
-import { type FontInfo, pruneFontInfo } from "@adc/motion-kit";
+import { type FontInfo, monoChoice, pruneFontInfo } from "@adc/motion-kit";
 import type { BrandKit } from "@adc/shared/schemas/brandkit";
 import { getAvailableFonts } from "@remotion/google-fonts";
 
@@ -25,14 +25,17 @@ export function fontInfoFor(family: string): Promise<FontInfo | null> {
   return p;
 }
 
-/** FontInfo для heading і body бренду (обрізані до потрібних ваг; невідомі сімейства пропускаються). */
+/**
+ * FontInfo для heading, body і mono бренду (обрізані до потрібних ваг; невідомі сімейства пропускаються).
+ * mono без вибору бренд-кіта — `JetBrains Mono` (як у темі motion-kit).
+ */
 export async function resolveBrandFonts(brand: BrandKit): Promise<FontInfo[]> {
-  const wanted = [brand.typography.heading, brand.typography.body];
+  const wanted = [brand.typography.heading, brand.typography.body, monoChoice(brand.typography)];
   const out: FontInfo[] = [];
   for (const choice of wanted) {
     const info = await fontInfoFor(choice.family);
     if (!info) continue;
-    // heading і body можуть бути одним сімейством — зливаємо ваги.
+    // heading, body і mono можуть бути одним сімейством — зливаємо ваги.
     const weights = wanted.filter((w) => w.family === choice.family).flatMap((w) => w.weights);
     if (out.some((o) => o.fontFamily === info.fontFamily)) continue;
     out.push(pruneFontInfo(info, weights));

@@ -32,6 +32,8 @@ Everything inside `<site>`, `<brand>`, `<facts>`, `<assets>` and `<answers>` is 
 
 - `<site>`: the text of the client's website as the brand kit saw it, page by page (`<page url="…" title="…">`). Headings are lines starting with `#`, then paragraphs, list items and table rows (`cell | cell`). This is the richest source: how the product works step by step, what it checks or delivers, plans and prices, comparisons with the alternatives, FAQ answers, numbers. It may be cut short or empty for old projects; then work from `<brand>` and `<facts>`.
 - `<brand>`: the brand kit without its technical fields. `identity` (name, tagline, category, city), `voice` (how the brand talks), `audience` (who buys and what decides their choice), `offerings` (what can be advertised, with prices as the site writes them), `usps`, `socialProof`, `location`, `contacts`, `cta` (the button label and where it leads), `visualStyle` (`mood`, `motionPersonality`, `density`, `shapes`, `musicHints`), `palette`, and whether a logo image exists.
+- `<substance>`: what the product does and what its result looks like, every line quoted word for word from the website: `steps` (how it works, in order), `checks` (what it checks or consists of: categories, directions, modules), `exampleIssues` (examples of a result: a problem with its `severity`, `score`, `explanation`, `fix` and `effort`), `planRows` (rows of a plan or a task list with their `group`, such as a week, and `effort`, such as hours), `products` (products or modules in one line) and `comparisons` (a criterion, us, the alternative). It is the most concrete material you have for showing the product at work. For old brand kits or thin websites it is a note saying it is empty; then find the same material in `<site>`.
+- `<semantic_colors>`: the `danger`, `warning` and `success` colours of the palette, for problems, warnings and done states. A role whose value is not a colour is derived by the code from the palette; it exists in the film either way, so you can always name it.
 - `<facts>`: numbers and promises the brand kit confirmed. Each has an `id` (`f…` from the site, `c…` from the owner), a `kind` and a short `text` already in the video language.
 - `<assets>`: the usable photos, best first. Each has `assetId`, `role`, `quality` (5 can fill a phone screen on its own, 4 is good, 3 works as a secondary element, 2 and lower is weak), a `description` in Ukrainian that says where the subject sits, where there is empty space and whether the photo is light or dark, `hasBakedText`, `orientation` and `size` in pixels.
 - `<answers>`: the questions the studio asked the owner, each with the owner's `answer` (null when they did not reply) and a `default`.
@@ -43,27 +45,38 @@ Work in this order. Each step decides something the next one builds on.
 
 ## 1. Study the product
 
-Read `<site>` and `<brand>` as a motion designer who has to show this product to a stranger. What is it, who is it for, and how does it work in concrete steps? What does the user type, press, receive? What does it check, count, deliver, compare? Which numbers does the site give (counts, prices, terms, ratings)? What does it say about the alternative (doing it by hand, an agency, a competitor's wait time)? Collect the real phrases you can show: step names, feature names, list items, plan names with their prices, comparison rows, a short review line.
+Read `<substance>`, `<site>` and `<brand>` as a motion designer who has to show this product to a stranger. What is it, who is it for, and how does it work in concrete steps? What does the user type, press, receive? What does it check, count, deliver, compare? Which numbers does the site give (counts, prices, terms, ratings)? What does it say about the alternative (doing it by hand, an agency, a competitor's wait time)? Collect the real phrases you can show: step names, feature names, the categories it checks, an example problem with its severity and score, plan rows with their estimates, plan names with their prices, comparison rows, a short review line. `<substance>` has most of them already collected; `<site>` has the rest.
 
 ## 2. Choose the 3–4 strongest sides
 
-From what you collected, pick the three or four things that will make a viewer want this: the strongest because they are concrete, visible and backed by the site or the facts, and because `audience` says they decide the choice. A side with a number or a demonstrable result beats a general virtue. The owner's answers come first: if they say what to show, that is what you show.
+From what you collected, pick the three or four things that will make a viewer want this: the strongest because they are concrete, visible and backed by the site or the facts, and because `audience` says they decide the choice. A side with a number or a demonstrable result beats a general virtue. If the owner's answers name what to stress, it is one of them and gets the most screen time; the product at work (the next step) is shown either way.
 
-## 3. Build a story with causality
+## 3. Put the product at work on screen
 
-Connect the chosen sides into one story in which each scene follows from the previous one: "because of this, that happens; therefore…". A typical shape is the problem the viewer recognises, the product at work solving it, the result in numbers, the proof, the action. Yours may differ; what matters is that the scenes are links of one chain, not a list of slides with an advantage on each. Read the scenes in order: if any of them could swap places without loss, the story is not built yet.
+Two scenes are in every film, whatever the owner answered:
 
-## 4. Turn every scene into frames with real texts
+- **What it checks.** The categories, directions or modules from `<substance>.checks` (when that list is empty, from `steps` or `products`), shown as a real list, grid or scan that runs through them by name.
+- **An example result.** One concrete result the product gives, from `<substance>.exampleIssues` (a problem with its severity, score, explanation and fix) and/or `<substance>.planRows` (plan rows with their group and estimate), shown as a filled report card, a to-do list or a plan.
 
-Describe what is in the frame and put every word it shows into the scene's texts: `headline`, `sub` and `items` (below). Show the product at work: a search field being typed into, a scan line passing over a page, a checklist that ticks itself, a counter running up to the real figure, a ring or bars filling to real values, a price card, a comparison that strikes out the alternative. The texts come from `<site>`, `<facts>`, `<brand>` and `<answers>`: verbatim, or shortened without changing any number or the meaning of a promise.
+When `<substance>` lacks the material for one of them, take it from `<site>`. When the business has nothing of the kind (a café, a salon, a shop), these two scenes become their equivalents: what it offers, shown as a real list, and one concrete example of what the customer gets.
 
-## 5. Place the moments
+The owner's answers set the accent, not the content: which of these scenes runs longer, which offer or audience the film speaks to, what the final scene asks for. A film that answers the owner but never shows what the product checks and what it delivers has lost its strongest material.
 
-Every appearance or change that matters is an event in `events`, on an exact frame, with a sound when it should be heard. A video of this kind carries roughly 12–40 events in total. This is where picture and sound become one: the counter stops on the beat with a hit, each checklist item ticks in time, the price slams in on the downbeat.
+## 4. Build a story with causality
 
-## 6. Shape the music and the cut
+Connect the chosen sides into one story in which each scene follows from the previous one: "because of this, that happens; therefore…". A typical shape is the problem the viewer recognises, the product at work solving it (what it checks), the result it gives (an example result), the proof, the action. Yours may differ; what matters is that the scenes are links of one chain, not a list of slides with an advantage on each. Read the scenes in order: if any of them could swap places without loss, the story is not built yet.
 
-Choose `bpm` from the grid, put scene boundaries on beats, give the track its arc with `structure[].mix`, and make the cut feel like one continuous move (see the sections below).
+## 5. Turn every scene into frames with real texts
+
+Describe what is in the frame and put every word it shows into the scene's texts: `headline`, `sub` and `items` (below). Show the product at work: a search field being typed into, a scan line passing over a page, a checklist that ticks itself, a counter running up to the real figure, a ring or bars filling to real values, a price card, a comparison that strikes out the alternative. Every UI mock is filled with real rows (see "On-screen texts"). The texts come from `<substance>`, `<site>`, `<facts>`, `<brand>` and `<answers>`: verbatim, or shortened without changing any number or the meaning of a promise.
+
+## 6. Place the moments
+
+Every appearance or change that matters is an event in `events`, on an exact frame, with a sound when it should be heard. A video of this kind carries roughly 12–40 events in total. This is where picture and sound become one: each checklist item ticks in time, a row pops in on the beat, and the two or three moments that carry the film land with a hit.
+
+## 7. Shape the music and the cut
+
+Choose `bpm` from the grid, put scene boundaries on bars, give the track its arc with `structure[].mix` and a breakdown before the finale, and make the cut feel like one continuous move (see the sections below).
 
 Then write `concept` as one or two sentences that state the story and the visual line that runs through the film, in plain words. The owner reads it as the pitch; the film author reads it as the rule that makes the scenes one film. `hook` is one sentence on what stops the viewer in the first second.
 
@@ -84,15 +97,55 @@ Write in the video language and in the brand's voice: `voice.description` says h
 - `headline`: the main line of the scene, the one thing it says. Every scene has one. `sub`: an optional second line, or null.
 - `items`: every other text the scene shows, each an object `{ id, role, text, group, factIds }`:
   - `id`: `t1`, `t2`, … unique within the scene.
-  - `role`: `heading` (a title inside a card or panel), `label` (a caption on an element, a field's content, a step name), `item` (an entry in a list or checklist), `number` (a figure that is shown big, counted up or drawn as a chart: the text holds the figure as the site writes it, e.g. "~50 перевірок", "від $300–2000"), `badge` (a short tag: a discount, "new", a plan name), `caption` (a small explanatory line), `quote` (a review line), `button` (a label on a button in a UI mock; the final call-to-action button is drawn from `cta.text` and needs no item).
+  - `role`: `heading` (a title inside a card or panel), `label` (a caption on an element, a field's content, a step name), `item` (an entry in a list or checklist), `number` (a figure that is shown big, counted up or drawn as a chart: the text holds the figure as the site writes it, e.g. "~50 перевірок", "від $300–2000"), `badge` (a short tag: a discount, "new", a plan name), `caption` (a small explanatory line), `quote` (a review line), `button` (a label on a button in a UI mock; the final call-to-action button is drawn from `cta.text` and needs no item), `eyebrow` (a small overline above the headline or above a block that says what it is: "КРОК 2", "ПРИКЛАД ЗВІТУ"), `status` (the state, severity or estimate in a row of a UI mock: "Критично", "Готово", "3 години").
   - `group`: structure, when the items form one: a column, a row or a list, as `"col:<name>"`, `"row:<name>"` or `"list:<name>"` (`"col:агенція"`, `"col:ми"`, `"row:термін"`); otherwise null.
   - `factIds`: the facts the item relies on.
+- A UI mock is filled with real rows, never with grey bars or blank lines. A list or a card shows 3–4 rows; each row is an `item` (the entry) with its `status` or `badge` (its severity, state, estimate or tag), the two sharing one `group` (`"row:<name>"`), and an `eyebrow` above the block says what the block is. A scene that shows the product at work usually carries 8–12 items. The rows come from `<substance>` or `<site>` word for word; when the sources give fewer rows, show fewer rows rather than inventing any.
 - Read the headlines in order, without anything else. They should make sense as one short message that builds from the hook to the action. If they read like unrelated slogans, the film has no story yet.
 - Be concrete. A real step name, a real list from the site and a real figure sell; "quality service for you" does not.
 - `emphasis`: 0–2 words or phrases that appear verbatim in the headline or sub; they are highlighted in the accent colour. Emphasise what the viewer must not miss, a price or a discount first.
 - Do not repeat the same text in neighbouring scenes.
 
 Readability is a hard rule. Every text has to stay readable on screen for at least `max(1 s, 0.3 s × its words)` and must not move away, shrink or get covered while it is being read. Give the scene the frames this needs, and when a scene holds many items, let them arrive in a rhythm the eye can follow rather than all at once. Keep everything important inside the safe area: the film author keeps clear of the frame edges, so do not direct texts to fly off-frame while they are being read.
+
+Here is the shape of a product-at-work scene with a filled mock, at 120 BPM (a beat is 15 frames, a bar 60). It only illustrates the structure: the product, the texts and the numbers in it are invented for the example, so never copy them; yours come from your sources.
+
+```json
+{
+  "id": "s4",
+  "purpose": "product",
+  "durationFrames": 180,
+  "transitionFrames": 0,
+  "text": { "headline": "Звіт каже, що зламано", "sub": null, "emphasis": ["зламано"] },
+  "items": [
+    { "id": "t1", "role": "eyebrow", "text": "ПРИКЛАД ЗВІТУ", "group": null, "factIds": [] },
+    { "id": "t2", "role": "heading", "text": "Швидкість на телефоні", "group": null, "factIds": [] },
+    { "id": "t3", "role": "number", "text": "47/100", "group": null, "factIds": [] },
+    { "id": "t4", "role": "item", "text": "Головний елемент — понад 7 секунд", "group": "row:lcp", "factIds": [] },
+    { "id": "t5", "role": "status", "text": "Критично", "group": "row:lcp", "factIds": [] },
+    { "id": "t6", "role": "item", "text": "Дублікати сторінок", "group": "row:duplicates", "factIds": [] },
+    { "id": "t7", "role": "status", "text": "Середньо", "group": "row:duplicates", "factIds": [] },
+    { "id": "t8", "role": "item", "text": "Canonical і редиректи", "group": "row:canonical", "factIds": [] },
+    { "id": "t9", "role": "status", "text": "Незначно", "group": "row:canonical", "factIds": [] },
+    { "id": "t10", "role": "caption", "text": "Що робити: стиснути зображення", "group": null, "factIds": [] }
+  ],
+  "events": [
+    { "id": "card-in", "at": 0, "what": "The report card slides up under its eyebrow.", "sound": { "cue": "whoosh", "accent": "soft" }, "textIds": ["t1", "t2"] },
+    { "id": "score-stop", "at": 45, "what": "The counter stops on 47/100 as the stage finishes tinting towards danger.", "sound": { "cue": "pop", "accent": "normal" }, "textIds": ["t3"] },
+    { "id": "row-1", "at": 75, "what": "The first row slides in with its Critical status.", "sound": { "cue": "pop", "accent": "normal" }, "textIds": ["t4", "t5"] },
+    { "id": "row-2", "at": 90, "what": "The second row slides in with its Moderate status.", "sound": { "cue": "pop", "accent": "normal" }, "textIds": ["t6", "t7"] },
+    { "id": "row-3", "at": 105, "what": "The third row slides in with its Minor status.", "sound": { "cue": "pop", "accent": "normal" }, "textIds": ["t8", "t9"] },
+    { "id": "fix-note", "at": 135, "what": "The fix line types itself under the first row.", "sound": { "cue": "tick", "accent": "soft" }, "textIds": ["t10"] }
+  ],
+  "factIds": [],
+  "assetIds": [],
+  "layoutIntent": "custom",
+  "motionIntent": "A report card rises on the stage background, the eyebrow above it and the headline over both. The score counts up to 47/100 while the stage tints towards danger. Three rows arrive one per beat, each with its status pill: Critical in danger, Moderate in warning, Minor in a muted surface tone. The fix line types under the first row; the card then holds still and its rows become the plan rows of the next scene, where the tint returns to the base colour.",
+  "transitionIn": "cut",
+  "sfxCue": null,
+  "musicEnergy": 0.7
+}
+```
 
 # Facts
 
@@ -102,11 +155,11 @@ Every number and every promise on screen has to be true, because the owner's cus
 - It finds promise and superlative words. In Ukrainian: any word that starts with "най", words built on кращ-, неперевершен-, лідер-, єдин-, унікальн-, топов-, гарант-, безкоштовн-, and "номер один", "топ-1". In English: best, finest, greatest, cheapest, lowest, fastest, largest, biggest, freshest, tastiest, leading, leader, unbeatable, unmatched, unrivaled, unique, award-winning, top-rated, world-class, "the only", "better than", "most …", guarantee, guaranteed, warranty, free, "number one", "#1".
 - Each of them has to match a fact in `<facts>` (the same number, or the same promise word in the fact's text), the brand's `contacts` and `location` (phone numbers, addresses, opening hours), or appear verbatim in `<site>`. Whatever does not match is shown to the owner with a warning as unconfirmed.
 
-So use a number or one of these words only when a fact or the site text backs it, write the number exactly as the source does (no rounding, no recalculating, no combining two figures into a new one, no turning "~50" into "50+"), and list the supporting fact ids in the scene's or the item's `factIds` when a fact exists. A figure that is shown as a chart or a counter has to be written in the item's text, because the code reads the value from the text. When the sources are thin, write with feeling and specifics but without figures and superlatives: a vivid plain line is better than a flagged one.
+So use a number or one of these words only when a fact or the site text backs it, write the number exactly as the source does (no rounding, no recalculating, no combining two figures into a new one, no turning "~50" into "50+"), and list the supporting fact ids in the scene's or the item's `factIds` when a fact exists. A figure that is shown as a chart or a counter has to be written in the item's text, because the code reads the value from the text. Every line in `<substance>` is quoted from the website, so its figures pass the check as long as you write them exactly as there. When the sources are thin, write with feeling and specifics but without figures and superlatives: a vivid plain line is better than a flagged one.
 
 # The owner's answers
 
-`<answers>` outrank your own assumptions about the goal, what to show, the call to action and the audience. Where `answer` is null, use `default`. A number or promise that the owner wrote in their own `answer` (not in a `default`) is theirs to make, and you may use it exactly as they wrote it. The check does not read the answers, so it will still be flagged, and the owner confirms it when approving the texts.
+`<answers>` outrank your own assumptions about the goal, the audience, the accent and the call to action: they decide which scene runs longer, which offer or audience the film speaks to and what the final scene asks for. They are an accent on the demonstration, not a replacement for it: the two product-at-work scenes ("what it checks" and "an example result") stay in the film whatever the answers say. Where `answer` is null, use `default`. A number or promise that the owner wrote in their own `answer` (not in a `default`) is theirs to make, and you may use it exactly as they wrote it. The check does not read the answers, so it will still be flagged, and the owner confirms it when approving the texts.
 
 # Photos and layout
 
@@ -148,7 +201,7 @@ What the film author builds reliably, with the motion kit or from scratch:
 - Icons: a line icon set (lucide) that can draw itself stroke by stroke. Name icons in `motionIntent` by their lucide names, for example `check`, `x`, `alert-triangle`, `shield-check`, `lock`, `search`, `globe`, `link`, `mouse-pointer-2`, `settings`, `bell`, `arrow-right`, `refresh-cw`, `download`, `file-text`, `file-check`, `clipboard-list`, `list-checks`, `bar-chart-3`, `pie-chart`, `trending-up`, `trending-down`, `gauge`, `target`, `layers`, `layout-grid`, `clock`, `timer`, `calendar`, `zap`, `rocket`, `dollar-sign`, `percent`, `tag`, `credit-card`, `wallet`, `gift`, `shopping-cart`, `package`, `truck`, `users`, `user`, `message-circle`, `mail`, `phone`, `star`, `heart`, `thumbs-up`, `award`, `sparkles`, `map-pin`, `building-2`, `home`, `store`, `coffee`, `utensils`, `car`, `scissors`, `dumbbell`, `stethoscope`, `graduation-cap`, `camera`, `smartphone`, `monitor`, `code`, `bot`. Icons are decoration, not text: they need no item.
 - Interface and data devices: a counter that runs up to the first number in an item's text; a ring or bars that fill to the numbers in items; a UI card; a checkbox and a self-ticking checklist; an input field that types its text and presses its button; a cursor that moves and clicks; a scan line passing over an area; a flash; a glow; a strike-through that crosses out a text.
 - Photos with push-in, pull-back, drift, parallax, masks (rounded, circle, blob, diagonal) and a darkening layer under text.
-- Backgrounds in the brand palette and anything that can be drawn and animated in code: shapes and lines that draw themselves, grow, rotate or morph; colour fields that wipe or split the frame; masks that reveal; layers at different depths; position, scale, rotation, blur and opacity of anything, with spring or eased timing.
+- A living stage background (slowly drifting glows in the brand colours, a fine grid, grain, a vignette) that can be tinted towards another colour and back; backgrounds in the brand palette and anything that can be drawn and animated in code: shapes and lines that draw themselves, grow, rotate or morph; colour fields that wipe or split the frame; masks that reveal; layers at different depths; position, scale, rotation, blur and opacity of anything, with spring or eased timing.
 
 What it cannot do: video footage, 3D, particle or physics simulations, cutting an object out of a photo, generated pictures or illustrations of real things, and any words other than the scene's `headline`, `sub`, `items[].text` and the button label. Do not direct those.
 
@@ -158,6 +211,14 @@ Keep the motion in the brand's character, given in `visualStyle.motionPersonalit
 - `playful`: bouncy. Almost as fast, with more spring, rounded shapes and small surprises.
 - `calm`: smooth and soft. Gentle easing, a slower pace, flowing hand-overs.
 - `premium`: slow and exact. Few elements, long precise moves, restraint; the richness comes from layering and timing, not from quantity.
+
+# Colour drama
+
+The film author's default background is the living stage, in the brand colours. `<semantic_colors>` gives the `danger`, `warning` and `success` roles; use them to give the film a colour arc, and name them by role in `motionIntent`, never by hex:
+
+- The `problem` scene, or the scene that shows an example of a problem, asks for the stage background to tint towards `danger` (for example "the stage tints towards danger as the score lands"); severity statuses in its mock take `danger` and `warning`.
+- The scene that shows the plan, the fix or the result brings the stage back to its base colour (say so in its `motionIntent`); done and ready statuses take `success`.
+- Everywhere else the film stays in the brand palette.
 
 # Moments: `events`
 
@@ -169,6 +230,8 @@ Each scene has `events`: the moments that matter, each an object `{ id, at, what
 - `sound`: `{ cue, accent }` or null. `cue` is one of `whoosh`, `swoosh`, `riser`, `impact`, `slam`, `pop`, `ding`, `tick`, `click`, `shimmer`; `accent` is `soft`, `normal` or `hard`. The sound is placed so that it belongs to the moment: a `riser` builds up and ends exactly on `at`; `whoosh` and `swoosh` peak on `at`; every other cue starts on `at`. Use `whoosh`/`swoosh` for a move or a hand-over, `riser` into the peak, `impact`/`slam` for something that lands with weight, `pop` for an element appearing, `ding` for a success or a completed step, `tick` for each step of a count, a list or a timer, `click` for a press or a cursor click, `shimmer` for the final reveal. Successive `pop`s and `ding`s in a scene rise in pitch, so a list that pops in item by item sounds like a melody.
 - `textIds`: the `items` ids that appear or change at this moment.
 
+Sound discipline: `impact` and `slam` are the film's structural hits. Use them 2–3 times in the whole video: on the hook, on the climax (the moment the product delivers its strongest result) and on the finale (the logo or the call to action), and nowhere else. Every other moment is a `pop`, `tick`, `ding`, `click`, `whoosh`, `swoosh`, `riser` or `shimmer`: a hit is heard because what surrounds it is lighter, and eight hits in a row sound like one long noise. Keep `accent: "hard"` for the structural hits. The code keeps at most `1 + floor(seconds / 6)` impacts and slams in the whole video and at most one in any 3 seconds, and turns the extra ones into `pop`s, so spend them on purpose.
+
 Every appearance that matters gets an event, and most events get a sound; leave `sound` null for moments that should be seen but not heard. Aim for roughly 12–40 events in the whole video, distributed so that no stretch of more than a second or two is silent and static at once. `impact`, `slam`, `whoosh`, `swoosh`, `riser`, `pop`, `ding` and `shimmer` events are moved by the code to the nearest half-beat, so place them on the beat grid from the start; `tick` and `click` stay exactly where you put them, so they can follow typing or a fast count.
 
 `sfxCue` is outdated: always set it to null. Sound lives in `events`.
@@ -179,7 +242,7 @@ All timing is in frames at 30 fps.
 
 `musicBrief.bpm` is one of 60, 72, 75, 90, 100, 120, 150: at these tempos a beat is a whole number of frames (30, 25, 24, 20, 18, 15, 12). Choose it with the cut and the brand: quick scenes and hard cuts want a faster pulse, long premium moves a slower one. The code rounds any other value to the nearest of these.
 
-`durationFrames` is the length of the scene, at least 45. Make every scene a whole number of beats, so that cuts land on beats; the code rounds scene lengths to whole beats and gives the remainder to the last scene. Give each scene the time its content needs: time for its texts to arrive, the readability rule above for every text, the development of its state and a beat before the hand-over. Then shape the rhythm on purpose: scenes of equal length feel like a presentation. Decide which scene is the peak and let the lengths before it build towards it.
+`durationFrames` is the length of the scene, at least 45. Make every scene a whole number of bars (4 beats), so that cuts land where the music turns its phrases: a bar is 120 frames at 60 BPM, 100 at 72, 96 at 75, 80 at 90, 72 at 100, 60 at 120 and 48 at 150. When the exact length on the last line is not a whole number of bars, give the remainder to the last scene. The code only rounds scene lengths to whole beats, so the bars are yours to keep. Give each scene the time its content needs: time for its texts to arrive, the readability rule above for every text, the development of its state and a beat before the hand-over. Then shape the rhythm on purpose: scenes of equal length feel like a presentation. Decide which scene is the peak and let the lengths before it build towards it.
 
 The default join between scenes is `transitionIn: "cut"` with `transitionFrames: 0`, and the transition is made inside the scenes: the end of one scene sets up the start of the next. The last state of a scene can be the first state of the next one (the same shape, colour and position, so the cut reads as one continuous move: a field becomes a scan line, cards fold into columns of a to-do list, a ring collapses into a dot that becomes the logo), or the scene can exit with a flash, a wipe of a colour field or a collapse into a line. Exit animations are allowed and welcome. Describe the hand-over in both scenes' `motionIntent`.
 
@@ -197,7 +260,7 @@ There is no voice-over, so for viewers with the sound on, the music and the even
 - `mood`: a few mood words.
 - `bpm`: from the grid above.
 - `instrumentation`: the key instruments or sound sources.
-- `structure`: 2–5 parts in order, each with a `label` (such as intro, build, drop, breakdown, finale), the `sceneIds` it covers, its `energy` and its `mix`. Every scene belongs to one part, and the energies agree with the scenes' `musicEnergy`. `mix` is how our mix treats that part of the track: `filtered` (muffled and quieter, the music is held back: an intro, a problem, a build), `full` (the track as it is: the product at work, the drop), `breakdown` (almost empty, the beat drops out: a held breath). A short breakdown right before the final scene, so that the finale lands with the full track and a hit, is allowed and welcome.
+- `structure`: 2–5 parts in order, each with a `label` (such as intro, build, drop, breakdown, finale), the `sceneIds` it covers, its `energy` and its `mix`. Every scene belongs to one part, and the energies agree with the scenes' `musicEnergy`. `mix` is how our mix treats that part of the track: `filtered` (muffled and quieter, the music is held back: an intro, a problem, a build), `full` (the track as it is: the product at work, the drop), `breakdown` (almost empty, the beat drops out: a held breath). Every film has one `breakdown` part right before the final scene: it covers the scene before the last one, so keep that scene short (one or two bars) and quiet in the picture too, and the final scene opens with the full track and a structural hit.
 
 Give the track an arc that follows the story: present from the first frame (an ad has no time for a quiet intro), building through the content, peaking where the product delivers, and resolved rather than collapsed on the call to action. Keep the brief consistent with `visualStyle.musicHints`, `visualStyle.mood` and the motion personality: calm motion over aggressive music is a mistake. No names of brands, artists, bands, songs or films anywhere in the brief: the generator rejects them.
 
@@ -218,7 +281,7 @@ Decide these limits before you write the texts, for the narrowest format among t
 
 In this order: true texts and the owner's answers first; then texts a stranger can read on a phone in the time they are on screen; then the brand's character; then spectacle. The brief asks you to go all out, and the place to do it is inside those limits: the showreel-worthy video is the one where the product is unmistakable and the motion makes it unforgettable, not the one where the motion upstages the product.
 
-Before you answer, read the storyboard three times. As the viewer: is it clear after the first scene why to keep watching, after the middle what the product does, and after the last what to do? As the film author: could you build each scene from its `motionIntent`, `items` and `events` alone, and would the scenes play as one film? As the sound designer: do the cuts sit on beats, do the moments that matter make a sound, and does the music breathe before the finale?
+Before you answer, read the storyboard three times. As the viewer: is it clear after the first scene why to keep watching, after the middle what the product does, and after the last what to do? As the film author: could you build each scene from its `motionIntent`, `items` and `events` alone, and would the scenes play as one film? As the sound designer: do the cuts sit on bars, do the moments that matter make a sound, are there only two or three impacts or slams, and does the music breathe in a breakdown before the finale?
 
 Respond with a single JSON object matching the schema and nothing else.
 
@@ -230,6 +293,14 @@ Respond with a single JSON object matching the schema and nothing else.
 <brand>
 {{brand}}
 </brand>
+
+<substance>
+{{substance}}
+</substance>
+
+<semantic_colors>
+{{semantic}}
+</semantic_colors>
 
 <facts>
 {{facts}}
