@@ -48,6 +48,11 @@ export const REQUIRED_NEGATIVE_STYLES = ["vocals", "lyrics"] as const;
 /** Імена файлів у `rev/<n>/video/public/` (шляхи для staticFile()). */
 /** Музика — обрізаний на вікно відео WAV (`ensureMusic`); старі ревізії лишаються з `music.mp3`. */
 export const PUBLIC_MUSIC_FILE = "music.wav";
+/**
+ * Публічне ім'я треку за ключем у сховищі: сирий `music.mp3` (декодування не вдалося або старий
+ * трек) лишається `.mp3`, щоб розширення відповідало вмісту.
+ */
+export const publicMusicFile = (key: string) => (key.endsWith(".mp3") ? "music.mp3" : PUBLIC_MUSIC_FILE);
 /** Готове зведення (музика + події + дакінг + мастер); при ньому хост не грає music і sfx. */
 export const PUBLIC_MIX_FILE = "soundtrack.wav";
 export const publicSfxFile = (cue: string) => `sfx/${cue.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}.mp3`;

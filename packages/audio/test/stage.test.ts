@@ -160,10 +160,10 @@ describe("audioStage", () => {
 
     const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
     expect(manifest).toEqual({
-      // Стадія не передає decode у ensureMusic: ffmpeg не розкодує текст мока → сирий трек 23 с.
+      // ensureMusic декодує тим самим декодером (метроном 16 с) → обрізаний WAV: відео 15 с + 1 с хвоста.
       music: {
         src: "music.wav",
-        durationMs: 23_000,
+        durationMs: 16_000,
         fadeOutMs: 1_000,
         volume: 0.8,
         planHash: res.outputs.planHash,
@@ -190,7 +190,7 @@ describe("audioStage", () => {
     const soundtrack = decodeWav(await storage.read(rev.publicFile("soundtrack.wav")));
     expect(soundtrack.sampleRate).toBe(44_100);
     expect(soundtrack.left.length).toBe(15 * 44_100);
-    expect((await storage.read(rev.publicFile("music.wav"))).toString()).toBe("MUSIC-COMPOSE");
+    expect(decodeWav(await storage.read(rev.publicFile("music.wav"))).left.length).toBe(16 * 44_100);
     expect((await storage.read(rev.publicFile("sfx/cup-clink.mp3"))).toString()).toBe(
       "SFX:ceramic cup clink on a wooden table",
     );
@@ -252,7 +252,7 @@ describe("audioStage", () => {
     const { run } = stage(client, storage);
     const r1 = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
 
-    // Ревізія 2: сцена s3 коротша (відео 14 с ≤ трек 23 с), бриф той самий.
+    // Ревізія 2: сцена s3 коротша (відео 14 с ≤ обрізаний трек 16 с), бриф той самий.
     const shorter: Storyboard = {
       ...fixtureStoryboard,
       scenes: fixtureStoryboard.scenes.map((s) => (s.id === "s3" ? { ...s, durationFrames: 135 } : s)),
@@ -292,7 +292,12 @@ describe("audioStage", () => {
     const manifest = await storage.readJson(projectPaths(PROJECT_ID).rev(2).audio, (v) =>
       AudioManifest.parse(v),
     );
-    expect(manifest.music).toMatchObject({ planHash: r1.outputs.planHash, durationMs: 23_000 });
+    // Повторно використовується обрізаний music.wav (є check), а не сирий mp3.
+    expect(manifest.music).toMatchObject({
+      planHash: r1.outputs.planHash,
+      durationMs: 16_000,
+      src: "music.wav",
+    });
     expect(manifest.totalFrames).toBe(420);
   });
 
@@ -374,14 +379,15 @@ describe("audioStage: зведення soundtrack.wav", () => {
     const decode = fakeDecoder();
     const { run } = stage(client, storage, decode);
     const r1 = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
-    expect(decode.musicCalls()).toBe(1);
+    // Трек декодується двічі: перевірка в ensureMusic (сирий) і зведення (обрізаний WAV).
+    expect(decode.musicCalls()).toBe(2);
     const decodedSfx = decode.sfxCalls().length;
     const rev = projectPaths(PROJECT_ID).rev(1);
     const first = await storage.read(rev.publicFile("soundtrack.wav"));
 
     // Повтор стадії: той самий план, події і семпли → зведення з кешу, побайтно те саме, без декодування.
     await run(makeCtx(storage, []));
-    expect(decode.musicCalls()).toBe(1);
+    expect(decode.musicCalls()).toBe(2);
     expect(decode.sfxCalls()).toHaveLength(decodedSfx);
     expect((await storage.read(rev.publicFile("soundtrack.wav"))).equals(first)).toBe(true);
 
@@ -399,7 +405,7 @@ describe("audioStage: зведення soundtrack.wav", () => {
     });
     const r2 = await run(makeCtx(storage, [], { rev: 2 }));
     expect(r2.outputs.planHash).toBe(r1.outputs.planHash);
-    expect(decode.musicCalls()).toBe(2);
+    expect(decode.musicCalls()).toBe(3);
     const second = await storage.read(projectPaths(PROJECT_ID).rev(2).publicFile("soundtrack.wav"));
     expect(second.equals(first)).toBe(false);
     expect(client.calls.filter((c) => c.method === "compose")).toHaveLength(1);
@@ -414,7 +420,10 @@ describe("audioStage: зведення soundtrack.wav", () => {
     const rev = projectPaths(PROJECT_ID).rev(1);
     const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
     expect(manifest.mix).toBeNull();
-    expect(manifest.music?.src).toBe("music.wav");
+    // Не розкодувався → сирий трек під своїм розширенням.
+    expect(manifest.music?.src).toBe("music.mp3");
+    expect(await storage.exists(rev.publicFile("music.mp3"))).toBe(true);
+    expect(await storage.exists(rev.publicFile("music.wav"))).toBe(false);
     expect(manifest.sfx.length).toBeGreaterThan(0);
     expect(await storage.exists(rev.publicFile("soundtrack.wav"))).toBe(false);
     expect(res.artifacts).not.toContain(rev.publicFile("soundtrack.wav"));
@@ -475,7 +484,7 @@ describe("audioStage: бібліотека семплів подій", () => {
     // Наступний прогін з робочим декодером: хеш зведення інший (є семпл impact) → нове зведення.
     broken = false;
     await run(makeCtx(storage, []));
-    expect(decode.musicCalls()).toBe(2);
+    expect(decode.musicCalls()).toBe(3);
     expect((await storage.read(rev.publicFile("soundtrack.wav"))).equals(degraded)).toBe(false);
   });
 });

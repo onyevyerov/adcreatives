@@ -120,6 +120,8 @@ describe("codegenStage (film)", () => {
     expect(ctx.anthropic.calls).toHaveLength(3);
     const [film, c5, c6] = ctx.anthropic.calls.map((c) => paramsOf(c.params)) as [Params, Params, Params];
     expect(userText(film)).toContain("Mode: film.");
+    // Лого фікстури — SVG з асетом: конкретна підказка, а не загальне правило.
+    expect(userText(film)).toContain("<logo_hint>\nThe logo is vector (SVG)");
     for (const p of [film, c5, c6]) {
       expect(p.output_config).toMatchObject({ effort: "xhigh", task_budget: { total: 100000 } });
       expect(p.model).toBe("claude-opus-5-5");

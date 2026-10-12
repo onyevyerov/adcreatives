@@ -234,7 +234,7 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
         }
       }
       const vars = {
-        ...contextVars(context),
+        ...contextVars(context, brandFile),
         sceneId,
         reason: params.reason,
         language: project?.language ?? brandFile.identity.language,

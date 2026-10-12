@@ -144,7 +144,7 @@ Sameness of language, not sameness of content: each scene still has its own layo
 
 **Layout rule: no two neighbouring scenes share a layout.** Two scenes in a row never hold their main container (a card, a panel, an interface mock, a photo frame, the text block) at the same position and size, unless the join visibly transforms it: it moves, resizes, splits, folds into a list, turns into the next object, or the camera pushes into it. A match cut hands the shared element over, and the new scene changes it within its first second instead of keeping it as its own layout. Vary the arrangement from scene to scene: a centred stack, text on one side and the object on the other, a panel filling the frame, a grid or a wall of small elements, one big number, a close crop into a detail of the mock. Three scenes in a row with the same dark card in the same place is the mediocre video.
 
-**The final** lands on the logo with the call to action. When `logo.type` in `<brand>` is `svg`, the logo is vector and `useLogoGeometry()` returns `{ viewBox, paths }`: build the logo out of the film's visual line instead of fading it in. `<LogoPath draw={…} stroke={…} strokeWidth={…} size={…} />` draws the outline as `draw` goes from 0 to 1 and fills it from 0.6 on, in one colour; for a logo of several colours, cross-fade from `LogoPath` to a `<Logo>` of the same size and position over about 8 frames once it is drawn. The `paths` can also drive your own `<svg>`: a line that becomes the contour, dots that gather into the shape. `useLogoGeometry()` returns `null` for `image` and `text` logos and for an SVG that holds only text or a bitmap, so always write `const geo = useLogoGeometry();` and fall back to `<Logo>` when it is `null`.
+**The final** lands on the logo with the call to action. When `logo.type` in `<brand>` is `svg`, the logo is vector and `useLogoGeometry()` returns `{ viewBox, paths }`: build the logo out of the film's visual line instead of fading it in. `<LogoPath draw={…} stroke={…} strokeWidth={…} size={…} />` draws the outline as `draw` goes from 0 to 1 and fills it from 0.6 on, in one colour; for a logo of several colours, cross-fade from `LogoPath` to a `<Logo>` of the same size and position over about 8 frames once it is drawn. The `paths` can also drive your own `<svg>`: a line that becomes the contour, dots that gather into the shape. `useLogoGeometry()` returns `null` for `image` and `text` logos and for an SVG that holds only text or a bitmap, so always write `const geo = useLogoGeometry();` and fall back to `<Logo>` when it is `null`. `<logo_hint>` says which case this brand is.
 
 The message says which of five modes you are in.
 
@@ -195,6 +195,10 @@ Only `<file name="sN.tsx">…</file>` blocks, one per scene listed in the messag
 <brand>
 {{brand}}
 </brand>
+
+<logo_hint>
+{{logoGeometryHint}}
+</logo_hint>
 
 <assets>
 {{assets}}
