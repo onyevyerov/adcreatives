@@ -87,11 +87,30 @@ import { createMockAnthropic } from "@adc/shared/llm";     // мок Anthropic �
 ### Перемикачі генерації (`ADC_*`)
 
 `readTuning()` з `@adc/shared` читає їх на старті воркера; невалідне значення — помилка старту.
-Дефолти — погоджена конфігурація (паралельні сцени після anchor, anchor і решта `high`, `ADC_QA_MAX_ROUNDS=2`).
-Режим `ADC_CODEGEN_MODE=film` (один виклик на весь фільм) з'явиться разом зі стадією codegen для нього; дефолт — `fanout`.
+Дефолти — погоджена конфігурація (`ADC_CODEGEN_MODE=film`: один автор — весь фільм за один виклик; effort `high`, `ADC_QA_MAX_ROUNDS=2`).
 Відкат до послідовної генерації без деплою коду:
 `ADC_CODEGEN_MODE=sequential ADC_CODEGEN_ANCHOR_EFFORT=xhigh ADC_CODEGEN_REST_EFFORT=high`.
 Повний список — `TUNING_ENV` у `packages/shared/src/tuning.ts`.
+
+**Агентний режим генерації** (`ADC_GENERATION_MODE=agent`, дефолт `pipeline`). Замість codegen сцени пише
+стадія `author` (`packages/author`, промпт `prompts/author.md`): один агент пише кожну сцену інструментом
+(`write_scene`: AST-guard + типи + журнал версій), сам рендерить і дивиться стрічки (`render_strip`,
+`render_frames`, `contact_sheet`), читає звукові події (`audio_events`) і завершує (`finish`). Далі — той самий
+`check` ↔ `fix`, а QA — страховка: не більше одного кола (`ADC_QA_MAX_ROUNDS` може лише зменшити). Правки після
+стілів і видачі в цьому режимі теж ідуть через `author` (лише зачеплені сцени). Бюджет стадії:
+
+| Змінна | Дефолт | Що обмежує |
+|---|---|---|
+| `ADC_AUTHOR_TOKEN_BUDGET` | 3 000 000 (мін. 500 000) | сумарні токени: input + output + запис і читання кешу |
+| `ADC_AUTHOR_MAX_ITERATIONS` | 40 (5–80) | відповіді моделі з викликами інструментів |
+| `ADC_AUTHOR_MAX_MINUTES` | 25 (5–60) | час стадії |
+
+Після будь-якого ліміту сцени без робочого коду лагодить звичайний `fix`. Вартість — оцінка $15–30 на ролик
+проти ≈ $4 у `pipeline` (оцінка за токенами чат-сесії, не замір; фактичні $ і хвилини — етап L,
+`costs.jsonl` з `detail: author:iter:<n>` і `author:strip:<scene>`, журнал викликів —
+`rev/<n>/director/author/log.jsonl`, підсумок — `rev/<n>/director/author/report.json`). Режим читається на кожен
+крок оркестратора і діє з наступного старту режисури; воркер черги `llm` у цьому режимі рендерить кадри, тож
+йому потрібен браузер Remotion.
 
 ## Відхилення від тексту ТЗ (технічні, свідомі)
 

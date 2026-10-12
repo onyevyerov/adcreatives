@@ -81,10 +81,21 @@ export interface StepContext {
   speculativeRender?: boolean;
   /**
    * `Tuning.qaMaxRounds`: скільки кіл QA → fix до чекпоінта 3 (0 — без фіксів після QA).
-   * Не задано — `readTuning().qaMaxRounds` з env (`ADC_QA_MAX_ROUNDS`, дефолт 2).
+   * Не задано — `readTuning().qaMaxRounds` з env (`ADC_QA_MAX_ROUNDS`, дефолт 2); у ревізії, яку
+   * писав агент (`author`), — не більше `AGENT_QA_MAX_ROUNDS`.
    */
   qaMaxRounds?: number;
+  /**
+   * `Tuning.generationMode` (драйвер читає `readTuning`): `agent` — сцени пише стадія `author`
+   * (один агент пише, рендерить і дивиться) замість `codegen`. Не задано — `pipeline`.
+   */
+  generationMode?: GenerationMode;
 }
+
+export type GenerationMode = "pipeline" | "agent";
+
+/** Кіл QA → fix після агента за замовчуванням: агент уже дивився свої кадри, QA — страховка. */
+export const AGENT_QA_MAX_ROUNDS = 1;
 
 export type Effect =
   /** Зібрати картку чекпоінта з артефактів і надіслати в чат. */
@@ -326,16 +337,26 @@ function approveScript(d: Draft): void {
   startDirecting(d, null, []);
 }
 
+/**
+ * Відео- і аудіогілка ревізії. Сцени пише `codegen` або, в агентному режимі, `author` з тими самими
+ * `sceneIds`/`instructions` (перша генерація — усі сцени, правка після стілів/видачі — підмножина).
+ */
 function startDirecting(
   d: Draft,
   sceneIds: string[] | null,
   instructions: Array<{ sceneId: string; instruction: string }>,
 ): void {
+  const stage = d.ctx.generationMode === "agent" ? "author" : "codegen";
   d.project.branches = { video: "running", audio: "running" };
   d.pipe.videoPhase = "build";
-  d.progress("codegen", t("directingStarted"));
-  d.enqueue("codegen", { sceneIds, instructions });
+  d.progress(stage, t("directingStarted"));
+  d.enqueue(stage, { sceneIds, instructions });
   d.enqueue("audio", {});
+}
+
+/** Чи писав сцени цієї ревізії агент (стадія `author` уже ставилась у цій ревізії). */
+function authoredByAgent(d: Draft): boolean {
+  return (d.pipe.attempts.author ?? 0) > 0;
 }
 
 function approveStoryboard(d: Draft): void {
@@ -600,8 +621,7 @@ function onStageEvent(d: Draft, ev: StageDoneEvent): void {
     storyboard: () => onStoryboardDone(d),
     revise: (e) => onReviseDone(d, e),
     codegen: () => onCodegenDone(d),
-    // Агентний режим (стадія `author`) поки не ставиться; після неї — те саме, що після codegen.
-    author: () => onCodegenDone(d),
+    author: (e) => onAuthorDone(d, e),
     check: (e) => onCheckDone(d, e),
     fix: (e) => onFixDone(d, e, job),
     qa: (e) => onQaDone(d, e),
@@ -735,6 +755,16 @@ function onCodegenDone(d: Draft): void {
   d.enqueue("check", { sceneIds: d.pipe.changedScenes });
 }
 
+/**
+ * Після агента — `check` написаних ним сцен, далі як після codegen (check ↔ fix, QA як страховка).
+ * Перша генерація (і правка зі зміною тривалості) перевіряє всі сцени, як після codegen.
+ */
+function onAuthorDone(d: Draft, ev: StageDoneOk<"author">): void {
+  const written = uniq(ev.outputs.sceneIds);
+  const scope = d.pipe.changedScenes === null || written.length === 0 ? null : written;
+  d.enqueue("check", { sceneIds: scope });
+}
+
 function onCheckDone(d: Draft, ev: StageDoneOk<"check">): void {
   const pipe = d.pipe;
   const failed = uniq(ev.outputs.failedScenes).filter((s) => !pipe.templateScenes.includes(s));
@@ -764,7 +794,9 @@ function onFixDone(d: Draft, ev: StageDoneOk<"fix">, job: JobRecord): void {
 
 function onQaDone(d: Draft, ev: StageDoneOk<"qa">): void {
   const pipe = d.pipe;
-  const maxRounds = d.ctx.qaMaxRounds ?? readTuning().qaMaxRounds;
+  const maxRounds =
+    d.ctx.qaMaxRounds ??
+    (authoredByAgent(d) ? Math.min(AGENT_QA_MAX_ROUNDS, readTuning().qaMaxRounds) : readTuning().qaMaxRounds);
   if (ev.outputs.verdict === "fix" && pipe.qaRounds < maxRounds) {
     // Наступні кола — лише по сценах, які щойно виправляли (QA бачив лише їх).
     const targets = uniq(ev.outputs.seriousScenes).filter(

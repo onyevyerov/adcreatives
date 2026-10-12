@@ -159,13 +159,14 @@ const renderStrip: AgentTool<{ sceneId: string }> = {
 const tools = [writeScene, renderStrip] as AgentTool[];
 
 describe("ТЗ паритету, Крок 0: Llm.agent", () => {
-  it("справжній agent() — заглушка до блоку C1", async () => {
+  it("справжній agent() — цикл з інструментами (C1; детально — llm-agent.test.ts)", async () => {
     const { llm } = testLlm();
+    // Черга мок-клієнта порожня: перший же виклик API падає — і це помилка API, а не заглушка.
     const err = await llm
       .agent("author", { brand: "Зерно" }, { tools, maxIterations: 5, tokenBudget: 1_000_000 })
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(LlmError);
-    expect((err as LlmError).code).toBe("agent_not_implemented");
+    expect((err as LlmError).code).toBe("api");
   });
 
   it("мок: виконує сценарій інструментами, бачить попередні результати, finish → done", async () => {

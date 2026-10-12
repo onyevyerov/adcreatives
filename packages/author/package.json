@@ -11,6 +11,9 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@adc/shared": "workspace:*"
+    "@adc/director": "workspace:*",
+    "@adc/render": "workspace:*",
+    "@adc/shared": "workspace:*",
+    "zod": "^4.6.5"
   }
 }

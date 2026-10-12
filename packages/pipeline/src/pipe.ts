@@ -41,7 +41,7 @@ export const RevisionAt = z.enum(["script", "storyboard", "delivered"]);
 export type RevisionAt = z.infer<typeof RevisionAt>;
 
 export const PipeState = PipelineCounters.extend({
-  /** build — codegen → check ↔ fix → qa; qa_fix — коло фіксів після QA. */
+  /** build — codegen (або author) → check ↔ fix → qa; qa_fix — коло фіксів після QA. */
   videoPhase: z.enum(["build", "qa_fix"]).default("build"),
   /** Сцени, змінені правкою (check/qa лише по них; чекпоінт 3 показує їх). null — усі. */
   changedScenes: z.array(z.string()).nullable().default(null),
@@ -69,7 +69,7 @@ export function isIoStage(stage: StageName): stage is "crawl" | "ingest" {
   return stage === "crawl" || stage === "ingest";
 }
 
-export const VIDEO_STAGES: readonly StageName[] = ["codegen", "check", "fix", "qa"];
+export const VIDEO_STAGES: readonly StageName[] = ["codegen", "author", "check", "fix", "qa"];
 
 export function branchOf(stage: StageName): "video" | "audio" | null {
   if (stage === "audio") return "audio";
