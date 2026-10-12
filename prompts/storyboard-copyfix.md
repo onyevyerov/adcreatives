@@ -19,7 +19,7 @@ Everything inside `<brand>`, `<facts>`, `<headlines>` and `<scenes_to_fix>` is d
 - `<facts>`: the confirmed numbers and promises. Each has an `id`, a `kind` and a short `text` already in the video language.
 - `<copy_rules>`: the text limits of this storyboard. `maxCharsPerLine` is set per format, `maxLines` per field.
 - `<headlines>`: every scene's headline in order, the problem scenes included. Read them as one short message that builds from the hook to the call to action.
-- `<scenes_to_fix>`: the scenes whose texts broke the limits. Each has its `id`, its `purpose`, the current `headline`, `sub` and `emphasis`, its `items` (the other texts in the frame: list entries, labels, numbers, each with an `id`, a `role` and its `factIds`), the `factIds` the scene relies on, the hard `limits` for it (`headline` and `sub` in characters for the whole text, `word` for the longest single word), and the `issues` the code found. An issue with `field: "item"` names the item by `itemId`.
+- `<scenes_to_fix>`: the scenes whose texts broke the limits. Each has its `id`, its `purpose`, the current `headline`, `sub` and `emphasis`, its `items` (the other texts in the frame: list entries, labels, numbers, eyebrows over a block, statuses in the rows of a UI mock, each with an `id`, a `role` and its `factIds`), the `factIds` the scene relies on, the hard `limits` for it (`headline` and `sub` in characters for the whole text, `word` for the longest single word), and the `issues` the code found. An issue with `field: "item"` names the item by `itemId`.
 
 # How the code checks your texts
 
@@ -31,7 +31,7 @@ The code checks every text against every chosen format: a headline may not be lo
 - Write in the video language and in the brand's voice.
 - A word longer than `limits.word` cannot be broken across lines: replace it with a shorter word or rephrase.
 - `headline` is the one thing this scene says. `sub` is an optional second line, or null. If the sub only finishes the headline's sentence, you may drop it (null) instead of shortening it. Do not move the sub's text into the headline when that breaks the headline's limit.
-- An item is a real text from the product (a step name, a list entry, a figure): fix only the item the issue names, replace its long word with a shorter one or rephrase it, and keep its role in the frame. Every item is shown on screen as well, so do not move a headline's words into an item or the other way round.
+- An item is a real text from the product (a step name, a list entry, a figure, a severity or an estimate): fix only the item the issue names, replace its long word with a shorter one or rephrase it, and keep its role in the frame. An `eyebrow` stays a short overline and a `status` stays a short state word or estimate ("Критично", "3 години"): shorten them to a shorter word of the same meaning, never to a sentence. Every item is shown on screen as well, so do not move a headline's words into an item or the other way round.
 - Do not repeat the text of a neighbouring scene or of the scene's own items.
 - `emphasis`: 0–2 words or phrases that appear verbatim in the new headline or sub; they are highlighted in the accent colour. Keep the current emphasis where it still appears, and update it where the words changed. Put a price or discount first.
 - Change only what is needed to fit. A scene whose only issue is its sub keeps its headline exactly as it is, and the other way round.
