@@ -3,11 +3,13 @@ import {
   AudioPlan,
   BrandKit,
   type CostRecorder,
+  computeEventPlacements,
   createCostRecorder,
   loadPrices,
   MusicMeta,
   ProjectState,
   projectPaths,
+  type SoundCue,
   type Stage,
   type StageContext,
   StageError,
@@ -35,8 +37,19 @@ import {
   planMatchesLayout,
   referencedCues,
 } from "./plan.ts";
+import type { SfxSample } from "./samples.ts";
 import { brandTerms, createSanitizer } from "./sanitize.ts";
-import { ensureCustomSfx, ensureStandardSfx, loadStandardCues, type SfxDeps, type SfxFile } from "./sfx.ts";
+import {
+  type CueDefinition,
+  ensureCustomSfx,
+  ensureStandardSfx,
+  loadSfxLibrary,
+  loadStandardCues,
+  type SfxDeps,
+  type SfxFile,
+  sfxHash,
+  variantLabel,
+} from "./sfx.ts";
 
 export interface AudioStageDeps {
   /** Клієнт ElevenLabs або фабрика (створюється ліниво — лише якщо потрібен платний виклик). */
@@ -45,7 +58,7 @@ export interface AudioStageDeps {
   gate?: ElevenLabsGate;
   /** Журнал спільних витрат (догенерація стандартних SFX, якщо кеш не прогріто). */
   sharedCost?: CostRecorder | ((ctx: StageContext<"audio">) => CostRecorder);
-  /** Декодер музики в PCM для зведення; дефолт — ffmpeg зі збірки Remotion. */
+  /** Декодер музики і семплів SFX у PCM для зведення; дефолт — ffmpeg зі збірки Remotion. */
   decode?: DecodeAudio;
   now?: () => Date;
 }
@@ -158,6 +171,7 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
     const layout = computeChunkLayout(storyboard);
     const sanitizer = createSanitizer(brandTerms(brand));
     const standardCues = loadStandardCues(ctx.prompts);
+    const sfxLibrary = loadSfxLibrary(ctx.prompts);
     const briefHash = musicBriefHash(storyboard.musicBrief);
 
     // Лінива фабрика клієнта: якщо все з кешу — ключ API не потрібен.
@@ -263,13 +277,26 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       return sharedCost;
     };
 
+    // Спільний кеш SFX: один запит (хеш) — один виклик, навіть якщо його чекають і legacy-шлях, і події.
+    const sharedJobs = new Map<string, Promise<SfxFile>>();
+    const ensureShared = (label: string, def: CueDefinition): Promise<SfxFile> => {
+      const hash = sfxHash(def);
+      let job = sharedJobs.get(hash);
+      if (!job) {
+        job = ensureStandardSfx(sfxDeps, getSharedCost, label, def);
+        sharedJobs.set(hash, job);
+      }
+      return job;
+    };
+
+    // Legacy `scene.sfxCue`: файли в public, хост грає їх, коли зведення немає.
     const cues = referencedCues(storyboard);
     const sfxJobs: Array<Promise<SfxFile>> = [];
     for (const cue of [...cues.standard, ...cues.custom]) {
       const spec = plan.sfx.find((s) => s.cue === cue);
       if (isStandardCue(cue)) {
         const def = standardCues[cue as keyof typeof standardCues];
-        sfxJobs.push(ensureStandardSfx(sfxDeps, getSharedCost, cue, def));
+        sfxJobs.push(ensureShared(variantLabel(cue, 1), def).then((f) => ({ ...f, cue })));
       } else if (spec?.custom) {
         sfxJobs.push(
           ensureCustomSfx(sfxDeps, ctx.cost, projectId, cue, {
@@ -282,11 +309,35 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       }
     }
 
-    const [music, sfxResults] = await Promise.all([musicPromise, Promise.allSettled(sfxJobs)]);
+    // Звуки подій: усі варіанти cue, використаних подіями (спільний кеш; промах — генерація).
+    const eventCues = [
+      ...new Set(
+        computeEventPlacements(storyboard)
+          .map((p) => p.cue)
+          .filter((c): c is SoundCue => c !== null),
+      ),
+    ];
+    const variantJobs = eventCues.flatMap((cue) =>
+      sfxLibrary[cue].map((def, i) => {
+        const variant = i + 1;
+        return ensureShared(variantLabel(cue, variant), def).then((file) => ({ cue, variant, file }));
+      }),
+    );
+
+    const [music, sfxResults, variantResults] = await Promise.all([
+      musicPromise,
+      Promise.allSettled(sfxJobs),
+      Promise.allSettled(variantJobs),
+    ]);
     const sfxFiles: SfxFile[] = [];
     for (const r of sfxResults) {
       if (r.status === "fulfilled") sfxFiles.push(r.value);
       else logger.warn("SFX не згенерувався — сцена буде без нього", { err: String(r.reason) });
+    }
+    const variantFiles: Array<{ cue: SoundCue; variant: number; file: SfxFile }> = [];
+    for (const r of variantResults) {
+      if (r.status === "fulfilled") variantFiles.push(r.value);
+      else logger.warn("варіант SFX не згенерувався — пропускаємо", { err: String(r.reason) });
     }
 
     // Файли для staticFile() хоста.
@@ -299,21 +350,69 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       artifacts.push(dest);
     }
 
-    // Зведення: трек + синтезовані події за таймлайном + дакінг + мастер → soundtrack.wav.
-    // Кеш — за planHash + тональністю + таймлайном + подіями; без зведення хост грає music і sfx, як раніше.
+    // Зведення: трек + семпли бібліотеки SFX за таймлайном подій + дакінг + мастер → soundtrack.wav.
+    // Кеш — за planHash + тональністю + таймлайном + подіями + хешами варіантів семплів;
+    // без зведення хост грає music і sfx, як раніше.
     let mix: { durationMs: number } | null = null;
     try {
-      const mixHash = soundtrackHash({ planHash: music.planHash, key: plan.key, storyboard });
-      const mixKey = soundtrackCacheKey(projectId, music.planHash, mixHash);
+      const decode = deps.decode ?? decodeAudio;
+      const decodeOpts = ctx.signal ? { signal: ctx.signal } : {};
+      const hashesOf = (files: ReadonlyArray<{ cue: SoundCue; file: SfxFile }>) => {
+        const out: Partial<Record<SoundCue, string[]>> = {};
+        for (const f of files) out[f.cue] = [...(out[f.cue] ?? []), f.file.hash];
+        return out;
+      };
+      let mixHash = soundtrackHash({
+        planHash: music.planHash,
+        key: plan.key,
+        storyboard,
+        samples: hashesOf(variantFiles),
+      });
+      let mixKey = soundtrackCacheKey(projectId, music.planHash, mixHash);
       if (!(await storage.exists(mixKey))) {
-        const pcm = await (deps.decode ?? decodeAudio)(
-          await storage.read(music.key),
-          ctx.signal ? { signal: ctx.signal } : {},
+        const pcm = await decode(await storage.read(music.key), decodeOpts);
+        // Семпли: помилка декодування варіанта — пропуск варіанта; cue без варіантів — події без звуку.
+        const decoded = await Promise.allSettled(
+          variantFiles.map(async (v) => ({
+            ...v,
+            pcm: await decode(await storage.read(v.file.key), decodeOpts),
+          })),
         );
-        const soundtrack = renderSoundtrack({ music: pcm, storyboard, key: plan.key });
+        if (ctx.signal?.aborted) throw ctx.signal.reason ?? new Error("aborted");
+        const samples: Partial<Record<SoundCue, SfxSample[]>> = {};
+        const used: Array<{ cue: SoundCue; file: SfxFile }> = [];
+        decoded.forEach((r, i) => {
+          const v = variantFiles[i];
+          if (!v) return;
+          if (r.status === "rejected") {
+            logger.warn("семпл SFX не декодувався — пропускаємо варіант", {
+              cue: v.cue,
+              variant: v.variant,
+              err: String(r.reason),
+            });
+            return;
+          }
+          const sample: SfxSample = { cue: v.cue, variant: v.variant, hash: v.file.hash, pcm: r.value.pcm };
+          samples[v.cue] = [...(samples[v.cue] ?? []), sample];
+          used.push(v);
+        });
+        for (const cue of eventCues) {
+          if (!samples[cue]?.length) logger.warn("немає жодного семпла cue — події без звуку", { cue });
+        }
+        // Хеш — за фактично використаними семплами: наступний прогін повторить пропущені.
+        mixHash = soundtrackHash({
+          planHash: music.planHash,
+          key: plan.key,
+          storyboard,
+          samples: hashesOf(used),
+        });
+        mixKey = soundtrackCacheKey(projectId, music.planHash, mixHash);
+        const soundtrack = renderSoundtrack({ music: pcm, storyboard, key: plan.key, samples });
         logger.info("зведення готове", {
           mixHash,
           events: soundtrack.sounds.length,
+          silentEvents: soundtrack.silent.length,
+          samples: used.length,
           beatShiftMs: soundtrack.alignment
             ? Math.round((soundtrack.alignment.shiftSamples / pcm.sampleRate) * 1000)
             : null,

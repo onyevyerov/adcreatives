@@ -4,6 +4,7 @@ import {
   noopLogger,
   type PromptLoader,
   projectPaths,
+  SoundCue,
   STANDARD_SFX_CUES,
   type StandardSfxCue,
   type Storage,
@@ -16,38 +17,78 @@ import { audioBytes, type ElevenLabsLike } from "./client.ts";
 import { SFX_MODEL_ID, SFX_PROMPT_INFLUENCE, SFX_TIMEOUT_SECONDS } from "./constants.ts";
 import type { ElevenLabsGate } from "./gate.ts";
 
-/** Назва файлу з текстами стандартних cue: `prompts/elevenlabs/sfx-cues.md`. */
+/** Назва файлу з текстами бібліотеки SFX: `prompts/elevenlabs/sfx-cues.md`. */
 export const SFX_CUES_PROMPT = "elevenlabs/sfx-cues";
 
 export interface CueDefinition {
   text: string;
   durationSeconds: number;
 }
+/** Legacy-шлях `scene.sfxCue`: 8 стандартних cue, варіант 1 кожного. */
 export type StandardCueLibrary = Record<StandardSfxCue, CueDefinition>;
+/** Бібліотека звуків подій: кожен `SoundCue` → варіанти в порядку номерів (індекс 0 — варіант 1). */
+export type SfxLibrary = Record<SoundCue, CueDefinition[]>;
 
-/** Рядок списку: `- whoosh (0.6 s): текст промпта`. */
-const CUE_LINE = /^\s*[-*]\s*`?([a-z][a-z0-9-]*)`?\s*\(\s*([\d.]+)\s*s\s*\)\s*:\s*(.+?)\s*$/;
+/**
+ * Рядок списку: `- pop.2 (0.5 s): текст промпта`; без номера (`- pop (0.5 s): …`) — варіант 1
+ * (старий формат).
+ */
+const CUE_LINE = /^\s*[-*]\s*`?([a-z][a-z0-9-]*)(?:\.(\d+))?`?\s*\(\s*([\d.]+)\s*s\s*\)\s*:\s*(.+?)\s*$/;
 
-/** Розбирає тіло `sfx-cues.md`; кидає помилку, якщо якогось із 8 стандартних cue немає. */
-export function parseSfxCues(body: string): StandardCueLibrary {
-  const found = new Map<string, CueDefinition>();
+/** Усі рядки cue з тіла `sfx-cues.md`: cue → (номер варіанта → опис). Дубль варіанта — помилка. */
+function parseCueLines(body: string): Map<string, Map<number, CueDefinition>> {
+  const found = new Map<string, Map<number, CueDefinition>>();
   for (const line of body.split(/\r?\n/)) {
     const m = CUE_LINE.exec(line);
     if (!m) continue;
-    const [, cue, secs, text] = m;
+    const [, cue, num, secs, text] = m;
     const durationSeconds = Number(secs);
-    if (!cue || !text || !Number.isFinite(durationSeconds)) continue;
-    found.set(cue, { text, durationSeconds: Math.min(30, Math.max(0.5, durationSeconds)) });
+    const variant = num === undefined ? 1 : Number(num);
+    if (!cue || !text || !Number.isFinite(durationSeconds) || !(variant >= 1)) continue;
+    const variants = found.get(cue) ?? new Map<number, CueDefinition>();
+    if (variants.has(variant)) throw new Error(`sfx-cues.md: варіант ${cue}.${variant} задано двічі`);
+    variants.set(variant, { text, durationSeconds: Math.min(30, Math.max(0.5, durationSeconds)) });
+    found.set(cue, variants);
   }
-  const missing = STANDARD_SFX_CUES.filter((c) => !found.has(c));
-  if (missing.length > 0) throw new Error(`sfx-cues.md: немає cue ${missing.join(", ")}`);
-  return Object.fromEntries(STANDARD_SFX_CUES.map((c) => [c, found.get(c)])) as StandardCueLibrary;
+  return found;
 }
 
-export function loadStandardCues(prompts: PromptLoader): StandardCueLibrary {
-  const p = prompts.load(SFX_CUES_PROMPT);
-  return parseSfxCues([p.system, p.user ?? ""].join("\n"));
+const sortedVariants = (variants: Map<number, CueDefinition>): CueDefinition[] =>
+  [...variants.entries()].sort((a, b) => a[0] - b[0]).map(([, def]) => def);
+
+/** Бібліотека звуків подій; кидає помилку, якщо якогось `SoundCue` або його варіанта 1 немає. */
+export function parseSfxLibrary(body: string): SfxLibrary {
+  const found = parseCueLines(body);
+  const missing = SoundCue.options.filter((c) => !found.get(c)?.has(1));
+  if (missing.length > 0) throw new Error(`sfx-cues.md: немає cue ${missing.join(", ")}`);
+  return Object.fromEntries(
+    SoundCue.options.map((c) => [c, sortedVariants(found.get(c) as Map<number, CueDefinition>)]),
+  ) as SfxLibrary;
 }
+
+/** Legacy: варіант 1 кожного з 8 стандартних cue; кидає помилку, якщо якогось немає. */
+export function parseSfxCues(body: string): StandardCueLibrary {
+  const found = parseCueLines(body);
+  const missing = STANDARD_SFX_CUES.filter((c) => !found.get(c)?.has(1));
+  if (missing.length > 0) throw new Error(`sfx-cues.md: немає cue ${missing.join(", ")}`);
+  return Object.fromEntries(STANDARD_SFX_CUES.map((c) => [c, found.get(c)?.get(1)])) as StandardCueLibrary;
+}
+
+const cuesBody = (prompts: PromptLoader) => {
+  const p = prompts.load(SFX_CUES_PROMPT);
+  return [p.system, p.user ?? ""].join("\n");
+};
+
+export function loadStandardCues(prompts: PromptLoader): StandardCueLibrary {
+  return parseSfxCues(cuesBody(prompts));
+}
+
+export function loadSfxLibrary(prompts: PromptLoader): SfxLibrary {
+  return parseSfxLibrary(cuesBody(prompts));
+}
+
+/** Мітка варіанта в журналі витрат і метаданих кешу: `pop.2`. */
+export const variantLabel = (cue: string, variant: number) => `${cue}.${variant}`;
 
 /** Хеш SFX-запиту = ім'я файлу в кеші. Однаковий запит — той самий файл. */
 export function sfxHash(def: CueDefinition): string {

@@ -4,15 +4,17 @@ import {
   loadPrices,
   projectPaths,
   readCosts,
+  SoundCue,
   sharedPaths,
 } from "@adc/shared";
 import { describe, expect, it } from "vitest";
-import { ensureCustomSfx, loadStandardCues, sfxHash } from "../src/sfx.ts";
+import { ensureCustomSfx, loadSfxLibrary, loadStandardCues, sfxHash } from "../src/sfx.ts";
 import { runSfxCacheCli, warmSfxCache } from "../src/sfxCache.ts";
 import { instantGate, mockElevenLabs, PROJECT_ID, tmpStorage } from "./helpers.ts";
 
 const prompts = createPromptLoader();
 const library = loadStandardCues(prompts);
+const events = loadSfxLibrary(prompts);
 
 const sharedCost = (storage: ReturnType<typeof tmpStorage>) =>
   createCostRecorder(storage, loadPrices(), {
@@ -25,30 +27,39 @@ const sharedCost = (storage: ReturnType<typeof tmpStorage>) =>
   });
 
 describe("standard SFX cache", () => {
-  it("warms all 8 cues once into cache/sfx/<hash>.mp3 with shared costs; second run is free", async () => {
+  it("warms all 30 library variants once into cache/sfx/<hash>.mp3 with shared costs; second run is free", async () => {
     const storage = tmpStorage();
     const client = mockElevenLabs();
     const opts = { storage, prompts, client: () => client, gate: instantGate(), cost: sharedCost(storage) };
     const first = await warmSfxCache(opts);
-    expect(first.filter((f) => f.generated)).toHaveLength(8);
-    expect(client.calls).toHaveLength(8);
+    expect(first.filter((f) => f.generated)).toHaveLength(30);
+    expect(client.calls).toHaveLength(30);
     for (const call of client.calls) {
       expect(call.request).toMatchObject({ promptInfluence: 0.6, modelId: "eleven_text_to_sound_v2" });
     }
+    expect(new Set(first.map((f) => f.cue))).toEqual(
+      new Set(SoundCue.options.flatMap((c) => [1, 2, 3].map((n) => `${c}.${n}`))),
+    );
+    // Legacy-cue — варіант 1 бібліотеки: той самий файл.
     const whoosh = sharedPaths.sfxCache(sfxHash(library.whoosh));
+    expect(sfxHash(library.whoosh)).toBe(sfxHash(events.whoosh[0] as (typeof events.whoosh)[0]));
     expect((await storage.read(whoosh)).toString()).toBe(`SFX:${library.whoosh.text}`);
     expect(await storage.exists(sharedPaths.sfxCacheMeta(sfxHash(library.whoosh)))).toBe(true);
+    for (const def of events.slam)
+      expect(await storage.exists(sharedPaths.sfxCache(sfxHash(def)))).toBe(true);
 
     const costs = await readCosts(storage, null);
-    expect(costs).toHaveLength(8);
+    expect(costs).toHaveLength(30);
     expect(
       costs.every((c) => c.provider === "elevenlabs" && c.stage === "sfx-cache" && c.projectId === null),
     ).toBe(true);
-    expect(costs.find((c) => c.detail === "sfx:riser")?.units).toEqual({ seconds: 1.5 });
+    expect(costs.find((c) => c.detail === "sfx:riser.1")?.units).toEqual({
+      seconds: events.riser[0]?.durationSeconds,
+    });
 
     const second = await warmSfxCache(opts);
     expect(second.every((f) => !f.generated)).toBe(true);
-    expect(client.calls).toHaveLength(8);
+    expect(client.calls).toHaveLength(30);
   });
 
   it("the CLI refuses paid calls without LIVE=1", async () => {

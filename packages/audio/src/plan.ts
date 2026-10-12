@@ -24,9 +24,9 @@ import {
   REQUIRED_NEGATIVE_STYLES,
   REQUIRED_POSITIVE_STYLES,
 } from "./constants.ts";
+import { parseKey } from "./key.ts";
 import type { Sanitizer } from "./sanitize.ts";
 import type { StandardCueLibrary } from "./sfx.ts";
-import { parseKey } from "./synth.ts";
 
 /** Назва промпта стадії. */
 export const AUDIO_PLAN_PROMPT = "audio-plan";

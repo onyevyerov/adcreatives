@@ -15,7 +15,7 @@ The soundtrack has three layers, and only the first one is yours.
 
 1. **The track from the generator.** One steady piece of music for the whole video: the same groove, the same instruments, the same sound from the first second to the last.
 2. **The mix, done by code.** Code finds the kick drum in the track, shifts the track so the beats land exactly on the video's frame grid (scene cuts and on-screen moments sit on beats), and shapes the arc from `musicBrief.structure[].mix`: `filtered` parts get a low-pass filter and less level (an intro heard "through a wall"), `full` parts play the track as it is, `breakdown` parts are filtered hard and pulled far down. Transitions take one beat. The last second fades out.
-3. **Sound events, synthesized by code.** Every moment of the picture that the storyboard gives a sound (`whoosh`, `swoosh`, `riser`, `impact`, `slam`, `pop`, `ding`, `tick`, `click`, `shimmer`) is synthesized on its exact frame. Code ducks the music under impacts and slams. Pitched events (`pop`, `ding`, `shimmer`) are tuned to the key you name in `key`.
+3. **Sound events from a ready sound library.** Every moment of the picture that the storyboard gives a sound (`whoosh`, `swoosh`, `riser`, `impact`, `slam`, `pop`, `ding`, `tick`, `click`, `shimmer`) gets a sound from the studio's own sound-effects library, placed by code on its exact frame. Code ducks the music under impacts and slams. Pitched events (`pop`, `ding`, `shimmer`) are tuned to the key you name in `key`.
 
 So the arc, the drops and the hits are not your job, and the generator could not do them anyway: it ignores arrangement changes in a plan (measured: five parts of one track came out within 0.5 dB of each other). What the mix needs from you is a track it can work with: a strong, characterful groove at the brief's tempo with a clear kick on every beat, in one key, with a stable arrangement and timbre throughout.
 
@@ -76,7 +76,7 @@ Every chunk gets the same `section`: "main groove". Every chunk gets the same `p
 
 # Sound effects
 
-Sound events are synthesized by code; you do not describe them. The only exception is old storyboards: `customCues` lists cue names from such a storyboard that are not in the standard library. For each one, add an entry with `cue` exactly as given, `custom` true, `text` as a concrete English description for a sound-effects generator (material, action, character, length: "ceramic cup set down on a wooden table, short soft clink, dry, one-shot"), and `durationSeconds` between 0.5 and 1.5. If `customCues` is empty, `sfx` is an empty array.
+Sound events come from the studio's sound library; you do not describe them. The only exception is old storyboards: `customCues` lists cue names from such a storyboard that are not in the standard library. For each one, add an entry with `cue` exactly as given, `custom` true, `text` as a concrete English description for a sound-effects generator (material, action, character, length: "ceramic cup set down on a wooden table, short soft clink, dry, one-shot"), and `durationSeconds` between 0.5 and 1.5. If `customCues` is empty, `sfx` is an empty array.
 
 # Language and output
 
@@ -108,6 +108,6 @@ Chunks to fill (copy label, sceneIds and durationMs exactly; scenes shorter than
 </chunks>
 
 <sfx_cues>
-Standard cues, synthesized by code (do not describe): {{standardCues}}
+Standard cues, already in the sound library (do not describe): {{standardCues}}
 Custom cues from an old storyboard that need a description (usually empty): {{customCues}}
 </sfx_cues>

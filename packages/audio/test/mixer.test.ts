@@ -11,11 +11,35 @@ import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { MIX_SETTINGS, mixSections } from "../src/automation.ts";
 import { lowBandOnsets } from "../src/beat.ts";
-import { audibilityWindow, MASTER_CEILING_DBFS, renderSoundtrack, soundtrackHash } from "../src/mixer.ts";
-import { dbToGain, frameToSample, gainToDb, peakOf, rmsOf, SAMPLE_RATE } from "../src/pcm.ts";
-import { FALLBACK_KEY, parseKey, pentatonic, scaleFrequency, synthCue } from "../src/synth.ts";
+import { FALLBACK_KEY, parseKey, pentatonic, scaleFrequency } from "../src/key.ts";
+import {
+  audibilityWindow,
+  MASTER_CEILING_DBFS,
+  renderSoundtrack,
+  sampleHashes,
+  soundtrackHash,
+} from "../src/mixer.ts";
+import {
+  createStereo,
+  dbToGain,
+  frameToSample,
+  gainToDb,
+  monoOf,
+  peakOf,
+  rmsOf,
+  SAMPLE_RATE,
+  secToSamples,
+} from "../src/pcm.ts";
+import {
+  ENVELOPE_WINDOW_SEC,
+  envelope,
+  estimatePitch,
+  RISER_TAIL_SEC,
+  type SfxSampleLibrary,
+} from "../src/samples.ts";
 import { decodeWav } from "../src/wav.ts";
-import { metronome, steadyBed } from "./signals.ts";
+import { fakeLibrary, fakeSfxSample } from "./fakeSfx.ts";
+import { metronome, mulberry32, steadyBed } from "./signals.ts";
 
 const FPS = 30;
 const f2s = (frame: number) => frameToSample(frame, FPS);
@@ -67,6 +91,24 @@ const ALL_EVENTS: Record<string, SceneEvent[]> = {
   s3: [ev("wh", 30, "whoosh"), ev("shim", 100, "shimmer", "soft"), ev("imp2", 140, "impact", "soft")],
 };
 
+/** Фейкова бібліотека SFX: 10 cue × 3 варіанти. */
+const LIB = fakeLibrary();
+
+/** Лише задані події (legacy sfxCue фікстури прибрано). */
+const only = (events: Record<string, SceneEvent[]>, mixes?: [MusicMix, MusicMix, MusicMix]): Storyboard => {
+  const sb = storyboard({ events: { s1: [], s2: [], s3: [], ...events }, ...(mixes ? { mixes } : {}) });
+  return { ...sb, scenes: sb.scenes.map((s) => ({ ...s, sfxCue: null })) };
+};
+
+/** Пік огинаючої буфера: центр найгучнішого вікна або (`end`) його кінець — як в аналізі семплів. */
+function envelopePeak(pcm: Parameters<typeof envelope>[0], at: "center" | "end" = "center"): number {
+  const win = secToSamples(ENVELOPE_WINDOW_SEC);
+  const env = envelope(pcm, win);
+  let best = 0;
+  for (let i = 0; i < env.length; i++) if ((env[i] as number) > (env[best] as number)) best = i;
+  return at === "end" ? best : best - Math.floor(win / 2);
+}
+
 const music = () => metronome({ bpm: 120, offsetSec: 0.07, durationSec: 16, busy: true, pad: true });
 
 describe("automation by musicBrief.structure[].mix", () => {
@@ -85,7 +127,7 @@ describe("automation by musicBrief.structure[].mix", () => {
   it("breakdown тихіший за full щонайменше на 6 дБ RMS, filtered — на ~4 дБ і більше", () => {
     const sb = storyboard({ mixes: ["filtered", "full", "breakdown"], events: { s1: [], s2: [], s3: [] } });
     const quiet = { ...sb, scenes: sb.scenes.map((s) => ({ ...s, sfxCue: null })) };
-    const out = renderSoundtrack({ music: steadyBed(16), storyboard: quiet, key: null });
+    const out = renderSoundtrack({ music: steadyBed(16), storyboard: quiet, key: null, samples: LIB });
     expect(out.sounds).toHaveLength(0);
     // Вікна поза рампами (доля = 15 кадрів перед межею) і поза fade-out останньої секунди.
     const filtered = rmsOf(out.pcm, f2s(10), f2s(115));
@@ -105,11 +147,12 @@ describe("automation by musicBrief.structure[].mix", () => {
 
 describe("event layer", () => {
   const sb = storyboard({ events: ALL_EVENTS });
-  const withEvents = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor" });
+  const withEvents = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor", samples: LIB });
   const noEvents = renderSoundtrack({
     music: music(),
     storyboard: { ...sb, scenes: sb.scenes.map((s) => ({ ...s, sfxCue: null, events: [] })) },
     key: "A minor",
+    samples: LIB,
   });
 
   it("кожна подія зі звуком розміщена: 10 cue + legacy sfxCue", () => {
@@ -140,30 +183,22 @@ describe("event layer", () => {
   it("семантика кадру: riser закінчується на кадрі, whoosh/swoosh мають пік на кадрі, решта стартує з кадру", () => {
     for (const s of withEvents.sounds) {
       expect(s.at).toBe(f2s(s.frame));
-      const sound = synthCue(s.cue, { key: FALLBACK_KEY, degree: 0, beatSec: 0.5, seed: 1 });
-      if (s.cue === "riser") expect(s.start + sound.left.length).toBe(s.at);
-      else if (s.cue === "whoosh" || s.cue === "swoosh") expect(s.start).toBeLessThan(s.at);
+      if (s.cue === "riser" || s.cue === "whoosh" || s.cue === "swoosh") expect(s.start).toBeLessThan(s.at);
       else expect(s.start).toBe(s.at);
       expect(s.window).toEqual(audibilityWindow(s.cue, s.at));
     }
-    // Пік whoosh — рівно на кадрі (у межах кількох мс).
-    const wh = withEvents.sounds.find((s) => s.eventId === "wh");
-    const sound = synthCue("whoosh", { key: FALLBACK_KEY, degree: 0, beatSec: 0.5, seed: 1 });
-    let peakAt = 0;
-    for (let i = 0; i < sound.left.length; i++) {
-      if (
-        Math.abs(sound.left[i] ?? 0) + Math.abs(sound.right[i] ?? 0) >
-        Math.abs(sound.left[peakAt] ?? 0) + Math.abs(sound.right[peakAt] ?? 0)
-      )
-        peakAt = i;
-    }
-    expect(Math.abs(peakAt - sound.anchor) / SAMPLE_RATE).toBeLessThan(0.03);
-    expect(wh?.start).toBe((wh?.at ?? 0) - sound.anchor);
   });
 
   it("послідовні pop/ding у сцені йдуть угору по пентатоніці тональності", () => {
     const s1 = withEvents.sounds.filter((s) => s.sceneId === "s1" && (s.cue === "pop" || s.cue === "ding"));
     expect(s1.map((s) => s.degree)).toEqual([0, 1, 2]);
+    // Ступені — вгору: зсув відносно власної висоти кожного варіанта дає дедалі вищу ноту.
+    const heard = s1.map((s) => {
+      const variant = LIB[s.cue]?.[s.variant - 1];
+      const own = variant ? estimatePitch(monoOf(variant.pcm), SAMPLE_RATE, 0.05 * SAMPLE_RATE)?.hz : null;
+      return 12 * Math.log2((own ?? 1) / 440) + s.semitones;
+    });
+    for (let i = 1; i < heard.length; i++) expect(heard[i] ?? 0).toBeGreaterThan(heard[i - 1] ?? 0);
     // pop arrive у s2 — новий відлік.
     expect(withEvents.sounds.find((s) => s.sceneId === "s2" && s.eventId === "arrive")?.degree).toBe(0);
     expect(withEvents.sounds.find((s) => s.cue === "impact")?.degree).toBeNull();
@@ -175,6 +210,7 @@ describe("event layer", () => {
         music: steadyBed(16),
         storyboard: storyboard({ events: { s1: [ev("p", 60, "pop", accent)], s2: [], s3: [] } }),
         key: null,
+        samples: LIB,
       }).sounds.find((s) => s.eventId === "p")?.gain ?? 0;
     expect(gainToDb(one("hard")) - gainToDb(one("normal"))).toBeCloseTo(3, 1);
     expect(gainToDb(one("normal")) - gainToDb(one("soft"))).toBeCloseTo(2, 1);
@@ -198,7 +234,7 @@ describe("master", () => {
   const sb = storyboard({ events: ALL_EVENTS });
 
   it("RMS ≈ −14 dBFS, пік ≤ −1 dBFS у WAV 44.1 кГц / 16 біт / стерео довжини відео", () => {
-    const out = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor" });
+    const out = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor", samples: LIB });
     expect(out.durationMs).toBe(15_000);
     expect(out.wav.readUInt16LE(22)).toBe(2);
     expect(out.wav.readUInt32LE(24)).toBe(44_100);
@@ -216,16 +252,16 @@ describe("master", () => {
   });
 
   it("той самий вхід → побайтно той самий WAV; інший вхід → інший", () => {
-    const a = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor" });
-    const b = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor" });
+    const a = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor", samples: LIB });
+    const b = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor", samples: LIB });
     expect(a.wav.equals(b.wav)).toBe(true);
     expect(sha256(a.wav)).toBe(sha256(b.wav));
-    const c = renderSoundtrack({ music: music(), storyboard: sb, key: "D major" });
+    const c = renderSoundtrack({ music: music(), storyboard: sb, key: "D major", samples: LIB });
     expect(c.wav.equals(a.wav)).toBe(false);
   });
 
   it("без музики — лише шар подій, теж у мастері", () => {
-    const out = renderSoundtrack({ music: null, storyboard: sb, key: null });
+    const out = renderSoundtrack({ music: null, storyboard: sb, key: null, samples: LIB });
     expect(out.alignment).toBeNull();
     expect(peakOf(out.pcm)).toBeGreaterThan(0);
     expect(gainToDb(peakOf(out.pcm))).toBeLessThanOrEqual(MASTER_CEILING_DBFS);
@@ -234,25 +270,28 @@ describe("master", () => {
 
 describe("soundtrackHash", () => {
   const sb = storyboard({ events: ALL_EVENTS });
-  const base = soundtrackHash({ planHash: "p", key: "A minor", storyboard: sb });
+  const samples = sampleHashes(LIB);
+  const base = soundtrackHash({ planHash: "p", key: "A minor", storyboard: sb, samples });
 
   it("включає planHash, тональність, події, таймлайн і mix частин", () => {
-    expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: structuredClone(sb) })).toBe(base);
-    expect(soundtrackHash({ planHash: "q", key: "A minor", storyboard: sb })).not.toBe(base);
-    expect(soundtrackHash({ planHash: "p", key: "C major", storyboard: sb })).not.toBe(base);
+    expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: structuredClone(sb), samples })).toBe(
+      base,
+    );
+    expect(soundtrackHash({ planHash: "q", key: "A minor", storyboard: sb, samples })).not.toBe(base);
+    expect(soundtrackHash({ planHash: "p", key: "C major", storyboard: sb, samples })).not.toBe(base);
     const moved = storyboard({ events: { ...ALL_EVENTS, s3: [ev("wh", 31, "whoosh")] } });
-    expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: moved })).not.toBe(base);
+    expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: moved, samples })).not.toBe(base);
     const longer = {
       ...sb,
       scenes: sb.scenes.map((s) => (s.id === "s3" ? { ...s, durationFrames: 180 } : s)),
     };
-    expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: longer })).not.toBe(base);
+    expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: longer, samples })).not.toBe(base);
     const mixes = storyboard({ events: ALL_EVENTS, mixes: ["full", "full", "breakdown"] });
-    expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: mixes })).not.toBe(base);
+    expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: mixes, samples })).not.toBe(base);
   });
 });
 
-describe("synth", () => {
+describe("key", () => {
   it("тональність: розбір і fallback — ля-мінорна пентатоніка", () => {
     expect(parseKey("A minor")).toEqual({ root: 9, minor: true });
     expect(parseKey("F# major")).toEqual({ root: 6, minor: false });
@@ -269,28 +308,156 @@ describe("synth", () => {
     const freqs = [0, 1, 2, 3, 4, 5, 6].map((d) => scaleFrequency(FALLBACK_KEY, d, 5));
     for (let i = 1; i < freqs.length; i++) expect(freqs[i] ?? 0).toBeGreaterThan(freqs[i - 1] ?? 0);
     expect(freqs[5]).toBeCloseTo(1760, 6);
+    expect(dbToGain(-6)).toBeCloseTo(0.501, 3);
+  });
+});
+
+describe("семпли бібліотеки на кадрі події", () => {
+  const ms = (x: number) => Math.round((x / SAMPLE_RATE) * 1000 * 10) / 10;
+  const one = (cue: SoundCue, frame = 60) =>
+    renderSoundtrack({
+      music: null,
+      storyboard: only({ s1: [ev("x", frame, cue)] }),
+      key: null,
+      samples: LIB,
+    });
+
+  it("pop/impact/click починаються рівно з кадру: тиша на початку семпла обрізана (±1 мс)", () => {
+    for (const cue of ["pop", "impact", "click", "ding"] as const) {
+      const out = one(cue);
+      const s = out.sounds[0];
+      if (!s) throw new Error(cue);
+      const oneMs = secToSamples(0.001);
+      expect(peakOf(out.stems.events, 0, s.at), cue).toBe(0);
+      const total = peakOf(out.stems.events);
+      expect(peakOf(out.stems.events, s.at, s.at + oneMs) / total, cue).toBeGreaterThan(0.05);
+    }
   });
 
-  it("детермінований синтез з нормалізованим піком", () => {
-    for (const cue of [
-      "whoosh",
-      "swoosh",
-      "riser",
-      "impact",
-      "slam",
-      "pop",
-      "ding",
-      "tick",
-      "click",
-      "shimmer",
-    ] as const) {
-      const a = synthCue(cue, { key: FALLBACK_KEY, degree: 1, beatSec: 0.5, seed: 42 });
-      const b = synthCue(cue, { key: FALLBACK_KEY, degree: 1, beatSec: 0.5, seed: 42 });
-      expect(Buffer.from(a.left.buffer).equals(Buffer.from(b.left.buffer)), cue).toBe(true);
-      const peak = peakOf({ sampleRate: SAMPLE_RATE, left: a.left, right: a.right });
-      expect(peak, cue).toBeCloseTo(1, 5);
-      expect(a.left.every(Number.isFinite), cue).toBe(true);
+  it("whoosh/swoosh: пік огинаючої — на кадрі (±1 мс)", () => {
+    for (const cue of ["whoosh", "swoosh"] as const) {
+      const out = one(cue, 90);
+      const s = out.sounds[0];
+      if (!s) throw new Error(cue);
+      expect(Math.abs(ms(envelopePeak(out.stems.events) - s.at)), cue).toBeLessThanOrEqual(1);
+      // Звук і до, і після кадру.
+      expect(peakOf(out.stems.events, s.at - secToSamples(0.15), s.at - secToSamples(0.05))).toBeGreaterThan(
+        0,
+      );
+      expect(peakOf(out.stems.events, s.at + secToSamples(0.05), s.at + secToSamples(0.15))).toBeGreaterThan(
+        0,
+      );
     }
-    expect(dbToGain(-6)).toBeCloseTo(0.501, 3);
+  });
+
+  it("riser: наростає до кадру (найгучніше вікно закінчується на кадрі ±1 мс), після кадру ≤ 30 мс звуку", () => {
+    const out = one("riser", 120);
+    const s = out.sounds[0];
+    if (!s) throw new Error("riser");
+    expect(Math.abs(ms(envelopePeak(out.stems.events, "end") - s.at))).toBeLessThanOrEqual(1);
+    const tailEnd = s.at + secToSamples(RISER_TAIL_SEC) + 1;
+    expect(peakOf(out.stems.events, tailEnd, out.stems.events.left.length)).toBe(0);
+    expect(rmsOf(out.stems.events, s.at - secToSamples(0.1), s.at)).toBeGreaterThan(
+      4 * rmsOf(out.stems.events, s.at - secToSamples(0.8), s.at - secToSamples(0.7)),
+    );
+  });
+
+  it("варіанти по колу в порядку розміщень: однакові не йдуть поспіль", () => {
+    const out = renderSoundtrack({
+      music: null,
+      storyboard: only({
+        s1: [ev("w1", 20, "whoosh"), ev("p1", 40, "pop"), ev("w2", 80, "whoosh")],
+        s2: [ev("w3", 30, "whoosh"), ev("p2", 60, "pop")],
+        s3: [ev("w4", 30, "whoosh")],
+      }),
+      key: null,
+      samples: LIB,
+    });
+    const whooshes = out.sounds.filter((s) => s.cue === "whoosh");
+    expect(whooshes.map((s) => s.variant)).toEqual([1, 2, 3, 1]);
+    expect(whooshes.map((s) => s.sampleHash)).toEqual([
+      "fake:whoosh.1",
+      "fake:whoosh.2",
+      "fake:whoosh.3",
+      "fake:whoosh.1",
+    ]);
+    expect(out.sounds.filter((s) => s.cue === "pop").map((s) => s.variant)).toEqual([1, 2]);
+  });
+
+  it("висота: тон 466 Гц → найближча нота ля-мінорної пентатоніки (A4), послідовні pop — угору", () => {
+    const samples: SfxSampleLibrary = { pop: [fakeSfxSample("pop", 1, { pitchHz: 466.16 })] };
+    const frames = [30, 60, 90];
+    const out = renderSoundtrack({
+      music: null,
+      storyboard: only({ s1: frames.map((f, i) => ev(`p${i}`, f, "pop")), s2: [ev("q", 30, "pop")] }),
+      key: "A minor",
+      samples,
+    });
+    const pops = out.sounds.filter((s) => s.sceneId === "s1");
+    expect(pops.map((s) => s.degree)).toEqual([0, 1, 2]);
+    const expected = [440, 523.25, 587.33];
+    const mono = monoOf(out.stems.events);
+    pops.forEach((s, i) => {
+      const est = estimatePitch(mono, SAMPLE_RATE, s.at + secToSamples(0.01));
+      expect(est?.hz ?? 0, s.eventId).toBeGreaterThan((expected[i] as number) * 0.995);
+      expect(est?.hz ?? 0, s.eventId).toBeLessThan((expected[i] as number) * 1.005);
+    });
+    // Нова сцена — знову від найближчої ноти.
+    expect(out.sounds.find((s) => s.sceneId === "s2")?.semitones).toBeCloseTo(pops[0]?.semitones ?? 0, 6);
+    // Зсув підтягування — у межах ±6 півтонів, загальний — ±12.
+    for (const s of out.sounds) expect(Math.abs(s.semitones)).toBeLessThanOrEqual(12);
+    expect(Math.abs(pops[0]?.semitones ?? 99)).toBeLessThanOrEqual(6);
+  });
+
+  it("висота не визначена (шумовий pop) → лише кроки вгору по інтервалах пентатоніки від власної висоти", () => {
+    const rand = mulberry32(3);
+    const pcm = createStereo(secToSamples(0.25));
+    for (let i = 0; i < pcm.left.length; i++) {
+      const x = (rand() * 2 - 1) * Math.exp(-i / SAMPLE_RATE / 0.05);
+      pcm.left[i] = x;
+      pcm.right[i] = x;
+    }
+    const out = renderSoundtrack({
+      music: null,
+      storyboard: only({ s1: [ev("a", 30, "pop"), ev("b", 60, "pop"), ev("c", 90, "pop")] }),
+      key: "A minor",
+      samples: { pop: [{ cue: "pop", variant: 1, hash: "noise", pcm }] },
+    });
+    expect(out.sounds.map((s) => s.semitones)).toEqual([0, 3, 5]);
+  });
+
+  it("shimmer лише підтягується до тональності, без кроків", () => {
+    const out = renderSoundtrack({
+      music: null,
+      storyboard: only({ s1: [ev("a", 30, "shimmer"), ev("b", 90, "shimmer")] }),
+      key: "A minor",
+      samples: { shimmer: [fakeSfxSample("shimmer", 1, { pitchHz: 1300 })] },
+    });
+    // 1300 Гц ≈ MIDI 87.76 → E6 (88): +0.24 півтона для обох.
+    expect(out.sounds.map((s) => Math.round(s.semitones * 100) / 100)).toEqual([0.24, 0.24]);
+  });
+
+  it("cue без жодного семпла → його події без звуку, зведення будується", () => {
+    const { impact: _drop, ...noImpact } = LIB;
+    const sb = only({ s1: [ev("hit", 30, "impact"), ev("p", 60, "pop")] });
+    const out = renderSoundtrack({ music: music(), storyboard: sb, key: null, samples: noImpact });
+    expect(out.sounds.map((s) => s.cue)).toEqual(["pop"]);
+    expect(out.silent.map((p) => `${p.eventId}:${p.cue}`)).toEqual(["hit:impact"]);
+    expect(peakOf(out.stems.events, f2s(30), f2s(60))).toBe(0);
+    expect(out.wav.length).toBeGreaterThan(44);
+    // Порожня бібліотека — лише музика.
+    const bare = renderSoundtrack({ music: music(), storyboard: sb, key: null, samples: {} });
+    expect(bare.sounds).toHaveLength(0);
+    expect(peakOf(bare.stems.events)).toBe(0);
+  });
+
+  it("зміна семпла використаного cue змінює soundtrackHash; невикористаного — ні", () => {
+    const sb = only({ s1: [ev("p", 60, "pop")] });
+    const hashOf = (lib: SfxSampleLibrary) =>
+      soundtrackHash({ planHash: "p", key: null, storyboard: sb, samples: sampleHashes(lib) });
+    const base = hashOf(LIB);
+    expect(hashOf({ ...LIB, pop: [fakeSfxSample("pop", 1, { hashSuffix: "-new" })] })).not.toBe(base);
+    expect(hashOf({ ...LIB, pop: [...(LIB.pop ?? [])].reverse() })).not.toBe(base);
+    expect(hashOf({ ...LIB, tick: [fakeSfxSample("tick", 1, { hashSuffix: "-new" })] })).toBe(base);
   });
 });

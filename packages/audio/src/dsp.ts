@@ -1,4 +1,4 @@
-/** Мінімальні фільтри для зведення й синтезу (біквад RBJ і SVF), без залежностей. */
+/** Мінімальний фільтр для зведення (біквад RBJ), без залежностей. */
 
 /** Біквад-фільтр (transposed direct form II); коефіцієнти можна міняти на льоту. */
 export class Biquad {
@@ -30,30 +30,5 @@ export class Biquad {
     this.z1 = this.b1 * x - this.a1 * y + this.z2;
     this.z2 = this.b2 * x - this.a2 * y;
     return y;
-  }
-}
-
-/** State-variable filter (Cytomic, TPT): стабільний при швидкій зміні зрізу — для свіпів шуму. */
-export class Svf {
-  private ic1 = 0;
-  private ic2 = 0;
-  low = 0;
-  band = 0;
-  high = 0;
-
-  process(x: number, cutoffHz: number, q: number, sampleRate: number): void {
-    const g = Math.tan((Math.PI * Math.min(cutoffHz, sampleRate * 0.45)) / sampleRate);
-    const k = 1 / q;
-    const a1 = 1 / (1 + g * (g + k));
-    const a2 = g * a1;
-    const a3 = g * a2;
-    const v3 = x - this.ic2;
-    const v1 = a1 * this.ic1 + a2 * v3;
-    const v2 = this.ic2 + a2 * this.ic1 + a3 * v3;
-    this.ic1 = 2 * v1 - this.ic1;
-    this.ic2 = 2 * v2 - this.ic2;
-    this.low = v2;
-    this.band = v1;
-    this.high = x - k * v1 - v2;
   }
 }
