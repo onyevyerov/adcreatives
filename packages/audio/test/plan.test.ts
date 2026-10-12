@@ -6,9 +6,13 @@ import {
   audioPlanVars,
   musicPlanHash,
   normalizeAudioPlan,
+  planBpm,
+  planMatchesLayout,
   planTrackMs,
+  planVideoMs,
   referencedCues,
   toCompositionPlan,
+  withTrackStructure,
 } from "../src/plan.ts";
 import { brandTerms, createSanitizer } from "../src/sanitize.ts";
 import { loadSfxLibrary, loadStandardCues, parseSfxCues, parseSfxLibrary } from "../src/sfx.ts";
@@ -109,7 +113,7 @@ describe("sfx-cues.md", () => {
 describe("normalizeAudioPlan", () => {
   const layout = computeChunkLayout(fixtureStoryboard);
 
-  it("enforces timeline chunks, instrumental, vocals/lyrics and contextAdherence high", () => {
+  it("рівно один чанк на весь трек (відео + 8 с), instrumental, vocals/lyrics, contextAdherence high", () => {
     const draft = draftFor(layout);
     // LLM «помилилась»: інші тривалості, без instrumental, з vocals у позитивних.
     draft.compositionPlan.positiveGlobalStyles = ["lo-fi", "warm"];
@@ -125,11 +129,100 @@ describe("normalizeAudioPlan", () => {
       sanitizer,
       standardCues,
     });
-    expect(plan.compositionPlan.chunks.map((c) => c.durationMs)).toEqual([4_500, 5_000, 6_500]);
-    expect(plan.compositionPlan.chunks.every((c) => c.contextAdherence === "high")).toBe(true);
+    expect(plan.compositionPlan.chunks).toHaveLength(1);
+    expect(plan.compositionPlan.chunks[0]).toMatchObject({
+      label: "hook+offer+cta",
+      section: "hook+offer+cta",
+      sceneIds: ["s1", "s2", "s3"],
+      durationMs: 23_000,
+      contextAdherence: "high",
+    });
     expect(plan.compositionPlan.positiveGlobalStyles).toContain("instrumental");
     expect(plan.compositionPlan.negativeGlobalStyles).toEqual(["vocals", "lyrics"]);
     expect(planTrackMs(plan)).toBe(layout.trackMs);
+    expect(planVideoMs(plan)).toBe(layout.videoMs);
+    expect(planBpm(plan)).toBe(85);
+  });
+
+  it("багаточанкова чернетка (старий формат відповіді) → усе одно один чанк", () => {
+    const draft = draftFor(layout);
+    draft.compositionPlan.chunks = ["s1", "s2", "s3"].map((id) => ({
+      label: id,
+      section: "",
+      sceneIds: [id],
+      durationMs: 5_000,
+      positiveStyles: [],
+      negativeStyles: [],
+      contextAdherence: "low" as const,
+    }));
+    const plan = normalizeAudioPlan(draft, {
+      layout,
+      storyboard: fixtureStoryboard,
+      sanitizer,
+      standardCues,
+    });
+    expect(plan.compositionPlan.chunks).toHaveLength(1);
+    expect(plan.compositionPlan.chunks[0]).toMatchObject({ section: "main groove", durationMs: 23_000 });
+    expect(plan.compositionPlan.chunks[0]?.positiveStyles.length).toBeGreaterThan(0);
+  });
+
+  it("старий багаточанковий план читається, але не відтворюється: не збігається з каркасом", () => {
+    const old = AudioPlan.parse({
+      compositionPlan: {
+        positiveGlobalStyles: ["lo-fi", "85 BPM", "instrumental"],
+        negativeGlobalStyles: ["vocals", "lyrics"],
+        chunks: [4_500, 5_000, 6_500].map((durationMs, i) => ({
+          label: `c${i}`,
+          sceneIds: [`s${i + 1}`],
+          durationMs,
+          positiveStyles: [],
+          negativeStyles: [],
+          contextAdherence: "high",
+        })),
+      },
+      promptFallback: "lo-fi, instrumental",
+      sfx: [],
+    });
+    expect(planTrackMs(old)).toBe(16_000);
+    // Старі плани мали запас 1 с.
+    expect(planVideoMs(old)).toBe(15_000);
+    expect(planMatchesLayout(old, layout, fixtureStoryboard)).toBe(false);
+  });
+
+  it("промпт compose: темп, тональність, 4/4, фрази по 4 такти, без брейку/філу/стопу в перших N с", () => {
+    const plan = normalizeAudioPlan(draftFor(layout), {
+      layout,
+      storyboard: fixtureStoryboard,
+      sanitizer,
+      standardCues,
+    });
+    const p = plan.promptFallback;
+    expect(p.startsWith("Warm lo-fi hip hop at 85 BPM with rhodes and soft drums, instrumental")).toBe(true);
+    for (const phrase of [
+      "in A minor",
+      "4/4 time",
+      "phrases of 4 bars",
+      "kick on every beat",
+      "no breakdown",
+      "no fill",
+      "no stop in the first 15 seconds",
+    ]) {
+      expect(p).toContain(phrase);
+    }
+    expect(p.match(/85 BPM/g)).toHaveLength(1);
+  });
+
+  it("withTrackStructure: чужий темп і чужий N виправляються, наявне не дублюється", () => {
+    const fixed = withTrackStructure(
+      "Funk at 100 bpm in 4/4, phrases of 4 bars, kick on every beat, no breakdown, no fill, no stop in the first 9 seconds, instrumental.",
+      { bpm: 92, key: null, videoMs: 20_500 },
+    );
+    expect(fixed).toBe(
+      "Funk at 92 BPM in 4/4, phrases of 4 bars, kick on every beat, no breakdown, no fill, no stop in the first 21 seconds, instrumental",
+    );
+    expect(withTrackStructure("", { bpm: 120, key: "D major", videoMs: 15_000 })).toBe(
+      "120 BPM, in D major, 4/4 time, phrases of 4 bars, kick on every beat, no breakdown, no fill, no stop in the first 15 seconds, instrumental",
+    );
   });
 
   it("темп — рівно musicBrief.bpm; одна розпізнана тональність — у key і в стилях", () => {
@@ -195,7 +288,8 @@ describe("normalizeAudioPlan", () => {
     expect(plan.compositionPlan.positiveGlobalStyles).toEqual(
       expect.arrayContaining(["lo-fi hip hop", "85 BPM", "instrumental"]),
     );
-    expect(plan.compositionPlan.chunks).toHaveLength(3);
+    expect(plan.compositionPlan.chunks).toHaveLength(1);
+    expect(plan.compositionPlan.chunks[0]?.section).toBe("main groove");
     expect(plan.compositionPlan.chunks.every((c) => c.positiveStyles.length > 0)).toBe(true);
     expect(plan.promptFallback).toMatch(/lo-fi hip hop.*instrumental/);
   });
@@ -239,11 +333,12 @@ describe("normalizeAudioPlan", () => {
       standardCues,
     });
     const api = toCompositionPlan(plan);
+    expect(api.chunks).toHaveLength(1);
     expect(api.chunks[0]).toMatchObject({
-      text: "[hook]",
-      durationMs: 4_500,
+      text: "[hook+offer+cta]",
+      durationMs: 23_000,
       contextAdherence: "high",
-      positiveStyles: expect.arrayContaining(["instrumental", "hook groove"]),
+      positiveStyles: expect.arrayContaining(["instrumental", "hook+offer+cta groove"]),
       negativeStyles: expect.arrayContaining(["vocals", "lyrics"]),
     });
     expect(musicPlanHash(plan)).toBe(musicPlanHash(structuredClone(plan)));
@@ -256,10 +351,14 @@ describe("normalizeAudioPlan", () => {
     const vars = audioPlanVars(brand, fixtureStoryboard, layout, sanitizer);
     const text = JSON.stringify(vars);
     expect(text).not.toContain("Зерно");
-    expect(vars.chunks).toHaveLength(3);
+    expect(vars.chunks).toHaveLength(1);
+    expect(vars.steadySeconds).toBe(15);
     // Промпт рендериться без пропущених змінних.
     const prompt = createPromptLoader().load("audio-plan", vars);
     expect(prompt.model).toBe("claude-opus-5-5");
-    expect(prompt.user).toContain('"durationMs": 4500');
+    expect(prompt.user).toContain('"durationMs": 23000');
+    expect(prompt.user).toContain("Track duration: 23000 ms");
+    expect(prompt.user).toContain('"no stop in the first N seconds": 15');
+    expect(prompt.system).toMatch(/no breakdown, no fill, no stop in the first N seconds/);
   });
 });

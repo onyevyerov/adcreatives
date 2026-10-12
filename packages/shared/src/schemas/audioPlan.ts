@@ -72,5 +72,7 @@ export const MusicMeta = z.object({
   check: MusicTrackCheck.nullable().default(null),
   /** Скільки генерацій знадобилось (включно з першою). */
   attempts: z.number().int().min(1).default(1),
+  /** Зсув вікна відео в сирому треку (кратний такту), мс; `music.wav` уже обрізаний на нього. */
+  offsetMs: z.number().int().min(0).default(0),
 });
 export type MusicMeta = z.infer<typeof MusicMeta>;
