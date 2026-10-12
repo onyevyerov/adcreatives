@@ -138,4 +138,41 @@ describe("storyboard: точковий ретрай текстів (storyboard-c
     expect(meta.retried).toBe(true);
     expect(meta.textIssues).toHaveLength(2);
   });
+
+  it("слово в items довше за рядок → copyfix отримує items і міняє лише текст названого пункту", async () => {
+    const draft = structuredClone(fixtureStoryboard);
+    const s2 = draft.scenes[1] as Scene;
+    (s2.items[0] as Scene["items"][number]).text = "Найнеймовірнішийфантастичний еспресо";
+    const fix = {
+      scenes: [
+        {
+          id: "s2",
+          ...structuredClone(s2.text),
+          items: [
+            { id: "t1", text: "Спешелті еспресо" },
+            { id: "t9", text: "Неіснуючий пункт" },
+          ],
+        },
+      ],
+    };
+    const { ctx, sb, meta } = await runStage([{ json: draft }, { json: fix }]);
+    expect(ctx.anthropic.calls).toHaveLength(2);
+    const scenes = JSON.parse(block(ctx.anthropic.calls[1]?.params, "scenes_to_fix")) as Array<{
+      id: string;
+      items: Array<{ id: string; text: string }>;
+      issues: Array<{ field: string; itemId?: string; format: string; kind: string }>;
+    }>;
+    expect(scenes.map((s) => s.id)).toEqual(["s2"]);
+    expect(scenes[0]?.items.map((i) => i.id)).toEqual(["t1", "t2", "t3"]);
+    expect(scenes[0]?.issues).toEqual([
+      expect.objectContaining({ field: "item", itemId: "t1", format: "vertical", kind: "word" }),
+      expect.objectContaining({ field: "item", itemId: "t1", format: "square", kind: "word" }),
+    ]);
+    const out = sb.scenes[1] as Scene;
+    expect(out.items.map((i) => i.text)).toEqual(["Спешелті еспресо", "75 грн", "-10%"]);
+    expect(out.items.map((i) => i.id)).toEqual(["t1", "t2", "t3"]);
+    // Події не чіпаються (arrive — з legacy sfxCue фікстури).
+    expect(out.events.map((e) => e.id)).toEqual(["arrive", "price-hit", "badge-in"]);
+    expect(meta.textIssues).toEqual([]);
+  });
 });

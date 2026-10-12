@@ -86,6 +86,7 @@ export function chatReplyVars(project: ProjectState, question: string, ctx: Repl
             seconds: Math.round((s.durationFrames / sb.fps) * 10) / 10,
             headline: s.text.headline,
             sub: s.text.sub,
+            items: s.items.map((i) => i.text),
           })),
           music: sb.musicBrief.genre,
         }
