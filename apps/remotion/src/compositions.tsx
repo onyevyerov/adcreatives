@@ -22,7 +22,10 @@ export const calculatePreviewMetadata: CalculateMetadataFunction<ScenePreviewInp
   return { width, height, fps: props.storyboard.fps, durationInFrames: scene.durationFrames };
 };
 
-/** Ролик: сцени через TransitionSeries, музика і SFX — за таймлайном. */
+/**
+ * Ролик: сцени через TransitionSeries; звук — готове зведення `audio.mix` (тоді `Sfx` нічого
+ * не грає) або, для старого `audio.json`, музика і SFX за таймлайном.
+ */
 export function Main(props: MainInput) {
   const timeline = useMemo(() => computeTimeline(props.storyboard), [props.storyboard]);
   const templates = useMemo(() => new Set(props.templateScenes), [props.templateScenes]);

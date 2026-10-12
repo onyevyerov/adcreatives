@@ -1,4 +1,4 @@
-import { createPromptLoader } from "@adc/shared";
+import { AudioPlan, createPromptLoader } from "@adc/shared";
 import { fixtureBrandKit, fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { computeChunkLayout } from "../src/chunks.ts";
@@ -88,6 +88,35 @@ describe("normalizeAudioPlan", () => {
     expect(plan.compositionPlan.positiveGlobalStyles).toContain("instrumental");
     expect(plan.compositionPlan.negativeGlobalStyles).toEqual(["vocals", "lyrics"]);
     expect(planTrackMs(plan)).toBe(layout.trackMs);
+  });
+
+  it("темп — рівно musicBrief.bpm; одна розпізнана тональність — у key і в стилях", () => {
+    const draft = draftFor(layout, { key: "F# minor" });
+    draft.compositionPlan.positiveGlobalStyles = ["lo-fi hip hop", "95 BPM", "rhodes"];
+    const plan = normalizeAudioPlan(draft, {
+      layout,
+      storyboard: fixtureStoryboard,
+      sanitizer,
+      standardCues,
+    });
+    expect(plan.key).toBe("F# minor");
+    expect(plan.compositionPlan.positiveGlobalStyles).toEqual([
+      "lo-fi hip hop",
+      "rhodes",
+      "85 BPM",
+      "F# minor",
+      "instrumental",
+    ]);
+    const vague = normalizeAudioPlan(draftFor(layout, { key: "warm and cozy" }), {
+      layout,
+      storyboard: fixtureStoryboard,
+      sanitizer,
+      standardCues,
+    });
+    expect(vague.key).toBeNull();
+    // Старий план без key парситься (key: null → пентатоніка ля мінору у зведенні).
+    const { key: _drop, ...old } = plan;
+    expect(AudioPlan.parse(old).key).toBeNull();
   });
 
   it("strips brand and artist names from styles and the fallback prompt", () => {

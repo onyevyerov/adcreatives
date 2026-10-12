@@ -129,6 +129,7 @@ export function draftFor(layout: ChunkLayout, overrides: Partial<AudioPlanDraft>
         contextAdherence: "high" as const,
       })),
     },
+    key: "A minor",
     promptFallback: "Warm lo-fi hip hop at 85 BPM with rhodes and soft drums, instrumental",
     sfx: [{ cue: "whoosh", text: "whoosh", durationSeconds: 0.6, custom: false }],
     ...overrides,

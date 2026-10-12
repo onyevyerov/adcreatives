@@ -6,6 +6,8 @@ cache: true
 description: "B5: тексти промптів для стандартних SFX-cue (не LLM-виклик; effort/max_tokens не використовуються)"
 ---
 Тексти для `textToSoundEffects.convert` (promptInfluence 0.6, eleven_text_to_sound_v2).
+Це запасний шар: звукові події ролика синтезує код у `soundtrack.wav` (`packages/audio/src/synth.ts`),
+а ці SFX хост грає лише для старого `audio.json` без `mix` або коли зведення не вдалося.
 Генеруються раз на деплой `pnpm sfx-cache` у `DATA_DIR/cache/sfx/<hash>.mp3`; хеш — від тексту
 і тривалості, тож зміна рядка тут = новий файл у кеші. Формат рядка (розбирає код):
 `- <cue> (<секунди> s): <англійський текст>`; тривалість 0.5–30 с (мінімум API — 0.5).

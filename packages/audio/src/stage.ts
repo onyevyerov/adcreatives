@@ -17,10 +17,13 @@ import {
 } from "@adc/shared";
 import { computeChunkLayout } from "./chunks.ts";
 import { createElevenLabsClient, type ElevenLabsLike } from "./client.ts";
-import { PUBLIC_MUSIC_FILE, publicSfxFile } from "./constants.ts";
+import { PUBLIC_MIX_FILE, PUBLIC_MUSIC_FILE, publicSfxFile } from "./constants.ts";
+import { type DecodeAudio, decodeAudio } from "./decode.ts";
 import { defaultGate, type ElevenLabsGate } from "./gate.ts";
 import { buildAudioManifest } from "./manifest.ts";
+import { renderSoundtrack, soundtrackHash } from "./mixer.ts";
 import { ensureMusic } from "./music.ts";
+import { gainToDb } from "./pcm.ts";
 import {
   AUDIO_PLAN_PROMPT,
   AudioPlanDraft,
@@ -42,7 +45,14 @@ export interface AudioStageDeps {
   gate?: ElevenLabsGate;
   /** Журнал спільних витрат (догенерація стандартних SFX, якщо кеш не прогріто). */
   sharedCost?: CostRecorder | ((ctx: StageContext<"audio">) => CostRecorder);
+  /** Декодер музики в PCM для зведення; дефолт — ffmpeg зі збірки Remotion. */
+  decode?: DecodeAudio;
   now?: () => Date;
+}
+
+/** Ключ кешу зведення: поруч із треком, `audio/<planHash>/mix-<hash>.wav`. */
+export function soundtrackCacheKey(projectId: string, planHash: string, mixHash: string): string {
+  return `${projectPaths(projectId).audioDir}/${planHash}/mix-${mixHash}.wav`;
 }
 
 async function readOptional<T>(storage: Storage, key: string, parse: (v: unknown) => T): Promise<T | null> {
@@ -289,11 +299,46 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       artifacts.push(dest);
     }
 
+    // Зведення: трек + синтезовані події за таймлайном + дакінг + мастер → soundtrack.wav.
+    // Кеш — за planHash + тональністю + таймлайном + подіями; без зведення хост грає music і sfx, як раніше.
+    let mix: { durationMs: number } | null = null;
+    try {
+      const mixHash = soundtrackHash({ planHash: music.planHash, key: plan.key, storyboard });
+      const mixKey = soundtrackCacheKey(projectId, music.planHash, mixHash);
+      if (!(await storage.exists(mixKey))) {
+        const pcm = await (deps.decode ?? decodeAudio)(
+          await storage.read(music.key),
+          ctx.signal ? { signal: ctx.signal } : {},
+        );
+        const soundtrack = renderSoundtrack({ music: pcm, storyboard, key: plan.key });
+        logger.info("зведення готове", {
+          mixHash,
+          events: soundtrack.sounds.length,
+          beatShiftMs: soundtrack.alignment
+            ? Math.round((soundtrack.alignment.shiftSamples / pcm.sampleRate) * 1000)
+            : null,
+          beatConfidence: soundtrack.alignment
+            ? Math.round(soundtrack.alignment.confidence * 100) / 100
+            : null,
+          masterGainDb: Math.round(gainToDb(soundtrack.masterGain) * 10) / 10,
+        });
+        await storage.write(mixKey, soundtrack.wav);
+      }
+      const mixPublic = revPaths.publicFile(PUBLIC_MIX_FILE);
+      await storage.copy(mixKey, mixPublic);
+      artifacts.push(mixPublic);
+      mix = { durationMs: layout.videoMs };
+    } catch (err) {
+      if (ctx.signal?.aborted) throw err;
+      logger.error("зведення не вдалося — хост гратиме музику і SFX окремо", { err: String(err) });
+    }
+
     const manifest = AudioManifest.parse(
       buildAudioManifest({
         storyboard,
         music: { planHash: music.planHash, durationMs: music.meta.durationMs },
         sfx: sfxFiles.map((f) => ({ cue: f.cue, durationMs: f.durationMs })),
+        mix,
       }),
     );
     await storage.writeJson(revPaths.audio, manifest);

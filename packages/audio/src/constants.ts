@@ -29,4 +29,6 @@ export const REQUIRED_NEGATIVE_STYLES = ["vocals", "lyrics"] as const;
 
 /** Імена файлів у `rev/<n>/video/public/` (шляхи для staticFile()). */
 export const PUBLIC_MUSIC_FILE = "music.mp3";
+/** Готове зведення (музика + події + дакінг + мастер); при ньому хост не грає music і sfx. */
+export const PUBLIC_MIX_FILE = "soundtrack.wav";
 export const publicSfxFile = (cue: string) => `sfx/${cue.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}.mp3`;
