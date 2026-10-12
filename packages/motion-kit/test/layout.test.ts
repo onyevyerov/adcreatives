@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   approxMeasurer,
+  emphasisPhrases,
   fitSingleLine,
   fitText,
   type Measurer,
@@ -151,5 +152,14 @@ describe("emphasis", () => {
     expect(markEmphasis(words, ["Капучино — 75 грн"])).toEqual([true, false, true, true]);
     expect(markEmphasis(words, ["капучино"])).toEqual([true, false, false, false]);
     expect(markEmphasis(words, [])).toEqual([false, false, false, false]);
+  });
+});
+
+describe("emphasisPhrases", () => {
+  it("слова одного збігу — один номер, різні збіги — різні, решта — null", () => {
+    const words = splitWords("Капучино 75 грн і круасан 40 грн");
+    expect(emphasisPhrases(words, ["75 грн", "40 грн"])).toEqual([null, 0, 0, null, null, 1, 1]);
+    expect(emphasisPhrases(words, ["грн"])).toEqual([null, null, 0, null, null, null, 1]);
+    expect(emphasisPhrases(words, undefined)).toEqual(words.map(() => null));
   });
 });

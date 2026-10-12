@@ -172,26 +172,40 @@ export function normalizeWord(word: string): string {
 }
 
 /**
- * Позначає слова, що входять у фрази emphasis (фраза з кількох слів — послідовність).
- * Повертає масив прапорців паралельно `words`.
+ * Номер збігу фрази emphasis для кожного слова (паралельно `words`; null — слово не в emphasis).
+ * Слова одного збігу мають той самий номер, різні збіги (і повтори тієї ж фрази) — різні;
+ * слово, що вже належить збігу, не переходить в інший.
  */
-export function markEmphasis(words: readonly string[], emphasis: readonly string[] | undefined): boolean[] {
-  const flags = words.map(() => false);
-  if (!emphasis || emphasis.length === 0) return flags;
+export function emphasisPhrases(
+  words: readonly string[],
+  emphasis: readonly string[] | undefined,
+): Array<number | null> {
+  const ids: Array<number | null> = words.map(() => null);
+  if (!emphasis || emphasis.length === 0) return ids;
   // Слова без літер і цифр (тире тощо) не беруть участі в порівнянні фраз.
   const indexed = words.map((w, i) => ({ n: normalizeWord(w), i })).filter((x) => x.n !== "");
+  let next = 0;
   for (const phrase of emphasis) {
     const parts = splitWords(phrase).map(normalizeWord).filter(Boolean);
     if (parts.length === 0) continue;
     for (let k = 0; k + parts.length <= indexed.length; k++) {
       if (!parts.every((p, j) => indexed[k + j]?.n === p)) continue;
+      const id = next++;
       for (let j = 0; j < parts.length; j++) {
         const at = indexed[k + j];
-        if (at) flags[at.i] = true;
+        if (at && ids[at.i] === null) ids[at.i] = id;
       }
     }
   }
-  return flags;
+  return ids;
+}
+
+/**
+ * Позначає слова, що входять у фрази emphasis (фраза з кількох слів — послідовність).
+ * Повертає масив прапорців паралельно `words`.
+ */
+export function markEmphasis(words: readonly string[], emphasis: readonly string[] | undefined): boolean[] {
+  return emphasisPhrases(words, emphasis).map((id) => id !== null);
 }
 
 /** Приблизний вимірювач для Node/тестів: середня ширина символу 0.56 em, пробіл 0.28 em. */
