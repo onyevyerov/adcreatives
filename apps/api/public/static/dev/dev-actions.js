@@ -60,9 +60,6 @@ export function createDevActions(store) {
     setLanguage(lang) {
       log("setLanguage", [lang]);
     },
-    answer(text) {
-      log("answer", [text]);
-    },
     startEdit() {
       calls.push({ name: "startEdit", args: [] });
       ui({ editing: true });

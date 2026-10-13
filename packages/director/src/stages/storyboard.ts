@@ -8,7 +8,6 @@ import {
   inputsHash,
   type Palette,
   type ProductSubstance,
-  type ProjectState,
   projectPaths,
   revPaths,
   SceneId,
@@ -150,16 +149,6 @@ export function knownAssetIds(brand: BrandKit, manifest: readonly Asset[]): stri
   return [...ids];
 }
 
-function answersFor(brand: BrandKit, project: ProjectState | null) {
-  const answers = project?.answers ?? {};
-  return brand.questions.map((q) => ({
-    question: q.text,
-    topic: q.topic,
-    answer: answers[q.id] ?? null,
-    default: q.default,
-  }));
-}
-
 function durationRule(seconds: number | null): string {
   return seconds === null
     ? "Тривалість обери сам у межах 15–30 с (450–900 кадрів при 30 fps); зазвичай найкраще 18–24 с."
@@ -271,12 +260,11 @@ async function storyboardInputs(storage: Storage, projectId: string, paramsDurat
 }
 
 function briefHash(input: Awaited<ReturnType<typeof storyboardInputs>>, promptHash: string): string {
-  const { brandFile, manifest, formats, language, durationSeconds, project, siteText } = input;
+  const { brandFile, manifest, formats, language, durationSeconds, siteText } = input;
   const { createdAt: _c, version: _v, origin: _o, fixes: _f, ...brand } = brandFile;
   return inputsHash({
     brand,
     assets: manifest.map((a) => [a.id, a.width, a.height, a.source]),
-    answers: project?.answers ?? {},
     formats,
     language,
     durationSeconds,
@@ -285,7 +273,7 @@ function briefHash(input: Awaited<ReturnType<typeof storyboardInputs>>, promptHa
   });
 }
 
-/** Стадія `storyboard`: бренд-кіт + відповіді → `rev/<n>/storyboard.json` + `claims.json`. */
+/** Стадія `storyboard`: бренд-кіт → `rev/<n>/storyboard.json` + `claims.json`. */
 export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"storyboard"> {
   const now = opts.now ?? (() => new Date());
   return async (ctx: StageContext<"storyboard">) => {
@@ -308,7 +296,6 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
       semantic: semanticForScript(brandFile.palette),
       facts: brandFile.facts,
       assets: assetsForPrompt(brandFile, manifest),
-      answers: answersFor(brandFile, input.project),
     };
     const promptHash = ctx.prompts.load(STORYBOARD_PROMPT, vars).hash;
     const hash = briefHash(input, promptHash);

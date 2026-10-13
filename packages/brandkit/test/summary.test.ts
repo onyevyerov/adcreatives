@@ -15,21 +15,21 @@ describe("brand summary", () => {
     expect(s.logoCandidates).toEqual([{ assetId: "a02", url: "/files/projects/p1/crawl/assets/a02.svg" }]);
     expect(s.fonts.heading.family).toBe("Montserrat");
     expect(s.facts[0]).toMatchObject({ id: "f1", sourceLabel: "з сайту: https://zerno.example.com/uk/" });
-    expect(s.questions[0]).toMatchObject({ default: "Привести нових гостей" });
+    expect(s).not.toHaveProperty("questions");
     expect(s.photos).toEqual([{ assetId: "a01", url: "/files/projects/p1/crawl/assets/a01.jpg" }]);
     expect(s.needMorePhotos).toBe(true);
     expect(s.missingPhotos).toBe(2);
     expect(s.languageOptions).toHaveLength(2);
   });
 
-  it("formats a Ukrainian chat text with swatches, facts with sources and question defaults", () => {
+  it("formats a Ukrainian chat text with swatches and facts with sources, without owner questions", () => {
     const text = formatBrandSummaryText(
       summarizeBrandKit(fixtureBrandKitFile, fixtureAssets.assets, { publicUrl }),
     );
     expect(text).toContain("**Зерно** — Кава, яку обсмажуємо самі (кав'ярня)");
     expect(text).toContain("основний #6B3E26");
     expect(text).toContain("Капучино — 75 грн — з сайту: https://zerno.example.com/uk/");
-    expect(text).toContain("якщо не відповісте: «Привести нових гостей»");
+    expect(text).not.toContain("Питання");
     expect(text).toContain("ще хоча б 2");
   });
 
