@@ -2,10 +2,12 @@ import { existsSync } from "node:fs";
 import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  correlation,
   type DecodeAudio,
   decodeAudio,
   decodeWav,
   estimateBeatPhase,
+  LOW_CORRELATION_HZ,
   loadSfxLibrary,
   lowBandOnsets,
   PUBLIC_MIX_FILE,
@@ -71,8 +73,9 @@ import { autoApprove, createHarness, FORMAT_LABEL, type Harness, newProjectId } 
  * `--only` — виконати лише цей етап і зупинитись.
  *
  * Кожен сайт списку — це кейс (`name`): після прогону пишеться звіт кейсу `eval/out/<кейс>/report.{json,md}`
- * ($, токени й хвилини з `costs.jsonl`/`trace.jsonl`, рівні музики й подій, перевірка треку, удари в
- * розкадровці, критерії паритету). `--case <кейс>` проганяє один кейс, `--mode pipeline|agent` ставить
+ * ($, токени й хвилини з `costs.jsonl`/`trace.jsonl`, рівні музики й подій, перевірка треку, мастер
+ * LUFS/dBTP і тональність плану й треку, удари в розкадровці, критерії паритету й цілі звуку).
+ * `--case <кейс>` проганяє один кейс, `--mode pipeline|agent` ставить
  * `ADC_GENERATION_MODE` воркеру eval на час прогону, `--audio <файл>` міряє будь-яку доріжку тими ж
  * метриками (порівняння з еталоном — `docs/analysis/README.md`).
  */
@@ -725,6 +728,21 @@ export const PARITY = {
   eventMaxOverMusicDb: 6,
 } as const;
 
+/**
+ * Цілі звуку з ТЗ якості звуку 2026-10-13 (§8): мастер зведення і моно-сумісність низу.
+ * Ті самі числа — у `docs/analysis/README.md` (процедура заміру `pnpm audio-measure`).
+ */
+export const AUDIO_TARGETS = {
+  /** Інтегральна гучність зведення, LUFS (BS.1770-4), і допуск ±. */
+  lufs: -14,
+  lufsTolerance: 1,
+  /** True peak зведення, dBTP (не вище). */
+  truePeakMaxDbtp: -1,
+  /** Кореляція L/R нижче `lowBelowHz` у зведенні (не нижче). */
+  lowCorrelationMin: 0.9,
+  lowBelowHz: LOW_CORRELATION_HZ,
+} as const;
+
 /** Удари impact/slam на ролик: `1 + ⌊с / 6⌋` (25 с → 5), як ліміт нормалізації (A3). */
 export const impactLimit = (seconds: number) => 1 + Math.floor(seconds / 6);
 
@@ -801,7 +819,24 @@ export interface CaseAudio {
   mix: LevelStats | null;
   /** Бочка зведення на сітці темпу розкадровки. */
   beat: BeatStats | null;
+  /** Мастер зведення з `audio.json` (`mix`): LUFS, true peak і підсилення; null — старе зведення без них. */
+  integratedLufs: number | null;
+  truePeakDbtp: number | null;
   masterGainDb: number | null;
+  /** Підсилення музики до рівня міксу (`Soundtrack.masterGain`, лише зі стемів); null — оцінка по міксу. */
+  musicGainDb: number | null;
+  /** Кореляція L/R низу (< 150 Гц) готового зведення — моно-сумісність басу; null — зведення немає. */
+  mixLowCorrelation: number | null;
+  /** Тональність плану (`audio-plan.json`) і визначена за треком (`music.json`, `check.keyDetected`). */
+  keyPlanned: string | null;
+  keyDetected: MusicTrackCheck["keyDetected"];
+  /** З перевірки треку (`music.json`): впевненість такту, кореляція L/R усього треку і низу. */
+  barConfidence: number | null;
+  stereoCorrelation: number | null;
+  lowCorrelation: number | null;
+  /** Генерацій треку і зсув вікна треку, мс (`music.json`). */
+  attempts: number | null;
+  offsetMs: number | null;
   music: {
     rmsDb: number;
     perSecondDb: number[];
@@ -1058,6 +1093,44 @@ async function rerenderSoundtrack(
   return { soundtrack: renderSoundtrack({ music, storyboard, key, samples }) };
 }
 
+type AudioFeedback = Pick<
+  CaseAudio,
+  | "integratedLufs"
+  | "truePeakDbtp"
+  | "masterGainDb"
+  | "keyPlanned"
+  | "keyDetected"
+  | "barConfidence"
+  | "stereoCorrelation"
+  | "lowCorrelation"
+  | "attempts"
+  | "offsetMs"
+>;
+
+/**
+ * Зворотний зв'язок звуку без декодування: мастер з `audio.json`, тональність плану з `audio-plan.json`,
+ * перевірка треку з `music.json`. Чого немає (старі ревізії, трек не перевірявся) — null.
+ */
+async function audioFeedback(storage: Storage, projectId: string, rev: number): Promise<AudioFeedback> {
+  const revPaths = projectPaths(projectId).rev(rev);
+  const manifest = await readOptional(storage, revPaths.audio, (v) => AudioManifest.parse(v));
+  const plan = await readOptional(storage, revPaths.audioPlan, (v) => v as { key?: unknown });
+  const music = await caseMusic(storage, projectId, rev);
+  const check = music.check;
+  return {
+    integratedLufs: manifest?.mix?.integratedLufs ?? null,
+    truePeakDbtp: manifest?.mix?.truePeakDbtp ?? null,
+    masterGainDb: manifest?.mix?.masterGainDb ?? null,
+    keyPlanned: typeof plan?.key === "string" ? plan.key : null,
+    keyDetected: check?.keyDetected ?? null,
+    barConfidence: check?.barConfidence ?? null,
+    stereoCorrelation: check?.stereoCorrelation ?? null,
+    lowCorrelation: check?.lowCorrelation ?? null,
+    attempts: music.attempts,
+    offsetMs: music.offsetMs,
+  };
+}
+
 /** Звукові метрики кейсу: стеми (якщо зведення відтворилось побайтно), інакше оцінка по міксу. */
 export async function measureCaseAudio(
   storage: Storage,
@@ -1071,7 +1144,9 @@ export async function measureCaseAudio(
     note: null,
     mix: null,
     beat: null,
-    masterGainDb: null,
+    ...(await audioFeedback(storage, projectId, rev)),
+    musicGainDb: null,
+    mixLowCorrelation: null,
     music: null,
     events: null,
     reverb: null,
@@ -1090,6 +1165,7 @@ export async function measureCaseAudio(
     ...empty,
     mix: levelStats(mix),
     beat: beatStats(mix, storyboard?.musicBrief.bpm ?? null),
+    mixLowCorrelation: round(correlation(mix, AUDIO_TARGETS.lowBelowHz), 3),
   };
   if (!storyboard) return { ...base, note: "немає розкадровки — події невідомі" };
   const sr = mix.sampleRate;
@@ -1101,7 +1177,7 @@ export async function measureCaseAudio(
   try {
     const res = await rerenderSoundtrack(storage, projectId, rev, storyboard, deps);
     if ("soundtrack" in res && res.soundtrack.wav.equals(saved)) {
-      // Стеми v2: music, events; зі зведенням v3 (A1) додається reverb. masterGain — якщо є.
+      // Стеми v2: music, events; зі зведенням v3 (A1) додається reverb. masterGain (музики) — якщо є.
       const st = res.soundtrack as unknown as {
         masterGain?: unknown;
         stems: { music: StereoPcm; events: StereoPcm; reverb?: StereoPcm };
@@ -1110,7 +1186,7 @@ export async function measureCaseAudio(
       return {
         ...base,
         source: "stems",
-        masterGainDb: round(20 * Math.log10(Math.max(gain, 1e-9)), 1),
+        musicGainDb: round(20 * Math.log10(Math.max(gain, 1e-9)), 1),
         ...musicAndEvents({ music: st.stems.music, events: st.stems.events, gain, points, quiet, bpm }),
         reverb: st.stems.reverb ? { rmsDb: toDb(rmsOf(st.stems.reverb) * gain) } : null,
       };
@@ -1198,6 +1274,8 @@ export function caseCriteria(
   const musicMin = audio.music?.outsideEvents.minDb ?? null;
   const overMax = audio.events?.maxOverMusicDb ?? null;
   const est = audio.source === "mix" ? "оцінка по міксу" : null;
+  const t = AUDIO_TARGETS;
+  const noMaster = "немає в audio.json (зведення до ТЗ звуку або не вдалося)";
   return [
     {
       id: "music_level",
@@ -1212,6 +1290,27 @@ export function caseCriteria(
       value: overMax,
       ok: overMax === null ? null : overMax <= PARITY.eventMaxOverMusicDb,
       note: overMax === null ? (audio.note ?? "немає подій зі звуком") : est,
+    },
+    {
+      id: "loudness",
+      label: `Гучність зведення ${t.lufs} ±${t.lufsTolerance} LUFS`,
+      value: audio.integratedLufs,
+      ok: audio.integratedLufs === null ? null : Math.abs(audio.integratedLufs - t.lufs) <= t.lufsTolerance,
+      note: audio.integratedLufs === null ? noMaster : null,
+    },
+    {
+      id: "true_peak",
+      label: `True peak зведення ≤ ${t.truePeakMaxDbtp} dBTP`,
+      value: audio.truePeakDbtp,
+      ok: audio.truePeakDbtp === null ? null : audio.truePeakDbtp <= t.truePeakMaxDbtp,
+      note: audio.truePeakDbtp === null ? noMaster : null,
+    },
+    {
+      id: "low_mono",
+      label: `Низ зведення (< ${t.lowBelowHz} Гц) моно: кореляція L/R ≥ ${t.lowCorrelationMin}`,
+      value: audio.mixLowCorrelation,
+      ok: audio.mixLowCorrelation === null ? null : audio.mixLowCorrelation >= t.lowCorrelationMin,
+      note: audio.mixLowCorrelation === null ? (audio.note ?? "немає зведення") : null,
     },
     {
       id: "music_check",
@@ -1328,6 +1427,11 @@ export async function buildCaseReport(
 
 const dbStr = (v: number | null) => (v === null ? "—" : `${v > 0 ? "+" : ""}${v} дБ`);
 const okStr = (v: boolean | null) => (v === null ? "—" : v ? "так" : "НІ");
+const orDash = (v: number | string | null) => (v === null ? "—" : String(v));
+const NOTE_NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"] as const;
+/** `check.keyDetected` → «A minor (0.42)». */
+const keyStr = (k: CaseAudio["keyDetected"]) =>
+  k ? `${NOTE_NAMES[k.root] ?? "?"} ${k.minor ? "minor" : "major"} (${round(k.confidence, 2)})` : "—";
 
 export function caseReportMarkdown(r: CaseReport): string {
   const a = r.audio;
@@ -1352,6 +1456,9 @@ export function caseReportMarkdown(r: CaseReport): string {
     `| Музика поза подіями: мін / медіана | ${a.music ? `${a.music.outsideEvents.minDb ?? "—"} / ${a.music.outsideEvents.medianDb ?? "—"} dBFS` : "—"} |`,
     `| Пік подій над музикою, макс | ${dbStr(a.events?.maxOverMusicDb ?? null)} |`,
     `| Трек: перевірка / спроб / зсув | ${r.music.check ? `ok=${r.music.check.ok}, провалів ${r.music.check.gaps.length}` : (r.music.note ?? "—")} / ${r.music.attempts ?? "—"} / ${r.music.offsetMs ?? "—"} мс |`,
+    `| Мастер: LUFS / dBTP / підсилення | ${orDash(a.integratedLufs)} / ${orDash(a.truePeakDbtp)} / ${dbStr(a.masterGainDb)} |`,
+    `| Тональність: план / трек | ${a.keyPlanned ?? "—"} / ${keyStr(a.keyDetected)} |`,
+    `| Трек: такт / кореляція L/R / низ; зведення: низ | ${orDash(a.barConfidence)} / ${orDash(a.stereoCorrelation)} / ${orDash(a.lowCorrelation)}; ${orDash(a.mixLowCorrelation)} |`,
     "",
     "## Критерії паритету",
     "",

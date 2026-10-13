@@ -1,9 +1,11 @@
 import { readLedger } from "@adc/director";
-import { QA_LOG_PREFIX, readCosts, revPaths, StageError } from "@adc/shared";
+import { projectPaths, QA_LOG_PREFIX, readCosts, revPaths, StageError } from "@adc/shared";
+import { fixtureAudioManifest } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { createDeadline, stopReason } from "../src/budget.ts";
 import { AuthorReport, authorLogKey, authorReportKey, createAuthorStage } from "../src/index.ts";
-import { audioEventsTable } from "../src/tools/meta.ts";
+import type { AuthorSession } from "../src/session.ts";
+import { audioEventsTable, audioEventsTool } from "../src/tools/meta.ts";
 import { cleanCode, unusedEventIds } from "../src/tools/writeScene.ts";
 import {
   BAD_SCENE,
@@ -232,5 +234,66 @@ describe("author: бюджет і допоміжне", () => {
     expect(unusedEventIds(twoScenes.scenes[1]?.events ?? [], 'eventFrame(props.scene, "price-hit")')).toEqual(
       ["badge-in"],
     );
+  });
+
+  it("audio_events: заголовок із треком — темп, тональності, LUFS, долі/такти, ширина; без треку — не падає", async () => {
+    const storage = tmpStorage();
+    const session = {
+      ctx: { storage, projectId: PROJECT_ID, rev: 1 },
+      storyboard: twoScenes,
+    } as unknown as AuthorSession;
+    const tool = audioEventsTool(session);
+    // Гілка звуку ще не дійшла: ні плану, ні треку, ні зведення.
+    const before = (await tool.run({})).text ?? "";
+    expect(before).toContain("key planned none");
+    expect(before).toContain("track check: not available yet");
+    expect(before).toContain("mix: not built yet");
+    expect(before).toContain("s1 | arrive | 0 | 0.00 s | whoosh");
+
+    const paths = projectPaths(PROJECT_ID);
+    await storage.writeJson(paths.rev(1).audioPlan, { key: "A minor" });
+    await storage.writeJson(paths.rev(1).audio, {
+      ...fixtureAudioManifest,
+      music: { ...fixtureAudioManifest.music, planHash: "ph1" },
+      mix: {
+        src: "soundtrack.wav",
+        durationMs: 9000,
+        integratedLufs: -14.2,
+        truePeakDbtp: -1.1,
+        masterGainDb: 3,
+      },
+    });
+    await storage.writeJson(paths.musicMeta("ph1"), {
+      planHash: "ph1",
+      durationMs: 16_000,
+      modelId: "music_v2_5",
+      method: "compose",
+      promptUsed: null,
+      briefHash: "b",
+      createdAt: "2026-10-13T00:00:00.000Z",
+      check: {
+        bpm: 120,
+        kickOnsets: 30,
+        beatConfidence: 0.91,
+        gaps: [],
+        rmsPerSecondDb: [-14],
+        ok: true,
+        keyDetected: { root: 2, minor: false, confidence: 0.35 },
+        barOffsetMs: 0,
+        barConfidence: 0.77,
+        stereoCorrelation: 0.99,
+        lowCorrelation: 1,
+        integratedLufs: -11.5,
+        truePeakDbtp: -0.3,
+      },
+    });
+    const text = (await tool.run({})).text ?? "";
+    expect(text).toContain(
+      "track: 120 bpm, key planned A minor, detected in the track D major (confidence 0.35)",
+    );
+    expect(text).toContain("beat confidence 0.91, bar (downbeat) confidence 0.77, raw loudness -11.5 LUFS");
+    expect(text).toContain("stereo width almost mono (L/R correlation 0.99, below 150 Hz 1.00; 1 = mono)");
+    expect(text).toContain("mix: -14.2 LUFS, true peak -1.1 dBTP");
+    expect(text).toContain("s2 | price-hit | 30 | 5.50 s | impact (hard)");
   });
 });
