@@ -1,5 +1,6 @@
 import { MusicTrackCheck } from "@adc/shared";
 import { describe, expect, it } from "vitest";
+import { MIN_BAR_CONFIDENCE } from "../src/bars.ts";
 import { createStereo, pcmLength } from "../src/pcm.ts";
 import {
   barMs,
@@ -10,7 +11,7 @@ import {
   gapOverlapMs,
 } from "../src/trackCheck.ts";
 import { steadyBed } from "./signals.ts";
-import { groove, withGaps } from "./trackSignals.ts";
+import { barGroove, firstDownbeatSec, groove, withGaps } from "./trackSignals.ts";
 
 const SR = 44_100;
 const steady = groove(120, 23);
@@ -28,11 +29,8 @@ describe("checkTrack", () => {
     expect(check.rmsPerSecondDb).toHaveLength(23);
   });
 
-  it("замір треку: кореляція L/R, LUFS і true peak; тональність і такт — заглушки (null)", () => {
+  it("замір треку: кореляція L/R, LUFS і true peak (тональність — у тестах `detectKey`)", () => {
     const check = checkTrack(steady, 120, { videoMs: 15_000 });
-    expect(check.keyDetected).toBeNull();
-    expect(check.barOffsetMs).toBeNull();
-    expect(check.barConfidence).toBeNull();
     expect(check.stereoCorrelation).toEqual(expect.any(Number));
     expect(check.lowCorrelation).toBeGreaterThan(0.9);
     expect(check.integratedLufs).toBeLessThan(0);
@@ -42,6 +40,22 @@ describe("checkTrack", () => {
     const silent = checkTrack(createStereo(3 * SR, SR), 120);
     expect(silent.integratedLufs).toBeNull();
     expect(MusicTrackCheck.parse(JSON.parse(JSON.stringify(silent)))).toEqual(silent);
+  });
+
+  it("фаза такту: грув з акцентом → перший downbeat і впевненість; без акцентів — нижче порогу; тиша — null", () => {
+    const opts = { bpm: 120, offsetSec: 0.07, durationSec: 23, leadBeats: 2, busy: true };
+    const check = checkTrack(barGroove(opts), 120, { videoMs: 15_000 });
+    expect(MusicTrackCheck.parse(check)).toEqual(check);
+    expect(Math.abs((check.barOffsetMs ?? 0) - firstDownbeatSec(opts) * 1000)).toBeLessThanOrEqual(34);
+    expect(check.barConfidence).toBeGreaterThanOrEqual(MIN_BAR_CONFIDENCE);
+    // Рівний грув (бочка на кожну долю): долі не відрізнити — фаза є, впевненості нема.
+    const flat = checkTrack(steady, 120, { videoMs: 15_000 });
+    expect(flat.barOffsetMs).toEqual(expect.any(Number));
+    expect(flat.barConfidence).toBeLessThan(MIN_BAR_CONFIDENCE);
+    // Без певної сітки долей такт не оцінюється.
+    const silent = checkTrack(createStereo(23 * SR, SR), 120);
+    expect(silent.barOffsetMs).toBeNull();
+    expect(silent.barConfidence).toBeNull();
   });
 
   it("стоп на 2 с усередині відео → провал > 1 с з падінням > 6 дБ, ok=false", () => {
@@ -124,6 +138,39 @@ describe("вікно відео в треку", () => {
     expect(offset).toBe(2_000);
     // Трек не довший за відео — зсуву нема.
     expect(chooseWindowOffset(gaps, { ...opts, trackMs: 15_500 })).toBe(0);
+  });
+
+  it("певна фаза такту → зсуви кратні такту від першого downbeat; невпевнена — від 0, як раніше", () => {
+    const onBar = { ...opts, barOffsetMs: 1_070, barConfidence: 0.4 };
+    expect(chooseWindowOffset([], onBar)).toBe(1_070);
+    // Провал на 2–3.5 с: 1.07 і 3.07 с його зачіпають, 5.07 — ні.
+    const gaps = [{ fromMs: 2_000, toMs: 3_500, dropDb: 20 }];
+    expect(chooseWindowOffset(gaps, onBar)).toBe(5_070);
+    expect(chooseWindowOffset(gaps, { ...onBar, barConfidence: 0.1 })).toBe(4_000);
+    expect(chooseWindowOffset(gaps, { ...onBar, barOffsetMs: null })).toBe(4_000);
+    // Неминучий провал: найменше перекриття серед зсувів від downbeat, вікно + хвіст у треку.
+    const tough = [{ fromMs: 6_500, toMs: 8_500, dropDb: 20 }];
+    const offset = chooseWindowOffset(tough, onBar);
+    expect((offset - 1_070) % 2_000).toBe(0);
+    expect(offset + opts.videoMs + opts.tailMs).toBeLessThanOrEqual(opts.trackMs);
+    // Downbeat не вміщається (трек ледь довший за відео) — зсув 0.
+    expect(chooseWindowOffset([], { ...onBar, trackMs: 16_500 })).toBe(0);
+  });
+
+  it("вікно від downbeat: після обрізання перший downbeat — на початку вікна", () => {
+    const pcm = barGroove({ bpm: 120, offsetSec: 0.07, durationSec: 23, leadBeats: 2, busy: true });
+    const raw = checkTrack(pcm, 120, { videoMs: 15_000 });
+    const offset = chooseWindowOffset(raw.gaps, {
+      ...opts,
+      barOffsetMs: raw.barOffsetMs,
+      barConfidence: raw.barConfidence,
+    });
+    expect(offset).toBe(raw.barOffsetMs);
+    const cut = checkTrack(cutWindow(pcm, offset, 16_000), 120, { videoMs: 15_000 });
+    expect(cut.barConfidence).toBeGreaterThanOrEqual(MIN_BAR_CONFIDENCE);
+    // Downbeat вікна — на 0 (з точністю до кадру; кругова відстань по такту).
+    const r = (((cut.barOffsetMs ?? 0) % 2_000) + 2_000) % 2_000;
+    expect(Math.min(r, 2_000 - r)).toBeLessThanOrEqual(34);
   });
 
   it("cutWindow: вікно з потрібного місця і потрібної довжини, без довжини понад наявну", () => {

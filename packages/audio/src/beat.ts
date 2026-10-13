@@ -1,10 +1,12 @@
 import { beatFrames } from "@adc/shared";
+import { BEATS_PER_BAR, estimateBarPhase, MIN_BAR_CONFIDENCE } from "./bars.ts";
 import { Biquad } from "./dsp.ts";
 import { createStereo, monoOf, pcmLength, type StereoPcm, secToSamples } from "./pcm.ts";
 
 /**
  * Вирівнювання долі: онсети бочки в низах → фаза долей відносно сітки `beatFrames(bpm)` →
- * зсув треку (обрізати початок або додати тишу), щоб долі лягли на сітку кадрів, де стоять
+ * фаза такту (`estimateBarPhase`, A6) → зсув треку (обрізати початок або додати тишу), щоб на
+ * кадр 0 ліг downbeat (або, без певного такту, доля) і долі лягли на сітку кадрів, де стоять
  * межі сцен і події.
  */
 
@@ -103,11 +105,18 @@ export interface BeatAlignment {
   periodSec: number;
   offsetSec: number;
   confidence: number;
+  /** Час першого downbeat у треку до зсуву, с; null — фаза такту не оцінювалась (нема певної долі). */
+  barOffsetSec: number | null;
+  /** Впевненість фази такту; зсув по такту — лише від `MIN_BAR_CONFIDENCE`. */
+  barConfidence: number | null;
   /** > 0 — обрізано стільки семплів з початку; < 0 — додано стільки семплів тиші. */
   shiftSamples: number;
 }
 
-/** Зсув, що ставить доли на сітку: обрізати `offset` або (якщо до наступної долі близько) додати тишу. */
+/**
+ * Зсув, що ставить доли (або такти — з періодом такту) на сітку: обрізати `offset` або (якщо до
+ * наступної долі близько) додати тишу.
+ */
 export function beatShiftSamples(offsetSec: number, periodSec: number, sampleRate: number): number {
   const pad = periodSec - offsetSec;
   if (pad <= MAX_PAD_SEC && pad < offsetSec) return -secToSamples(pad, sampleRate);
@@ -136,7 +145,11 @@ export function shiftPcm(pcm: StereoPcm, shiftSamples: number): StereoPcm {
   return out;
 }
 
-/** Повний крок: онсети → фаза → зсув. Без певного біта (тиша, ембієнт) трек не зсувається. */
+/**
+ * Повний крок: онсети → фаза долі → фаза такту → зсув. Без певного біта (тиша, ембієнт) трек не
+ * зсувається; з певним тактом на кадр 0 стає downbeat (обрізання ≤ 1 такт або тиша ≤ 150 мс),
+ * інакше — найближча доля, як без A6.
+ */
 export function alignToBeatGrid(
   pcm: StereoPcm,
   bpm: number,
@@ -145,9 +158,25 @@ export function alignToBeatGrid(
   const periodSec = beatFrames(bpm, fps) / fps;
   const phase = estimateBeatPhase(lowBandOnsets(pcm), periodSec);
   const sure = phase.onsets >= MIN_ONSETS && phase.confidence >= MIN_BEAT_CONFIDENCE;
-  const shiftSamples = sure ? beatShiftSamples(phase.offsetSec, periodSec, pcm.sampleRate) : 0;
+  // Такт — на тій самій сітці долей (період, квантований до кадрів), від знайденої фази долі.
+  const bar = sure ? estimateBarPhase(pcm, 60 / periodSec, phase.offsetSec) : null;
+  const onBar = bar !== null && bar.confidence >= MIN_BAR_CONFIDENCE;
+  const sr = pcm.sampleRate;
+  const shiftSamples = !sure
+    ? 0
+    : onBar
+      ? beatShiftSamples(bar.barOffsetSec, BEATS_PER_BAR * periodSec, sr)
+      : beatShiftSamples(phase.offsetSec, periodSec, sr);
   return {
     pcm: shiftPcm(pcm, shiftSamples),
-    alignment: { bpm, periodSec, offsetSec: phase.offsetSec, confidence: phase.confidence, shiftSamples },
+    alignment: {
+      bpm,
+      periodSec,
+      offsetSec: phase.offsetSec,
+      confidence: phase.confidence,
+      barOffsetSec: bar?.barOffsetSec ?? null,
+      barConfidence: bar?.confidence ?? null,
+      shiftSamples,
+    },
   };
 }
