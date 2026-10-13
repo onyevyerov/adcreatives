@@ -14,7 +14,8 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "smoke": "pnpm --filter @adc/render smoke",
     "eval": "tsx scripts/eval.ts",
-    "sfx-cache": "tsx scripts/sfx-cache.ts"
+    "sfx-cache": "tsx scripts/sfx-cache.ts",
+    "audio-measure": "tsx scripts/audio-measure.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

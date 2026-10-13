@@ -1,6 +1,6 @@
 import { MusicTrackCheck } from "@adc/shared";
 import { describe, expect, it } from "vitest";
-import { pcmLength } from "../src/pcm.ts";
+import { createStereo, pcmLength } from "../src/pcm.ts";
 import {
   barMs,
   betterCheck,
@@ -26,6 +26,22 @@ describe("checkTrack", () => {
     expect(check.kickOnsets).toBeGreaterThanOrEqual(0.8 * 46);
     expect(check.beatConfidence).toBeGreaterThan(0.8);
     expect(check.rmsPerSecondDb).toHaveLength(23);
+  });
+
+  it("замір треку: кореляція L/R, LUFS і true peak; тональність і такт — заглушки (null)", () => {
+    const check = checkTrack(steady, 120, { videoMs: 15_000 });
+    expect(check.keyDetected).toBeNull();
+    expect(check.barOffsetMs).toBeNull();
+    expect(check.barConfidence).toBeNull();
+    expect(check.stereoCorrelation).toEqual(expect.any(Number));
+    expect(check.lowCorrelation).toBeGreaterThan(0.9);
+    expect(check.integratedLufs).toBeLessThan(0);
+    expect(check.integratedLufs).toBeGreaterThan(-40);
+    expect(check.truePeakDbtp).toBeGreaterThan(check.integratedLufs as number);
+    // Тиша: LUFS не визначений → null (у JSON нескінченність не пишеться).
+    const silent = checkTrack(createStereo(3 * SR, SR), 120);
+    expect(silent.integratedLufs).toBeNull();
+    expect(MusicTrackCheck.parse(JSON.parse(JSON.stringify(silent)))).toEqual(silent);
   });
 
   it("стоп на 2 с усередині відео → провал > 1 с з падінням > 6 дБ, ok=false", () => {

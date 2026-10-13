@@ -20,8 +20,16 @@ export interface ManifestInput {
   music: { planHash: string; durationMs: number; src?: string } | null;
   /** Бібліотека SFX ревізії: cue → тривалість. */
   sfx: Array<{ cue: string; durationMs: number }>;
-  /** Готове зведення `soundtrack.wav`; null — зведення немає (хост грає music і sfx, як раніше). */
-  mix?: { durationMs: number } | null;
+  /**
+   * Готове зведення `soundtrack.wav` і заміри мастера (null — невідомо); null — зведення немає
+   * (хост грає music і sfx, як раніше).
+   */
+  mix?: {
+    durationMs: number;
+    integratedLufs?: number | null;
+    truePeakDbtp?: number | null;
+    masterGainDb?: number | null;
+  } | null;
 }
 
 /**
@@ -40,7 +48,15 @@ export function buildAudioManifest(input: ManifestInput): AudioManifest {
           planHash: input.music.planHash,
         }
       : null,
-    mix: input.mix ? { src: PUBLIC_MIX_FILE, durationMs: input.mix.durationMs } : null,
+    mix: input.mix
+      ? {
+          src: PUBLIC_MIX_FILE,
+          durationMs: input.mix.durationMs,
+          integratedLufs: input.mix.integratedLufs ?? null,
+          truePeakDbtp: input.mix.truePeakDbtp ?? null,
+          masterGainDb: input.mix.masterGainDb ?? null,
+        }
+      : null,
     sfx: input.sfx.map((s) => ({
       cue: s.cue,
       src: publicSfxFile(s.cue),

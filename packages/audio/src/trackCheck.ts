@@ -1,7 +1,11 @@
 import type { MusicTrackCheck } from "@adc/shared";
+import { estimateBarPhase } from "./bars.ts";
 import { estimateBeatPhase, lowBandOnsets, MIN_BEAT_CONFIDENCE, shiftPcm } from "./beat.ts";
 import { GAP_DROP_DB, GAP_MIN_MS, MIN_KICKS_PER_BEAT } from "./constants.ts";
+import { detectKey } from "./keyDetect.ts";
+import { measureLoudness, truePeakDb } from "./loudness.ts";
 import { fitLength, gainToDb, pcmLength, rmsOf, type StereoPcm, secToSamples } from "./pcm.ts";
+import { correlation } from "./stereo.ts";
 
 /**
  * Перевірка згенерованого треку (A2): чи є бочка на сітці долей і чи нема провалів
@@ -17,8 +21,13 @@ const GAP_WINDOW_MIN_MS = 500;
 const ON_BEAT_TOLERANCE_SEC = 0.08;
 /** Долей у такті (4/4). */
 export const BEATS_PER_BAR = 4;
+/** Межа «низу» для кореляції L/R треку, Гц. */
+export const LOW_CORRELATION_HZ = 150;
 
 const round1 = (x: number) => Math.round(x * 10) / 10;
+const round2 = (x: number) => Math.round(x * 100) / 100;
+/** Нескінченність (тиша) у JSON не пишеться — null. */
+const finite1 = (x: number) => (Number.isFinite(x) ? round1(x) : null);
 
 function median(xs: readonly number[]): number {
   if (xs.length === 0) return 0;
@@ -95,7 +104,8 @@ export interface CheckTrackOptions {
  * `MusicTrackCheck` для PCM: онсети в низах (`lowBandOnsets`) → фаза сітки долей;
  * `kickOnsets` — долі треку, на яких є онсет (бочка на сітці); RMS по секундах; провали.
  * `ok` — сітка певна (`MIN_BEAT_CONFIDENCE`, як у зведенні), у перших `videoMs` бочка є
- * на ≥ 0.8 долі і там нема провалів.
+ * на ≥ 0.8 долі і там нема провалів. Плюс замір: тональність (`detectKey`), фаза такту
+ * (`estimateBarPhase`), кореляція L/R (уся і нижче 150 Гц), LUFS і true peak — на `ok` не впливають.
  */
 export function checkTrack(pcm: StereoPcm, bpm: number, opts: CheckTrackOptions = {}): MusicTrackCheck {
   const totalSec = pcmLength(pcm) / pcm.sampleRate;
@@ -125,6 +135,8 @@ export function checkTrack(pcm: StereoPcm, bpm: number, opts: CheckTrackOptions 
   const sure = phase.confidence >= MIN_BEAT_CONFIDENCE;
   const enoughKicks = beatsInVideo > 0 && kicksInVideo >= MIN_KICKS_PER_BEAT * beatsInVideo;
   const gapInVideo = gaps.some((g) => g.fromMs < videoSec * 1000);
+  const key = detectKey(pcm);
+  const bar = estimateBarPhase(pcm, bpm, phase.offsetSec);
   return {
     bpm,
     kickOnsets: kicks,
@@ -132,6 +144,13 @@ export function checkTrack(pcm: StereoPcm, bpm: number, opts: CheckTrackOptions 
     gaps,
     rmsPerSecondDb: perSecond,
     ok: sure && enoughKicks && !gapInVideo,
+    keyDetected: key ? { root: key.root, minor: key.minor, confidence: round2(key.confidence) } : null,
+    barOffsetMs: bar ? Math.round(bar.barOffsetSec * 1000) : null,
+    barConfidence: bar ? round2(bar.confidence) : null,
+    stereoCorrelation: round2(correlation(pcm)),
+    lowCorrelation: round2(correlation(pcm, LOW_CORRELATION_HZ)),
+    integratedLufs: finite1(measureLoudness(pcm).integratedLufs),
+    truePeakDbtp: finite1(truePeakDb(pcm)),
   };
 }
 

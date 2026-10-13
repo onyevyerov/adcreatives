@@ -102,7 +102,7 @@ describe("ТЗ паритету, Крок 0: схеми адитивні", () =>
       createdAt: "2026-10-12T10:00:00.000Z",
     };
     expect(MusicMeta.parse(legacy)).toMatchObject({ check: null, attempts: 1 });
-    const check: MusicTrackCheck = {
+    const check: z.input<typeof MusicTrackCheck> = {
       bpm: 120,
       kickOnsets: 48,
       beatConfidence: 0.9,

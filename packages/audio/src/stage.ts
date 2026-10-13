@@ -17,11 +17,13 @@ import {
   Storyboard,
   t,
 } from "@adc/shared";
+import { z } from "zod";
 import { computeChunkLayout } from "./chunks.ts";
 import { createElevenLabsClient, type ElevenLabsLike } from "./client.ts";
 import { PUBLIC_MIX_FILE, publicMusicFile, publicSfxFile } from "./constants.ts";
 import { type DecodeAudio, decodeAudio } from "./decode.ts";
 import { defaultGate, type ElevenLabsGate } from "./gate.ts";
+import { resolveEventKey } from "./keyDetect.ts";
 import { buildAudioManifest } from "./manifest.ts";
 import { renderSoundtrack, soundtrackHash } from "./mixer.ts";
 import { ensureMusic, musicWavKey } from "./music.ts";
@@ -50,6 +52,7 @@ import {
   sfxHash,
   variantLabel,
 } from "./sfx.ts";
+import { defaultSfxQc, type SfxQcHook } from "./sfxQc.ts";
 
 export interface AudioStageDeps {
   /** Клієнт ElevenLabs або фабрика (створюється ліниво — лише якщо потрібен платний виклик). */
@@ -60,6 +63,8 @@ export interface AudioStageDeps {
   sharedCost?: CostRecorder | ((ctx: StageContext<"audio">) => CostRecorder);
   /** Декодер музики і семплів SFX у PCM для зведення; дефолт — ffmpeg зі збірки Remotion. */
   decode?: DecodeAudio;
+  /** QC щойно згенерованих семплів SFX; дефолт — `defaultSfxQc`. */
+  qc?: SfxQcHook;
   now?: () => Date;
 }
 
@@ -67,6 +72,18 @@ export interface AudioStageDeps {
 export function soundtrackCacheKey(projectId: string, planHash: string, mixHash: string): string {
   return `${projectPaths(projectId).audioDir}/${planHash}/mix-${mixHash}.wav`;
 }
+
+/** Заміри мастера кешованого зведення: `mix-<hash>.json` поруч із WAV. */
+export const MixMasterMeta = z.object({
+  integratedLufs: z.number().nullable(),
+  truePeakDbtp: z.number().nullable(),
+  masterGainDb: z.number().nullable(),
+});
+export type MixMasterMeta = z.infer<typeof MixMasterMeta>;
+
+export const mixMasterMetaKey = (mixKey: string) => mixKey.replace(/\.wav$/, ".json");
+
+const round1 = (x: number) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : null);
 
 async function readOptional<T>(storage: Storage, key: string, parse: (v: unknown) => T): Promise<T | null> {
   try {
@@ -265,6 +282,7 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       logger,
       ...(ctx.signal ? { signal: ctx.signal } : {}),
       now,
+      qc: deps.qc ?? defaultSfxQc,
     };
     let sharedCost: CostRecorder | null = null;
     const getSharedCost = (): CostRecorder => {
@@ -361,7 +379,9 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
     // Зведення: трек + семпли бібліотеки SFX за таймлайном подій + дакінг + мастер → soundtrack.wav.
     // Кеш — за planHash + тональністю + таймлайном + подіями + хешами варіантів семплів;
     // без зведення хост грає music і sfx, як раніше.
-    let mix: { durationMs: number } | null = null;
+    // Тональність звуків подій: план або визначена за треком (`resolveEventKey`).
+    const eventKey = resolveEventKey(music.meta.check, plan.key);
+    let mix: ({ durationMs: number } & MixMasterMeta) | null = null;
     try {
       const decode = deps.decode ?? decodeAudio;
       const decodeOpts = ctx.signal ? { signal: ctx.signal } : {};
@@ -372,12 +392,15 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       };
       let mixHash = soundtrackHash({
         planHash: music.planHash,
-        key: plan.key,
+        key: eventKey,
         storyboard,
         samples: hashesOf(variantFiles),
       });
       let mixKey = soundtrackCacheKey(projectId, music.planHash, mixHash);
-      if (!(await storage.exists(mixKey))) {
+      let master: MixMasterMeta | null = null;
+      if (await storage.exists(mixKey)) {
+        master = await readOptional(storage, mixMasterMetaKey(mixKey), (v) => MixMasterMeta.parse(v));
+      } else {
         const pcm = await decode(await storage.read(music.key), decodeOpts);
         // Семпли: помилка декодування варіанта — пропуск варіанта; cue без варіантів — події без звуку.
         const decoded = await Promise.allSettled(
@@ -410,12 +433,17 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
         // Хеш — за фактично використаними семплами: наступний прогін повторить пропущені.
         mixHash = soundtrackHash({
           planHash: music.planHash,
-          key: plan.key,
+          key: eventKey,
           storyboard,
           samples: hashesOf(used),
         });
         mixKey = soundtrackCacheKey(projectId, music.planHash, mixHash);
-        const soundtrack = renderSoundtrack({ music: pcm, storyboard, key: plan.key, samples });
+        const soundtrack = renderSoundtrack({ music: pcm, storyboard, key: eventKey, samples });
+        master = {
+          integratedLufs: round1(soundtrack.master.integratedLufs),
+          truePeakDbtp: round1(soundtrack.master.truePeakDbtp),
+          masterGainDb: round1(soundtrack.master.gainDb),
+        };
         logger.info("зведення готове", {
           mixHash,
           events: soundtrack.sounds.length,
@@ -427,14 +455,21 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
           beatConfidence: soundtrack.alignment
             ? Math.round(soundtrack.alignment.confidence * 100) / 100
             : null,
-          masterGainDb: Math.round(gainToDb(soundtrack.masterGain) * 10) / 10,
+          musicGainDb: Math.round(gainToDb(soundtrack.masterGain) * 10) / 10,
+          ...master,
         });
         await storage.write(mixKey, soundtrack.wav);
+        await storage.writeJson(mixMasterMetaKey(mixKey), master);
       }
       const mixPublic = revPaths.publicFile(PUBLIC_MIX_FILE);
       await storage.copy(mixKey, mixPublic);
       artifacts.push(mixPublic);
-      mix = { durationMs: layout.videoMs };
+      mix = {
+        durationMs: layout.videoMs,
+        integratedLufs: master?.integratedLufs ?? null,
+        truePeakDbtp: master?.truePeakDbtp ?? null,
+        masterGainDb: master?.masterGainDb ?? null,
+      };
     } catch (err) {
       if (ctx.signal?.aborted) throw err;
       logger.error("зведення не вдалося — хост гратиме музику і SFX окремо", { err: String(err) });

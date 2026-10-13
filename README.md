@@ -4,7 +4,8 @@
 рекламні motion-відео 15–30 с у форматах 9:16 / 1:1 / 16:9. Діалог у web-чаті з трьома чекпоінтами.
 
 Специфікація: [docs/superpowers/specs/2026-10-06-adcreative-design.md](docs/superpowers/specs/2026-10-06-adcreative-design.md),
-повне ТЗ з блоками робіт: [docs/superpowers/specs/adcreative-tz-v2.md](docs/superpowers/specs/adcreative-tz-v2.md).
+повне ТЗ з блоками робіт: [docs/superpowers/specs/adcreative-tz-v2.md](docs/superpowers/specs/adcreative-tz-v2.md),
+якість звуку (LUFS, моно-сумісність, такт, тональність): [docs/superpowers/specs/2026-10-13-audio-quality-tz.md](docs/superpowers/specs/2026-10-13-audio-quality-tz.md).
 
 ## Вимоги
 
@@ -36,6 +37,7 @@ docker run -d --name adc-redis -p 6379:6379 redis:7 redis-server --appendonly ye
 | `pnpm smoke` | 2-с ролик із `TemplateScene` (B3) |
 | `pnpm eval` | прогін пайплайна по `eval/sites.json` (B9) |
 | `pnpm sfx-cache` | генерація стандартних SFX (B5) |
+| `pnpm audio-measure -- <файл> \| --project <id> [--rev n] \| --sfx-cache` | замір звуку: LUFS, dBTP, RMS, crest, кореляція L/R, смуги, RMS по секундах; таблиця семплів кешу SFX (`--data-dir` — інше сховище) |
 | `LIVE=1 pnpm --filter @adc/shared live` | живий прогін Кроку 0: схеми як structured output, стрім xhigh, запис витрат |
 
 Живі прогони (`LIVE=1`) ходять у платні API і пишуть витрати з `source: "test"`.
