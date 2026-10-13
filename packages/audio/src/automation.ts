@@ -1,6 +1,6 @@
 import { beatFrames, computeTimeline, type MusicMix, type Storyboard } from "@adc/shared";
 import { Biquad } from "./dsp.ts";
-import { createStereo, dbToGain, frameToSample, pcmLength, type StereoPcm } from "./pcm.ts";
+import { createStereo, dbToGain, frameToSample, pcmLength, type StereoPcm, secToSamples } from "./pcm.ts";
 
 /**
  * Автоматизація частин треку за `musicBrief.structure[].mix`: генератор план аранжування
@@ -11,6 +11,8 @@ import { createStereo, dbToGain, frameToSample, pcmLength, type StereoPcm } from
 const OPEN_CUTOFF_HZ = 20_000;
 /** Параметри фільтра оновлюються блоками (крок у семплах). */
 const BLOCK = 32;
+/** Fade-out музики в останню секунду ролика. */
+export const MUSIC_TAIL_FADE_SEC = 1;
 
 export const MIX_SETTINGS: Record<MusicMix, { cutoffHz: number; gainDb: number }> = {
   filtered: { cutoffHz: 800, gainDb: -4 },
@@ -72,11 +74,9 @@ function paramsAt(
 export interface AutomationOptions {
   fps: number;
   bpm: number;
-  /** Fade-out наприкінці треку, семпли. */
-  fadeOutSamples: number;
 }
 
-/** Нова копія музики з автоматизацією частин і fade-out останніх `fadeOutSamples`. */
+/** Нова копія музики з автоматизацією частин і fade-out останніх `MUSIC_TAIL_FADE_SEC`. */
 export function applyMixAutomation(
   music: StereoPcm,
   sections: readonly MixSection[],
@@ -90,7 +90,7 @@ export function applyMixAutomation(
   const ramp = frameToSample(beatFrames(opts.bpm, opts.fps), opts.fps, sr);
   const fl = new Biquad();
   const fr = new Biquad();
-  const fadeStart = n - Math.min(n, opts.fadeOutSamples);
+  const fadeStart = n - Math.min(n, secToSamples(MUSIC_TAIL_FADE_SEC, sr));
   for (let b = 0; b < n; b += BLOCK) {
     const p = paramsAt(b + BLOCK / 2, starts, ramp);
     const open = p.cutoffHz >= OPEN_CUTOFF_HZ - 1;

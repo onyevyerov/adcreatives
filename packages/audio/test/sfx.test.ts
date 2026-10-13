@@ -8,9 +8,18 @@ import {
   sharedPaths,
 } from "@adc/shared";
 import { describe, expect, it } from "vitest";
-import { ensureCustomSfx, loadSfxLibrary, loadStandardCues, sfxHash } from "../src/sfx.ts";
+import {
+  ensureCustomSfx,
+  ensureStandardSfx,
+  loadSfxLibrary,
+  loadStandardCues,
+  SFX_QC_MAX_RETRIES,
+  SfxCacheMeta,
+  sfxHash,
+} from "../src/sfx.ts";
 import { runSfxCacheCli, warmSfxCache } from "../src/sfxCache.ts";
-import { instantGate, mockElevenLabs, PROJECT_ID, tmpStorage } from "./helpers.ts";
+import type { SfxQc, SfxQcHook } from "../src/sfxQc.ts";
+import { audioStream, instantGate, mockElevenLabs, PROJECT_ID, tmpStorage } from "./helpers.ts";
 
 const prompts = createPromptLoader();
 const library = loadStandardCues(prompts);
@@ -102,5 +111,103 @@ describe("custom SFX", () => {
     const costs = await readCosts(storage, PROJECT_ID);
     expect(costs).toHaveLength(1);
     expect(costs[0]).toMatchObject({ units: { seconds: 1 }, usd: 0.002 });
+  });
+});
+
+describe("QC семплів SFX", () => {
+  const def = { text: "glass ding", durationSeconds: 1 };
+  const metaOf = (storage: ReturnType<typeof tmpStorage>) =>
+    storage.readJson(sharedPaths.sfxCacheMeta(sfxHash(def)), (v) => SfxCacheMeta.parse(v));
+  /** Хук: кількість порушень зашита у вміст «аудіо» (`bad:<n>`), інакше ok. */
+  const reasonsHook: SfxQcHook = async (audio): Promise<SfxQc> => {
+    const n = Number(/^bad:(\d+)/.exec(audio.toString())?.[1] ?? 0);
+    return {
+      ok: n === 0,
+      peakDb: -6,
+      onsetMs: 0,
+      correlation: 1,
+      pitchHz: null,
+      reasons: Array.from({ length: n }, (_, i) => `r${i}`),
+      attempts: 1,
+    };
+  };
+  const deps = (
+    storage: ReturnType<typeof tmpStorage>,
+    client: ReturnType<typeof mockElevenLabs>,
+    qc?: SfxQcHook,
+  ) => ({
+    storage,
+    client: () => client,
+    gate: instantGate(),
+    ...(qc ? { qc } : {}),
+  });
+
+  it("прогрів кешу з хуком за замовчуванням: QC пройдено з першої спроби, у метаданих qc і формат", async () => {
+    const storage = tmpStorage();
+    const client = mockElevenLabs();
+    await warmSfxCache({
+      storage,
+      prompts,
+      client: () => client,
+      gate: instantGate(),
+      cost: sharedCost(storage),
+    });
+    expect(client.calls).toHaveLength(30);
+    const meta = await storage.readJson(sharedPaths.sfxCacheMeta(sfxHash(library.pop)), (v) =>
+      SfxCacheMeta.parse(v),
+    );
+    expect(meta.qc).toMatchObject({ ok: true, reasons: [], attempts: 1 });
+    expect(meta.outputFormat).toBe("mp3_44100_128");
+  });
+
+  it("не пройшов QC → повтор; у кеш — перша спроба, що пройшла; кожна спроба — рядок витрат", async () => {
+    const storage = tmpStorage();
+    const client = mockElevenLabs({
+      convert: [audioStream("bad:2"), audioStream("bad:1"), audioStream("good")],
+    });
+    const file = await ensureStandardSfx(
+      deps(storage, client, reasonsHook),
+      sharedCost(storage),
+      "ding.1",
+      def,
+    );
+    expect(file.generated).toBe(true);
+    expect(client.calls).toHaveLength(1 + SFX_QC_MAX_RETRIES);
+    expect((await storage.read(file.key)).toString()).toBe("good");
+    expect((await metaOf(storage)).qc).toMatchObject({ ok: true, reasons: [], attempts: 3 });
+    expect(await readCosts(storage, null)).toHaveLength(3);
+  });
+
+  it("жодна спроба не пройшла → найкраща (менше причин), ok=false; без хука — одна спроба без QC", async () => {
+    const storage = tmpStorage();
+    const client = mockElevenLabs({
+      convert: [audioStream("bad:2"), audioStream("bad:1"), audioStream("bad:3")],
+    });
+    const file = await ensureStandardSfx(
+      deps(storage, client, reasonsHook),
+      sharedCost(storage),
+      "ding.1",
+      def,
+    );
+    expect(client.calls).toHaveLength(3);
+    expect((await storage.read(file.key)).toString()).toBe("bad:1");
+    expect((await metaOf(storage)).qc).toMatchObject({ ok: false, reasons: ["r0"], attempts: 3 });
+
+    const plain = tmpStorage();
+    const once = mockElevenLabs({ convert: [audioStream("bad:2")] });
+    await ensureStandardSfx(deps(plain, once), sharedCost(plain), "ding.1", def);
+    expect(once.calls).toHaveLength(1);
+    expect((await metaOf(plain)).qc).toBeNull();
+  });
+
+  it("старі метадані кешу без qc і outputFormat парсяться з дефолтами", () => {
+    const old = {
+      cue: "pop.1",
+      text: "pop",
+      durationSeconds: 0.5,
+      modelId: "m",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    expect(SfxCacheMeta.parse(old)).toMatchObject({ qc: null, outputFormat: "mp3_44100_128" });
   });
 });

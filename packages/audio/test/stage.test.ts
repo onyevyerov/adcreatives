@@ -45,6 +45,12 @@ const variantByText = new Map(
 );
 /** Cue подій фікстури: whoosh (s1), impact (price-hit), pop (s2), shimmer (s3). */
 const FIXTURE_EVENT_CUES = ["whoosh", "impact", "pop", "shimmer"] as const;
+/** Заміри мастера в `audio.json`: LUFS і dBTP міряються, підсилення суми поки 0 дБ. */
+const MASTER_METRICS = {
+  integratedLufs: expect.any(Number),
+  truePeakDbtp: expect.any(Number),
+  masterGainDb: 0,
+};
 const variantTexts = (cues: readonly SoundCue[]) => cues.flatMap((c) => sfxLibrary[c].map((d) => d.text));
 
 /** Прогріває спільний кеш варіантами `variants` (номери) заданих cue. */
@@ -168,7 +174,7 @@ describe("audioStage", () => {
         volume: 0.8,
         planHash: res.outputs.planHash,
       },
-      mix: { src: "soundtrack.wav", durationMs: 15_000 },
+      mix: { src: "soundtrack.wav", durationMs: 15_000, ...MASTER_METRICS },
       sfx: [
         {
           cue: "whoosh",
@@ -235,7 +241,7 @@ describe("audioStage", () => {
       FIXTURE_EVENT_CUES.flatMap((c) => [1, 2, 3].map((n) => `${c}.${n}`)).sort(),
     );
     const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
-    expect(manifest.mix).toEqual({ src: "soundtrack.wav", durationMs: 15_000 });
+    expect(manifest.mix).toEqual({ src: "soundtrack.wav", durationMs: 15_000, ...MASTER_METRICS });
 
     // Повтор стадії в тій самій ревізії: план уже є — без LLM; трек — з кешу за хешем плану.
     const ctx2 = makeCtx(storage, []);
@@ -243,6 +249,9 @@ describe("audioStage", () => {
     expect(ctx2.anthropic.calls).toHaveLength(0);
     expect(client.calls).toHaveLength(1);
     expect(second.outputs.planHash).toBe(first.outputs.planHash);
+    // Зведення з кешу: заміри мастера — з `mix-<hash>.json` поруч із WAV, ті самі.
+    const again = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
+    expect(again.mix).toEqual(manifest.mix);
   });
 
   it("reuse rule: same music brief and video not longer than the track → keep the track", async () => {
@@ -472,7 +481,7 @@ describe("audioStage: бібліотека семплів подій", () => {
     await run(ctx);
     const rev = projectPaths(PROJECT_ID).rev(1);
     const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
-    expect(manifest.mix).toEqual({ src: "soundtrack.wav", durationMs: 15_000 });
+    expect(manifest.mix).toEqual({ src: "soundtrack.wav", durationMs: 15_000, ...MASTER_METRICS });
     expect(logger.warns.filter((w) => /варіант SFX не згенерувався/.test(w.msg))).toHaveLength(2);
     expect(logger.warns.find((w) => /не декодувався/.test(w.msg))?.meta).toMatchObject({
       cue: "impact",

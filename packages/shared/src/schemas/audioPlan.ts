@@ -55,6 +55,20 @@ export const MusicTrackCheck = z.object({
   gaps: z.array(z.object({ fromMs: z.number().int(), toMs: z.number().int(), dropDb: z.number() })),
   rmsPerSecondDb: z.array(z.number()),
   ok: z.boolean(),
+  /** Тональність, визначена за треком (C = 0 … B = 11); null — не визначалась (старі треки). */
+  keyDetected: z
+    .object({ root: z.number().int().min(0).max(11), minor: z.boolean(), confidence: z.number() })
+    .nullable()
+    .default(null),
+  /** Зсув першої сильної долі (downbeat) відносно сітки долей, мс; null — не визначено. */
+  barOffsetMs: z.number().nullable().default(null),
+  barConfidence: z.number().nullable().default(null),
+  /** Кореляція L/R усього треку (−1..1) і нижче 150 Гц. */
+  stereoCorrelation: z.number().nullable().default(null),
+  lowCorrelation: z.number().nullable().default(null),
+  /** Інтегральна гучність (ITU-R BS.1770-4) і true peak сирого треку. */
+  integratedLufs: z.number().nullable().default(null),
+  truePeakDbtp: z.number().nullable().default(null),
 });
 export type MusicTrackCheck = z.infer<typeof MusicTrackCheck>;
 

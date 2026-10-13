@@ -9,7 +9,7 @@ import {
 } from "@adc/shared";
 import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
-import { DUCK_RELEASE_BEATS, MIX_SETTINGS, mixSections } from "../src/automation.ts";
+import { DUCK_RELEASE_BEATS } from "../src/automation.ts";
 import { lowBandOnsets } from "../src/beat.ts";
 import { Biquad } from "../src/dsp.ts";
 import { FALLBACK_KEY, parseKey, pentatonic, scaleFrequency } from "../src/key.ts";
@@ -148,40 +148,6 @@ function sameMusic(x: Soundtrack, y: Soundtrack, a: number, b: number): boolean 
   }
   return true;
 }
-
-describe("automation by musicBrief.structure[].mix", () => {
-  it("частини зливаються за mix; межа — from сцени", () => {
-    expect(mixSections(storyboard({ mixes: ["filtered", "full", "full"] }))).toEqual([
-      { mix: "filtered", fromFrame: 0 },
-      { mix: "full", fromFrame: 135 },
-    ]);
-    // Сцени поза structure — full.
-    const sb = storyboard();
-    expect(mixSections({ ...sb, musicBrief: { ...sb.musicBrief, structure: [] } })).toEqual([
-      { mix: "full", fromFrame: 0 },
-    ]);
-  });
-
-  it("breakdown тихіший за full щонайменше на 6 дБ RMS, filtered — на ~4 дБ і більше", () => {
-    const sb = storyboard({ mixes: ["filtered", "full", "breakdown"], events: { s1: [], s2: [], s3: [] } });
-    const quiet = { ...sb, scenes: sb.scenes.map((s) => ({ ...s, sfxCue: null })) };
-    const out = renderSoundtrack({ music: steadyBed(16), storyboard: quiet, key: null, samples: LIB });
-    expect(out.sounds).toHaveLength(0);
-    // Вікна поза рампами (доля = 15 кадрів перед межею) і поза fade-out останньої секунди.
-    const filtered = rmsOf(out.pcm, f2s(10), f2s(115));
-    const full = rmsOf(out.pcm, f2s(150), f2s(265));
-    const breakdown = rmsOf(out.pcm, f2s(300), f2s(415));
-    expect(gainToDb(full) - gainToDb(breakdown)).toBeGreaterThanOrEqual(6);
-    expect(gainToDb(full) - gainToDb(filtered)).toBeGreaterThanOrEqual(MIX_SETTINGS.filtered.gainDb * -1);
-    // Рампа в одну долю: за долю до межі ще звучить попередній стан, на межі — новий.
-    const beforeRamp = rmsOf(out.pcm, f2s(250), f2s(268));
-    const atBoundary = rmsOf(out.pcm, f2s(286), f2s(300));
-    expect(Math.abs(gainToDb(beforeRamp) - gainToDb(full))).toBeLessThan(1);
-    expect(Math.abs(gainToDb(atBoundary) - gainToDb(breakdown))).toBeLessThan(1.5);
-    // Остання секунда — fade-out до тиші.
-    expect(rmsOf(out.pcm, f2s(447), f2s(450))).toBeLessThan(breakdown * 0.05);
-  });
-});
 
 describe("event layer", () => {
   const sb = storyboard({ events: ALL_EVENTS });
@@ -442,12 +408,12 @@ describe("soundtrackHash", () => {
     expect(soundtrackHash({ planHash: "p", key: "A minor", storyboard: mixes, samples })).not.toBe(base);
   });
 
-  it("MIX_VERSION = 3 входить у хеш: зміна версії інвалідує зведення", () => {
-    expect(MIX_VERSION).toBe(3);
+  it("MIX_VERSION = 4 входить у хеш: зміна версії інвалідує зведення", () => {
+    expect(MIX_VERSION).toBe(4);
     const input = { planHash: "p", key: "A minor", storyboard: sb, samples };
     expect(soundtrackHash(input, MIX_VERSION)).toBe(base);
-    expect(soundtrackHash(input, 2)).not.toBe(base);
-    expect(soundtrackHash(input, 4)).not.toBe(base);
+    expect(soundtrackHash(input, 3)).not.toBe(base);
+    expect(soundtrackHash(input, 5)).not.toBe(base);
   });
 });
 

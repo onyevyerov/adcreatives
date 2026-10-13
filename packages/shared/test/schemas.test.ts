@@ -24,6 +24,7 @@ import {
   ClaimsReport,
   CostEvent,
   intentHasEdits,
+  MusicMeta,
   normalizeFormats,
   PipelineCounters,
   ProjectState,
@@ -404,10 +405,80 @@ describe("Крок 0 «якість відео»: сумісність зі ст
     ).toEqual({
       src: "soundtrack.wav",
       durationMs: 15000,
+      integratedLufs: null,
+      truePeakDbtp: null,
+      masterGainDb: null,
     });
     const { key: _key, ...oldPlan } = audioPlan as z.output<typeof AudioPlan>;
     expect(AudioPlan.parse(oldPlan).key).toBeNull();
     expect(AudioPlan.parse({ ...oldPlan, key: "A minor" }).key).toBe("A minor");
+  });
+
+  it("якість звуку: старі music.json і audio.json парсяться з новими полями null", () => {
+    const oldCheck = {
+      bpm: 120,
+      kickOnsets: 48,
+      beatConfidence: 0.9,
+      gaps: [],
+      rmsPerSecondDb: [-14],
+      ok: true,
+    };
+    const oldMusic = {
+      planHash: "p",
+      durationMs: 29_000,
+      modelId: "music_v2_5",
+      method: "composeDetailed",
+      promptUsed: null,
+      briefHash: "b",
+      createdAt: AT,
+      check: oldCheck,
+      attempts: 1,
+      offsetMs: 0,
+    };
+    expect(MusicMeta.parse(oldMusic).check).toEqual({
+      ...oldCheck,
+      keyDetected: null,
+      barOffsetMs: null,
+      barConfidence: null,
+      stereoCorrelation: null,
+      lowCorrelation: null,
+      integratedLufs: null,
+      truePeakDbtp: null,
+    });
+    const measured = {
+      ...oldCheck,
+      keyDetected: { root: 9, minor: true, confidence: 0.4 },
+      barOffsetMs: 500,
+      barConfidence: 0.6,
+      stereoCorrelation: 0.99,
+      lowCorrelation: 1,
+      integratedLufs: -12.2,
+      truePeakDbtp: -1.6,
+    };
+    expect(MusicMeta.parse({ ...oldMusic, check: measured }).check).toEqual(measured);
+    expect(() =>
+      MusicMeta.parse({
+        ...oldMusic,
+        check: { ...measured, keyDetected: { root: 12, minor: true, confidence: 1 } },
+      }),
+    ).toThrow();
+
+    const oldMix = { ...fixtureAudioManifest, mix: { src: "soundtrack.wav", durationMs: 28_000 } };
+    expect(AudioManifest.parse(oldMix).mix).toEqual({
+      src: "soundtrack.wav",
+      durationMs: 28_000,
+      integratedLufs: null,
+      truePeakDbtp: null,
+      masterGainDb: null,
+    });
+    const mastered = {
+      src: "soundtrack.wav",
+      durationMs: 28_000,
+      integratedLufs: -14,
+      truePeakDbtp: -1,
+      masterGainDb: 0.8,
+    };
+    expect(AudioManifest.parse({ ...oldMix, mix: mastered }).mix).toEqual(mastered);
   });
 
   it("QA: нові види зауважень", () => {

@@ -16,6 +16,7 @@ import { z } from "zod";
 import { audioBytes, type ElevenLabsLike } from "./client.ts";
 import { SFX_MODEL_ID, SFX_PROMPT_INFLUENCE, SFX_TIMEOUT_SECONDS } from "./constants.ts";
 import type { ElevenLabsGate } from "./gate.ts";
+import { SfxQc, type SfxQcHook } from "./sfxQc.ts";
 
 /** Назва файлу з текстами бібліотеки SFX: `prompts/elevenlabs/sfx-cues.md`. */
 export const SFX_CUES_PROMPT = "elevenlabs/sfx-cues";
@@ -102,12 +103,18 @@ export function sfxHash(def: CueDefinition): string {
   );
 }
 
+/** Формат файлів кешу SFX (поки єдиний; старі метадані без поля — теж він). */
+const SFX_CACHE_FORMAT = "mp3_44100_128";
+
 export const SfxCacheMeta = z.object({
   cue: z.string(),
   text: z.string(),
   durationSeconds: z.number(),
   modelId: z.string(),
   createdAt: z.string(),
+  /** Контроль якості найкращої спроби; null — без QC (старий кеш або хук не спрацював). */
+  qc: SfxQc.nullable().default(null),
+  outputFormat: z.string().default(SFX_CACHE_FORMAT),
 });
 export type SfxCacheMeta = z.infer<typeof SfxCacheMeta>;
 
@@ -118,7 +125,12 @@ export interface SfxDeps {
   logger?: Logger;
   signal?: AbortSignal;
   now?: () => Date;
+  /** Контроль якості щойно згенерованого семпла; немає — без QC. */
+  qc?: SfxQcHook;
 }
+
+/** Повторні генерації SFX, що не пройшли QC (разом із першою — до 3 спроб). */
+export const SFX_QC_MAX_RETRIES = 2;
 
 export interface SfxFile {
   cue: string;
@@ -174,6 +186,48 @@ export async function generateSfx(
 export type CostSource = CostRecorder | (() => CostRecorder);
 const resolveCost = (c: CostSource): CostRecorder => (typeof c === "function" ? c() : c);
 
+/**
+ * Генерація з QC: не пройшла (`ok=false`) — до `SFX_QC_MAX_RETRIES` повторів (кожен — платний
+ * виклик і рядок витрат); у кеш іде найкраща спроба (менше `reasons`, за рівності — раніша).
+ * Без хука або якщо хук упав — перша спроба без QC.
+ */
+async function generateChecked(
+  deps: SfxDeps,
+  cost: CostRecorder,
+  cue: string,
+  def: CueDefinition,
+): Promise<{ audio: Buffer; qc: SfxQc | null }> {
+  const logger = deps.logger ?? noopLogger;
+  let best: { audio: Buffer; qc: SfxQc } | null = null;
+  let attempts = 0;
+  for (let n = 1; n <= 1 + SFX_QC_MAX_RETRIES; n++) {
+    let audio: Buffer;
+    try {
+      audio = await generateSfx(deps, cost, cue, def);
+    } catch (err) {
+      // Перша спроба — без звуку нема що віддати; повторна — лишаємо найкращу з наявних.
+      if (!best || deps.signal?.aborted) throw err;
+      logger.warn("повторна генерація SFX не вдалася — беремо найкращу спробу", { cue, attempt: n });
+      break;
+    }
+    attempts = n;
+    if (!deps.qc) return { audio, qc: null };
+    let qc: SfxQc;
+    try {
+      qc = await deps.qc(audio, cue, def, deps.signal);
+    } catch (err) {
+      if (deps.signal?.aborted) throw err;
+      logger.warn("QC семпла SFX не вдався — без перевірки", { cue, err: String(err) });
+      return best ? { audio: best.audio, qc: { ...best.qc, attempts } } : { audio, qc: null };
+    }
+    if (!best || qc.reasons.length < best.qc.reasons.length) best = { audio, qc };
+    if (qc.ok) break;
+    logger.warn("семпл SFX не пройшов QC", { cue, attempt: n, reasons: qc.reasons });
+  }
+  if (!best) throw new Error(`SFX ${cue}: немає жодної спроби`);
+  return { audio: best.audio, qc: { ...best.qc, attempts } };
+}
+
 async function ensureCached(
   deps: SfxDeps,
   cost: CostSource,
@@ -185,7 +239,7 @@ async function ensureCached(
   const hash = sfxHash(def);
   const durationMs = Math.round(def.durationSeconds * 1000);
   if (await deps.storage.exists(key)) return { cue, key, hash, durationMs, generated: false };
-  const audio = await generateSfx(deps, resolveCost(cost), cue, def);
+  const { audio, qc } = await generateChecked(deps, resolveCost(cost), cue, def);
   await deps.storage.write(key, audio);
   const meta: SfxCacheMeta = {
     cue,
@@ -193,6 +247,8 @@ async function ensureCached(
     durationSeconds: def.durationSeconds,
     modelId: SFX_MODEL_ID,
     createdAt: (deps.now ?? (() => new Date()))().toISOString(),
+    qc,
+    outputFormat: SFX_CACHE_FORMAT,
   };
   await deps.storage.writeJson(metaKey, meta);
   return { cue, key, hash, durationMs, generated: true };

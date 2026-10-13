@@ -39,6 +39,10 @@ export const AudioManifest = z.object({
     .object({
       src: z.string(),
       durationMs: z.number().int(),
+      /** Мастер: інтегральна гучність, true peak і підсилення; null — старі зведення. */
+      integratedLufs: z.number().nullable().default(null),
+      truePeakDbtp: z.number().nullable().default(null),
+      masterGainDb: z.number().nullable().default(null),
     })
     .nullable()
     .default(null),

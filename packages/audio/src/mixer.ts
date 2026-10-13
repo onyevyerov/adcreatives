@@ -13,6 +13,7 @@ import { applyMixAutomation, duckMusic, type MusicDuck, mixSections } from "./au
 import { alignToBeatGrid, type BeatAlignment } from "./beat.ts";
 import { EVENT_BUS_EQ, eqChannel } from "./eq.ts";
 import { FALLBACK_KEY, parseKey } from "./key.ts";
+import { masterize } from "./master.ts";
 import {
   createStereo,
   dbToGain,
@@ -25,39 +26,30 @@ import {
   secToSamples,
 } from "./pcm.ts";
 import { applyReverb, REVERB_SEND } from "./reverb.ts";
-import {
-  analyzeSample,
-  type PreparedSound,
-  pitchShifts,
-  renderSample,
-  type SampleAnalysis,
-  type SfxSample,
-  type SfxSampleLibrary,
-} from "./samples.ts";
+import { type PreparedSound, pitchShifts, renderSample, type SfxSampleLibrary } from "./samples.ts";
+import { chooseVariants, type PreparedEntry, prepareLibrary } from "./variants.ts";
 import { encodeWav } from "./wav.ts";
+import { widenMusic } from "./width.ts";
+
+export { MASTER_CEILING_DBFS } from "./master.ts";
 
 /**
  * Зведення: музика (вирівняна по долі, нормалізована до −14 dBFS, з автоматизацією частин) + звуки
  * подій з бібліотеки SFX (ElevenLabs) за спільним таймлайном — під музикою, а не над нею: шина подій
- * з EQ, спільний реверб для подій і музики, музичний дакінг (HPF на долю), мастер лише з кліпером.
+ * з EQ, спільний реверб для подій і музики, музичний дакінг (HPF на долю), мастер (`master.ts`).
  * Результат — `soundtrack.wav`, який хост грає замість музики й SFX.
  */
 
 /** Версія алгоритму зведення: входить у хеш повторного використання. */
-export const MIX_VERSION = 3;
+export const MIX_VERSION = 4;
 
 /**
- * Рівень: музика нормалізується до RMS −14 dBFS до додавання подій; сума не перенормовується —
- * лише м'який кліпер від −6 dBFS з потолком −1 dBFS.
+ * Рівень: музика нормалізується до RMS −14 dBFS до додавання подій (опора рівнів подій);
+ * підсумок робить мастер (`masterize`).
  */
 export const MASTER_RMS_DBFS = -14;
-export const MASTER_CEILING_DBFS = -1;
-const MASTER_KNEE_DBFS = -6;
 /** Максимальне підсилення музики при нормалізації (тиха музика не стає шумом). */
 const MASTER_MAX_GAIN_DB = 24;
-/** Fade-out музики в останню секунду ролика і короткий антиклік мастера. */
-export const MUSIC_TAIL_FADE_SEC = 1;
-const MASTER_END_FADE_SEC = 0.01;
 
 /** Пік події над RMS музики у вікні, дБ: удари трохи над музикою, дрібниці — під нею. */
 export const CUE_LEVEL_DB: Record<SoundCue, number> = {
@@ -128,8 +120,10 @@ export interface Soundtrack {
   durationMs: number;
   /** Доріжки до мастера: музика (з автоматизацією й дакінгом), сухі події (після EQ) і повернення реверба. */
   stems: { music: StereoPcm; events: StereoPcm; reverb: StereoPcm };
-  /** Підсилення нормалізації музики до −14 dBFS (суму мастер не підсилює); без музики — 1. */
+  /** Підсилення нормалізації музики до −14 dBFS; без музики — 1. */
   masterGain: number;
+  /** Мастер: підсилення суми, дБ; інтегральна гучність (LUFS) і true peak (dBTP) результату. */
+  master: { gainDb: number; integratedLufs: number; truePeakDbtp: number };
   alignment: BeatAlignment | null;
   sounds: PlacedSound[];
   /** Події зі звуком, для cue яких у бібліотеці немає семпла (звучать тишею). */
@@ -163,25 +157,6 @@ function scaleDegrees(placements: readonly EventPlacement[]): Map<EventPlacement
   return out;
 }
 
-interface PreparedEntry {
-  sample: SfxSample;
-  analysis: SampleAnalysis;
-}
-
-/** Аналіз варіантів кожного cue (порожні й тихі семпли відкидаються); cue без варіантів — немає в мапі. */
-function prepareLibrary(samples: SfxSampleLibrary): Map<SoundCue, PreparedEntry[]> {
-  const out = new Map<SoundCue, PreparedEntry[]>();
-  for (const cue of Object.keys(samples).sort() as SoundCue[]) {
-    const entries: PreparedEntry[] = [];
-    for (const sample of samples[cue] ?? []) {
-      const analysis = analyzeSample(cue, sample.pcm);
-      if (analysis) entries.push({ sample, analysis });
-    }
-    if (entries.length > 0) out.set(cue, entries);
-  }
-  return out;
-}
-
 /** Хеші варіантів бібліотеки по cue (у порядку варіантів) — для `soundtrackHash`. */
 export function sampleHashes(samples: SfxSampleLibrary): Partial<Record<SoundCue, string[]>> {
   const out: Partial<Record<SoundCue, string[]>> = {};
@@ -209,12 +184,6 @@ function eventBusEq(sound: PreparedSound, sr: number): PreparedSound {
   return { left, right, anchor: sound.anchor };
 }
 
-const softClip = (x: number, knee: number, ceiling: number) => {
-  const a = Math.abs(x);
-  if (a <= knee) return x;
-  return Math.sign(x) * (knee + (ceiling - knee) * Math.tanh((a - knee) / (ceiling - knee)));
-};
-
 /** Повне зведення саундтреку. Чиста функція: той самий вхід → побайтно той самий WAV. */
 export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
   const { storyboard } = input;
@@ -224,8 +193,8 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
   const timeline = computeTimeline(storyboard);
   const total = frameToSample(timeline.totalFrames, fps, sr);
 
-  // 1. Музика: долі на сітку → довжина відео → RMS −14 dBFS (до подій) → автоматизація частин
-  // і fade-out останньої секунди.
+  // 1. Музика: долі на сітку → довжина відео → RMS −14 dBFS (до подій) → ширина стерео →
+  // автоматизація частин і fade-out останньої секунди.
   let alignment: BeatAlignment | null = null;
   let music = createStereo(total, sr);
   let masterGain = 1;
@@ -239,11 +208,7 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
       fitted.left[j] = (fitted.left[j] as number) * masterGain;
       fitted.right[j] = (fitted.right[j] as number) * masterGain;
     }
-    music = applyMixAutomation(fitted, mixSections(storyboard), {
-      fps,
-      bpm,
-      fadeOutSamples: secToSamples(MUSIC_TAIL_FADE_SEC, sr),
-    });
+    music = applyMixAutomation(widenMusic(fitted), mixSections(storyboard), { fps, bpm });
   }
 
   // 2. Події: семпл бібліотеки (варіанти по колу, висота — у тональності) через EQ шини, розміщення
@@ -260,13 +225,7 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
   const silent = withCue.filter((p) => !library.has(p.cue));
   const placements = withCue.filter((p) => library.has(p.cue));
   const degrees = scaleDegrees(placements);
-  const rotation = new Map<SoundCue, number>();
-  const chosen = placements.map((p) => {
-    const variants = library.get(p.cue) ?? [];
-    const n = rotation.get(p.cue) ?? 0;
-    rotation.set(p.cue, n + 1);
-    return variants[n % variants.length] as PreparedEntry;
-  });
+  const chosen = chooseVariants(placements, library);
   const shifts = pitchShifts(
     placements.map((p, i) => ({
       cue: p.cue,
@@ -346,25 +305,25 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
   }
   const reverb = applyReverb(send);
 
-  // 5. Мастер: сума без перенормування → м'який кліпер (пік < −1 dBFS) → антиклік у кінці.
+  // 5. Мастер: сума музики, подій і реверба → `masterize`.
   const sum = createStereo(total, sr);
-  const knee = dbToGain(MASTER_KNEE_DBFS);
-  const ceiling = dbToGain(MASTER_CEILING_DBFS);
-  const endFade = Math.min(total, secToSamples(MASTER_END_FADE_SEC, sr));
   for (let j = 0; j < total; j++) {
-    const tail = j >= total - endFade ? (total - 1 - j) / Math.max(1, endFade) : 1;
-    const l = (music.left[j] as number) + (events.left[j] as number) + (reverb.left[j] as number);
-    const r = (music.right[j] as number) + (events.right[j] as number) + (reverb.right[j] as number);
-    sum.left[j] = softClip(l, knee, ceiling) * tail;
-    sum.right[j] = softClip(r, knee, ceiling) * tail;
+    sum.left[j] = (music.left[j] as number) + (events.left[j] as number) + (reverb.left[j] as number);
+    sum.right[j] = (music.right[j] as number) + (events.right[j] as number) + (reverb.right[j] as number);
   }
+  const master = masterize(sum, { sampleRate: sr });
 
   return {
-    pcm: sum,
-    wav: encodeWav(sum),
+    pcm: master.pcm,
+    wav: encodeWav(master.pcm),
     durationMs: framesToMs(timeline.totalFrames, fps),
     stems: { music, events, reverb },
     masterGain,
+    master: {
+      gainDb: master.gainDb,
+      integratedLufs: master.integratedLufs,
+      truePeakDbtp: master.truePeakDbtp,
+    },
     alignment,
     sounds,
     silent,

@@ -14,7 +14,15 @@ import {
 } from "@adc/shared";
 import { createElevenLabsClient, type ElevenLabsLike } from "./client.ts";
 import { defaultGate, type ElevenLabsGate } from "./gate.ts";
-import { ensureStandardSfx, loadSfxLibrary, type SfxFile, sfxHash, variantLabel } from "./sfx.ts";
+import {
+  ensureStandardSfx,
+  loadSfxLibrary,
+  type SfxDeps,
+  type SfxFile,
+  sfxHash,
+  variantLabel,
+} from "./sfx.ts";
+import { defaultSfxQc, type SfxQcHook } from "./sfxQc.ts";
 
 export interface WarmSfxCacheOptions {
   storage: Storage;
@@ -24,6 +32,8 @@ export interface WarmSfxCacheOptions {
   /** Спільний журнал витрат (`costs-shared.jsonl`). */
   cost: CostRecorder;
   logger?: Logger;
+  /** QC щойно згенерованих семплів; дефолт — `defaultSfxQc`. */
+  qc?: SfxQcHook;
 }
 
 /**
@@ -32,10 +42,11 @@ export interface WarmSfxCacheOptions {
  */
 export async function warmSfxCache(opts: WarmSfxCacheOptions): Promise<SfxFile[]> {
   const library = loadSfxLibrary(opts.prompts);
-  const deps = {
+  const deps: SfxDeps = {
     storage: opts.storage,
     client: opts.client,
     gate: opts.gate,
+    qc: opts.qc ?? defaultSfxQc,
     ...(opts.logger ? { logger: opts.logger } : {}),
   };
   const jobs = new Map<string, Promise<SfxFile>>();
