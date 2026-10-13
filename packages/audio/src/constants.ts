@@ -1,8 +1,69 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { parseEnv } from "node:util";
+import { findRepoRoot } from "@adc/shared";
+
 /** Параметри ElevenLabs і аудіо-маніфесту, зашиті в одному місці. */
 
 export const MUSIC_MODEL_ID = "music_v2_5";
 export const SFX_MODEL_ID = "eleven_text_to_sound_v2";
-export const MUSIC_OUTPUT_FORMAT = "mp3_44100_128";
+
+/**
+ * Формати відповіді ElevenLabs, які вміє пайплайн: mp3 128/192 кбіт/с і PCM 16 біт 44.1 кГц
+ * (PCM загортається у WAV одразу після отримання). 192 кбіт/с потребує тарифу Creator, PCM — Pro.
+ */
+export const OUTPUT_FORMATS = ["mp3_44100_128", "mp3_44100_192", "pcm_44100"] as const;
+export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
+/** Дефолт: верх треку не зрізається на ~16 кГц, як у `mp3_44100_128`. */
+export const DEFAULT_OUTPUT_FORMAT: OutputFormat = "mp3_44100_192";
+/** Фолбек, якщо формат недоступний на тарифі (`format_not_allowed`): є на будь-якому тарифі. */
+export const FORMAT_FALLBACK: OutputFormat = "mp3_44100_128";
+
+export const MUSIC_FORMAT_ENV = "ELEVENLABS_MUSIC_FORMAT";
+export const SFX_FORMAT_ENV = "ELEVENLABS_SFX_FORMAT";
+
+export class OutputFormatError extends Error {
+  override name = "OutputFormatError";
+}
+
+/**
+ * Формат з env: порожньо чи немає — дефолт; невалідне значення — `OutputFormatError`
+ * (процес падає на старті, а не генерує в тихому дефолті).
+ */
+export function readOutputFormat(
+  name: string,
+  env: Record<string, string | undefined> = process.env,
+): OutputFormat {
+  const value = env[name]?.trim();
+  if (!value) return DEFAULT_OUTPUT_FORMAT;
+  if ((OUTPUT_FORMATS as readonly string[]).includes(value)) return value as OutputFormat;
+  throw new OutputFormatError(`${name}=${value}: допустимі ${OUTPUT_FORMATS.join(", ")}`);
+}
+
+/**
+ * Середовище процесу поверх кореневого `.env` (як `loadRootEnv`: наявні змінні не перезаписуються).
+ * Модуль вантажиться імпортом раніше, ніж воркер чи CLI викликають `loadRootEnv()`, тож `.env`
+ * читаємо самі, не змінюючи `process.env`.
+ */
+function envWithRootFile(): Record<string, string | undefined> {
+  let file: string;
+  try {
+    file = readFileSync(path.join(findRepoRoot(), ".env"), "utf8");
+  } catch {
+    return process.env;
+  }
+  return { ...parseEnv(file), ...process.env };
+}
+
+/**
+ * Формати читаються один раз при завантаженні модуля: формат музики входить у `planHash`, SFX —
+ * у `sfxHash`, тож протягом життя процесу вони не змінюються.
+ */
+const startupEnv = envWithRootFile();
+export const MUSIC_OUTPUT_FORMAT: OutputFormat = readOutputFormat(MUSIC_FORMAT_ENV, startupEnv);
+export const SFX_OUTPUT_FORMAT: OutputFormat = readOutputFormat(SFX_FORMAT_ENV, startupEnv);
+/** PCM приходить без заголовка — у сховищі він лежить як WAV, розширення файлу — за вмістом. */
+export const isPcmFormat = (format: string) => format.startsWith("pcm_");
 /** Таймаут генерації музики (композиція може йти кілька хвилин). */
 export const MUSIC_TIMEOUT_SECONDS = 300;
 export const SFX_TIMEOUT_SECONDS = 60;
@@ -55,4 +116,6 @@ export const PUBLIC_MUSIC_FILE = "music.wav";
 export const publicMusicFile = (key: string) => (key.endsWith(".mp3") ? "music.mp3" : PUBLIC_MUSIC_FILE);
 /** Готове зведення (музика + події + дакінг + мастер); при ньому хост не грає music і sfx. */
 export const PUBLIC_MIX_FILE = "soundtrack.wav";
-export const publicSfxFile = (cue: string) => `sfx/${cue.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}.mp3`;
+/** Публічне ім'я SFX; розширення — як у файлу в кеші (`key`): `.wav` для PCM, інакше `.mp3`. */
+export const publicSfxFile = (cue: string, key?: string) =>
+  `sfx/${cue.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}.${key?.endsWith(".wav") ? "wav" : "mp3"}`;

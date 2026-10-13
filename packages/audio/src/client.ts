@@ -1,4 +1,6 @@
 import { type ElevenLabs, ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
+import { isPcmFormat } from "./constants.ts";
+import { wrapPcm } from "./decode.ts";
 
 /**
  * Мінімальний інтерфейс клієнта ElevenLabs, який використовує B5. Справжній
@@ -57,4 +59,28 @@ export async function audioBytes(result: unknown): Promise<Buffer> {
     if (o.data !== undefined) return audioBytes(o.data);
   }
   throw new Error("ElevenLabs: неочікувана форма відповіді (немає аудіо)");
+}
+
+/** Частота з назви формату (`pcm_44100` → 44100); не вдалося — null. */
+const formatSampleRate = (format: string): number | null => {
+  const hz = Number(/_(\d{4,6})(?:_|$)/.exec(format)?.[1]);
+  return Number.isFinite(hz) && hz > 0 ? hz : null;
+};
+
+/**
+ * Байти відповіді у вигляді для сховища: PCM (`pcm_*`) одразу загортається у WAV
+ * (`expectedSeconds` — запитана тривалість, за нею визначаються канали), mp3 — як є.
+ */
+export async function receiveAudio(
+  result: unknown,
+  format: string,
+  expectedSeconds?: number,
+): Promise<Buffer> {
+  const bytes = await audioBytes(result);
+  if (!isPcmFormat(format)) return bytes;
+  const sampleRate = formatSampleRate(format);
+  return wrapPcm(bytes, {
+    ...(sampleRate ? { sampleRate } : {}),
+    ...(expectedSeconds ? { expectedSeconds } : {}),
+  });
 }

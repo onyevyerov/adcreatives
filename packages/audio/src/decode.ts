@@ -3,13 +3,14 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { findRepoRoot } from "@adc/shared";
-import { SAMPLE_RATE, type StereoPcm } from "./pcm.ts";
-import { decodeWav } from "./wav.ts";
+import { createStereo, SAMPLE_RATE, type StereoPcm } from "./pcm.ts";
+import { decodeWav, encodeWav, WavError } from "./wav.ts";
 
 /**
- * Декодування музики (mp3) у PCM через ffmpeg зі збірки Remotion (`@remotion/compositor-*`,
- * та сама, що рендерить відео). Фільтри в цій збірці урізані, тому ffmpeg лише декодує
- * в WAV 16 біт 44.1 кГц стерео; уся обробка — у Node (`mixer.ts`).
+ * Декодування аудіо у PCM: WAV 44.1 кГц (у т. ч. PCM ElevenLabs, загорнутий у WAV) — у Node без
+ * ffmpeg; mp3 та інше — через ffmpeg зі збірки Remotion (`@remotion/compositor-*`, та сама, що
+ * рендерить відео). Фільтри в цій збірці урізані, тому ffmpeg лише декодує в WAV 16 біт 44.1 кГц
+ * стерео; уся обробка — у Node (`mixer.ts`).
  */
 
 /** Явний шлях до ffmpeg (перекриває пошук у збірці Remotion). */
@@ -132,6 +133,48 @@ export async function decodeWithFfmpeg(
   return decodeWav(out);
 }
 
-/** Декодер за замовчуванням для стадії `audio`. */
-export const decodeAudio: DecodeAudio = (bytes, opts) =>
-  decodeWithFfmpeg(bytes, opts?.signal ? { signal: opts.signal } : {});
+/** WAV (RIFF/WAVE) за заголовком. */
+export const isWavBytes = (bytes: Buffer) =>
+  bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WAVE";
+
+/** Розширення файлу за вмістом: WAV — `wav`, решта (відповіді ElevenLabs у mp3) — `mp3`. */
+export const audioExt = (bytes: Buffer): "wav" | "mp3" => (isWavBytes(bytes) ? "wav" : "mp3");
+
+/**
+ * Сирий PCM ElevenLabs (`pcm_44100`: 16 біт LE, без заголовка) → WAV через `encodeWav`.
+ * Кількість каналів у відповіді не підписана: за очікуваною тривалістю (`expectedSeconds`) —
+ * байтів удвічі більше, ніж на моно, — стерео; без тривалості — моно (як TTS ElevenLabs).
+ * Уже WAV — повертається як є.
+ */
+export function wrapPcm(bytes: Buffer, opts: { sampleRate?: number; expectedSeconds?: number } = {}): Buffer {
+  if (isWavBytes(bytes)) return bytes;
+  const sampleRate = opts.sampleRate ?? SAMPLE_RATE;
+  const expected = opts.expectedSeconds ?? 0;
+  const ratio = expected > 0 ? bytes.length / (2 * sampleRate * expected) : 1;
+  const channels = ratio >= 1.5 ? 2 : 1;
+  const frames = Math.floor(bytes.length / (2 * channels));
+  const pcm = createStereo(frames, sampleRate);
+  for (let i = 0; i < frames; i++) {
+    const base = i * 2 * channels;
+    const l = bytes.readInt16LE(base) / 32768;
+    pcm.left[i] = l;
+    pcm.right[i] = channels === 2 ? bytes.readInt16LE(base + 2) / 32768 : l;
+  }
+  return encodeWav(pcm);
+}
+
+/**
+ * Декодер за замовчуванням для стадії `audio`: WAV 44.1 кГц — `decodeWav` без ffmpeg;
+ * інша частота або кодування WAV, mp3 — ffmpeg.
+ */
+export const decodeAudio: DecodeAudio = async (bytes, opts) => {
+  if (isWavBytes(bytes)) {
+    try {
+      const pcm = decodeWav(bytes);
+      if (pcm.sampleRate === SAMPLE_RATE) return pcm;
+    } catch (err) {
+      if (!(err instanceof WavError)) throw err;
+    }
+  }
+  return decodeWithFfmpeg(bytes, opts?.signal ? { signal: opts.signal } : {});
+};
