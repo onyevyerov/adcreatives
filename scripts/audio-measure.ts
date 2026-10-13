@@ -241,6 +241,7 @@ function projectFiles(
     const planHash = manifest.music?.planHash;
     if (planHash) {
       add("music.mp3 (сирий)", paths.music(planHash));
+      add("music-raw.wav (сирий, PCM)", `${paths.audioDir}/${planHash}/music-raw.wav`);
       add("music.wav", `${paths.audioDir}/${planHash}/music.wav`);
     }
   }

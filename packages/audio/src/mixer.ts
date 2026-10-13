@@ -10,7 +10,7 @@ import {
   type Storyboard,
 } from "@adc/shared";
 import { applyMixAutomation, duckMusic, type MusicDuck, mixSections } from "./automation.ts";
-import { alignToBeatGrid, type BeatAlignment } from "./beat.ts";
+import { alignToBeatGrid, type BeatAlignment, beatShiftSamples, shiftPcm } from "./beat.ts";
 import { EVENT_BUS_EQ, eqChannel } from "./eq.ts";
 import { FALLBACK_KEY, parseKey } from "./key.ts";
 import { masterize } from "./master.ts";
@@ -194,12 +194,21 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
   const total = frameToSample(timeline.totalFrames, fps, sr);
 
   // 1. Музика: долі на сітку → довжина відео → RMS −14 dBFS (до подій) → ширина стерео →
-  // автоматизація частин і fade-out останньої секунди.
+  // автоматизація частин і короткий fade закінчення (`ENDING_FADE_SEC`).
   let alignment: BeatAlignment | null = null;
   let music = createStereo(total, sr);
   let masterGain = 1;
   if (input.music && pcmLength(input.music) > 0) {
-    const aligned = alignToBeatGrid(input.music, bpm, fps);
+    let aligned = alignToBeatGrid(input.music, bpm, fps);
+    // Зсув на downbeat зрізає до такту з початку; якщо трек через це коротший за відео (старий
+    // `music.wav` із запасом 1 с), лишається фаза долі — тиша в кінці гірша за старт не з такту.
+    if (pcmLength(aligned.pcm) < total && aligned.alignment.shiftSamples > 0) {
+      const a = aligned.alignment;
+      const beatShift = beatShiftSamples(a.offsetSec, a.periodSec, sr);
+      if (beatShift < a.shiftSamples) {
+        aligned = { pcm: shiftPcm(input.music, beatShift), alignment: { ...a, shiftSamples: beatShift } };
+      }
+    }
     alignment = aligned.alignment;
     const fitted = fitLength(aligned.pcm, total);
     const rms = rmsOf(fitted);

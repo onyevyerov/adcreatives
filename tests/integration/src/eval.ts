@@ -17,6 +17,7 @@ import {
   rmsOf,
   type SfxSample,
   type StereoPcm,
+  sfxCacheKey,
   sfxHash,
 } from "@adc/audio";
 import { type JobRecord, PipeState } from "@adc/pipeline";
@@ -53,7 +54,6 @@ import {
   type StageName,
   type Storage,
   Storyboard,
-  sharedPaths,
   sumUsd,
   type TraceEntry,
   TUNING_ENV,
@@ -1079,7 +1079,9 @@ async function rerenderSoundtrack(
   for (const cue of cues) {
     for (const [i, def] of (library[cue] ?? []).entries()) {
       const hash = sfxHash(def);
-      const cacheKey = sharedPaths.sfxCache(hash);
+      // Кеш — `.mp3` або `.wav` (PCM-формат, A1).
+      let cacheKey = sfxCacheKey(hash, "mp3");
+      if (!(await storage.exists(cacheKey))) cacheKey = sfxCacheKey(hash, "wav");
       if (!(await storage.exists(cacheKey))) continue;
       try {
         const pcm = await decode(await storage.read(cacheKey));

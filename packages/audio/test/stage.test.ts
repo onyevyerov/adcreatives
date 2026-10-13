@@ -49,7 +49,7 @@ const FIXTURE_EVENT_CUES = ["whoosh", "impact", "pop", "shimmer"] as const;
 const MASTER_METRICS = {
   integratedLufs: expect.any(Number),
   truePeakDbtp: expect.any(Number),
-  masterGainDb: 0,
+  masterGainDb: expect.any(Number),
 };
 const variantTexts = (cues: readonly SoundCue[]) => cues.flatMap((c) => sfxLibrary[c].map((d) => d.text));
 

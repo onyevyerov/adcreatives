@@ -18,8 +18,8 @@ export interface ManifestInput {
   storyboard: Pick<Storyboard, "fps" | "scenes">;
   /** `src` — публічне ім'я треку (дефолт `PUBLIC_MUSIC_FILE`). */
   music: { planHash: string; durationMs: number; src?: string } | null;
-  /** Бібліотека SFX ревізії: cue → тривалість. */
-  sfx: Array<{ cue: string; durationMs: number }>;
+  /** Бібліотека SFX ревізії: cue → тривалість; `key` — файл у кеші (`.wav` → публічне ім'я `.wav`). */
+  sfx: Array<{ cue: string; durationMs: number; key?: string }>;
   /**
    * Готове зведення `soundtrack.wav` і заміри мастера (null — невідомо); null — зведення немає
    * (хост грає music і sfx, як раніше).
@@ -59,7 +59,7 @@ export function buildAudioManifest(input: ManifestInput): AudioManifest {
       : null,
     sfx: input.sfx.map((s) => ({
       cue: s.cue,
-      src: publicSfxFile(s.cue),
+      src: publicSfxFile(s.cue, s.key),
       durationMs: s.durationMs,
       volume: SFX_VOLUME,
     })),

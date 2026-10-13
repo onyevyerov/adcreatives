@@ -10,6 +10,7 @@ import {
 import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { DUCK_RELEASE_BEATS } from "../src/automation.ts";
+import { MIN_BAR_CONFIDENCE } from "../src/bars.ts";
 import { lowBandOnsets } from "../src/beat.ts";
 import { Biquad } from "../src/dsp.ts";
 import { FALLBACK_KEY, parseKey, pentatonic, scaleFrequency } from "../src/key.ts";
@@ -52,6 +53,7 @@ import {
 import { decodeWav } from "../src/wav.ts";
 import { fakeLibrary, fakeSfxSample } from "./fakeSfx.ts";
 import { metronome, mulberry32, steadyBed } from "./signals.ts";
+import { barGroove } from "./trackSignals.ts";
 
 const FPS = 30;
 const f2s = (frame: number) => frameToSample(frame, FPS);
@@ -621,5 +623,25 @@ describe("семпли бібліотеки на кадрі події", () => {
     expect(hashOf({ ...LIB, pop: [fakeSfxSample("pop", 1, { hashSuffix: "-new" })] })).not.toBe(base);
     expect(hashOf({ ...LIB, pop: [...(LIB.pop ?? [])].reverse() })).not.toBe(base);
     expect(hashOf({ ...LIB, tick: [fakeSfxSample("tick", 1, { hashSuffix: "-new" })] })).toBe(base);
+  });
+});
+
+describe("вирівнювання музики на такт у зведенні", () => {
+  it("трек без запасу на зсув такту → лише фаза долі, кінець ролика не тихий", () => {
+    // Downbeat на 1.07 с, а трек довший за відео (15 с) лише на 0.5 с: зсув на такт лишив би тишу.
+    const music = barGroove({ bpm: 120, offsetSec: 0.07, leadBeats: 2, durationSec: 15.5, busy: true });
+    const s = renderSoundtrack({ music, storyboard: only({}), key: "A minor", samples: LIB });
+    expect(s.alignment?.barConfidence ?? 0).toBeGreaterThanOrEqual(MIN_BAR_CONFIDENCE);
+    expect((s.alignment?.shiftSamples ?? 0) / SAMPLE_RATE).toBeLessThan(0.5);
+    // Остання секунда (до короткого fade закінчення) звучить на рівні решти треку.
+    const m = s.stems.music;
+    const n = m.left.length;
+    const slice = (a: number, b: number) => ({
+      ...m,
+      left: m.left.subarray(a, b),
+      right: m.right.subarray(a, b),
+    });
+    const tail = rmsOf(slice(n - SAMPLE_RATE, n - SAMPLE_RATE / 2));
+    expect(tail).toBeGreaterThan(rmsOf(slice(0, n)) * 0.5);
   });
 });
