@@ -31,21 +31,21 @@ import { chooseVariants, type PreparedEntry, prepareLibrary } from "./variants.t
 import { encodeWav } from "./wav.ts";
 import { widenMusic } from "./width.ts";
 
-export { MASTER_CEILING_DBFS } from "./master.ts";
+export { MASTER_CEILING_DBFS, MASTER_TARGET_LUFS, MASTER_TRUE_PEAK_DBTP } from "./master.ts";
 
 /**
- * Зведення: музика (вирівняна по долі, нормалізована до −14 dBFS, з автоматизацією частин) + звуки
+ * Зведення: музика (вирівняна по долі, нормалізована до RMS −14 dBFS, з автоматизацією частин) + звуки
  * подій з бібліотеки SFX (ElevenLabs) за спільним таймлайном — під музикою, а не над нею: шина подій
- * з EQ, спільний реверб для подій і музики, музичний дакінг (HPF на долю), мастер (`master.ts`).
- * Результат — `soundtrack.wav`, який хост грає замість музики й SFX.
+ * з EQ, спільний реверб для подій і музики, музичний дакінг (HPF на долю), мастер (`master.ts`:
+ * −14 LUFS, true peak ≤ −1 dBTP). Результат — `soundtrack.wav`, який хост грає замість музики й SFX.
  */
 
 /** Версія алгоритму зведення: входить у хеш повторного використання. */
 export const MIX_VERSION = 4;
 
 /**
- * Рівень: музика нормалізується до RMS −14 dBFS до додавання подій (опора рівнів подій);
- * підсумок робить мастер (`masterize`).
+ * Груба опора рівнів: музика нормалізується до RMS −14 dBFS до додавання подій (`CUE_LEVEL_DB`
+ * рахуються відносно неї); підсумкову гучність (LUFS) і true peak визначає мастер (`masterize`).
  */
 export const MASTER_RMS_DBFS = -14;
 /** Максимальне підсилення музики при нормалізації (тиха музика не стає шумом). */
@@ -120,9 +120,9 @@ export interface Soundtrack {
   durationMs: number;
   /** Доріжки до мастера: музика (з автоматизацією й дакінгом), сухі події (після EQ) і повернення реверба. */
   stems: { music: StereoPcm; events: StereoPcm; reverb: StereoPcm };
-  /** Підсилення нормалізації музики до −14 dBFS; без музики — 1. */
+  /** Підсилення нормалізації музики до RMS −14 dBFS (опора рівнів подій); без музики — 1. */
   masterGain: number;
-  /** Мастер: підсилення суми, дБ; інтегральна гучність (LUFS) і true peak (dBTP) результату. */
+  /** Мастер: підсилення суми до −14 LUFS, дБ; інтегральна гучність (LUFS) і true peak (dBTP) результату. */
   master: { gainDb: number; integratedLufs: number; truePeakDbtp: number };
   alignment: BeatAlignment | null;
   sounds: PlacedSound[];
@@ -305,7 +305,7 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
   }
   const reverb = applyReverb(send);
 
-  // 5. Мастер: сума музики, подій і реверба → `masterize`.
+  // 5. Мастер: сума музики, подій і реверба → −14 LUFS і true-peak лімітер (`masterize`).
   const sum = createStereo(total, sr);
   for (let j = 0; j < total; j++) {
     sum.left[j] = (music.left[j] as number) + (events.left[j] as number) + (reverb.left[j] as number);
