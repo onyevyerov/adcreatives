@@ -1,11 +1,13 @@
 import type { SoundCue } from "@adc/shared";
 import { hzToMidi, type MusicalKey, nearestScaleNote, pentatonic, scaleStep } from "./key.ts";
 import { dbToGain, type StereoPcm, secToSamples } from "./pcm.ts";
+import { correlation, monoFold } from "./stereo.ts";
 
 /**
  * Семпли бібліотеки SFX (ElevenLabs, `prompts/elevenlabs/sfx-cues.md`) → звук події для зведення.
  * Чисті функції: огинаюча, onset і пік, якір (точка, що лягає на кадр події за семантикою §2.2),
- * обрізання тиші й хвоста, оцінка висоти тону (YIN), зсув висоти ресемплінгом, нормалізація.
+ * обрізання тиші й хвоста, оцінка висоти тону (YIN), зсув висоти ресемплінгом, моно-сумісність,
+ * нормалізація.
  */
 
 /** Декодований варіант cue з бібліотеки; `hash` — хеш запиту SFX (ім'я файлу в кеші). */
@@ -52,6 +54,21 @@ export const MAX_SHIFT_SEMITONES = 12;
 /** Тональні cue (висота підтягується до тональності); pop/ding ще й ідуть угору в сцені. */
 export const PITCHED_CUES: ReadonlySet<SoundCue> = new Set(["pop", "ding", "shimmer"]);
 export const STEPPED_CUES: ReadonlySet<SoundCue> = new Set(["pop", "ding"]);
+
+/**
+ * Моно-сумісність (телефон грає моно): удари — повністю в моно (протифаза в `impact` гасить удар
+ * у сумі); решта — моно лише нижче `MONO_BELOW_HZ`, верх лишає стерео.
+ */
+export const MONO_CUES: ReadonlySet<SoundCue> = new Set(["impact", "slam"]);
+export const MONO_BELOW_HZ = 150;
+/** Кореляція L/R фрагмента нижче — семпл повністю в моно, хоч би який cue. */
+export const MONO_MIN_CORRELATION = 0.3;
+/**
+ * Прольоти (whoosh/swoosh/riser) широкі за природою: декорельований шум (кореляція ≈ 0) лишає
+ * верх стерео, у моно згортається лише явна протифаза — поріг як у QC семплів (A2).
+ */
+export const WIDE_CUES: ReadonlySet<SoundCue> = new Set(["whoosh", "swoosh", "riser"]);
+export const WIDE_MIN_CORRELATION = -0.2;
 
 /**
  * Якір звуку: riser і whoosh/swoosh — пік огинаючої (riser — кінець найгучнішого вікна, тобто
@@ -150,6 +167,13 @@ export interface SampleAnalysis {
   cutIn: boolean;
   /** Висота тону для тональних cue; null — не тональний cue або тон не визначено впевнено. */
   pitchHz: number | null;
+  /** Кореляція L/R фрагмента [from, to) (−1..1). */
+  correlation: number;
+  /**
+   * Звук іде в моно повністю (`MONO_CUES` або кореляція нижче порогу cue: `MONO_MIN_CORRELATION`,
+   * для `WIDE_CUES` — `WIDE_MIN_CORRELATION`), інакше — лише низ.
+   */
+  monoFolded: boolean;
 }
 
 /** Аналіз семпла під cue; null — семпл порожній або тихий. */
@@ -197,7 +221,15 @@ export function analyzeSample(cue: SoundCue, pcm: StereoPcm): SampleAnalysis | n
     const est = estimatePitch(mono, sr, onset + skip) ?? estimatePitch(mono, sr, onset);
     if (est && est.confidence >= PITCH_CONFIDENCE) pitchHz = est.hz;
   }
-  return { from, to: Math.max(to, from + 1), anchor, onset, peak, cutIn: from > onset, pitchHz };
+  const kept = Math.max(to, from + 1);
+  const corr = correlation({
+    sampleRate: sr,
+    left: pcm.left.subarray(from, kept),
+    right: pcm.right.subarray(from, kept),
+  });
+  const minCorr = WIDE_CUES.has(cue) ? WIDE_MIN_CORRELATION : MONO_MIN_CORRELATION;
+  const monoFolded = MONO_CUES.has(cue) || corr < minCorr;
+  return { from, to: kept, anchor, onset, peak, cutIn: from > onset, pitchHz, correlation: corr, monoFolded };
 }
 
 /** Звук події, готовий до зведення: нормалізований до піку 1, `anchor` — семпл на кадрі події. */
@@ -221,7 +253,8 @@ function cubicAt(x: Float32Array, pos: number, from: number, to: number): number
 
 /**
  * Фрагмент семпла → звук події: зсув висоти на `semitones` і переведення в `sampleRate` одним
- * ресемплінгом (коротшає/довшає разом із висотою), fade-in/fade-out, нормалізація піку до 1.
+ * ресемплінгом (коротшає/довшає разом із висотою), моно-згортання (`analysis.monoFolded` — увесь
+ * звук, інакше — нижче `MONO_BELOW_HZ`), fade-in/fade-out, нормалізація піку до 1.
  */
 export function renderSample(
   pcm: StereoPcm,
@@ -231,14 +264,14 @@ export function renderSample(
   const ratio = 2 ** (opts.semitones / 12) * (pcm.sampleRate / opts.sampleRate);
   const { from, to } = analysis;
   const n = Math.max(1, Math.floor((to - from) / ratio));
-  const left = new Float32Array(n);
-  const right = new Float32Array(n);
+  const resampled = { sampleRate: opts.sampleRate, left: new Float32Array(n), right: new Float32Array(n) };
   const exact = ratio === 1;
   for (let i = 0; i < n; i++) {
     const pos = from + i * ratio;
-    left[i] = exact ? (pcm.left[from + i] as number) : cubicAt(pcm.left, pos, from, to);
-    right[i] = exact ? (pcm.right[from + i] as number) : cubicAt(pcm.right, pos, from, to);
+    resampled.left[i] = exact ? (pcm.left[from + i] as number) : cubicAt(pcm.left, pos, from, to);
+    resampled.right[i] = exact ? (pcm.right[from + i] as number) : cubicAt(pcm.right, pos, from, to);
   }
+  const { left, right } = monoFold(resampled, { belowHz: analysis.monoFolded ? null : MONO_BELOW_HZ });
   const sr = opts.sampleRate;
   const fadeIn = Math.min(n, Math.max(1, secToSamples(analysis.cutIn ? CUT_FADE_IN_SEC : FADE_IN_SEC, sr)));
   for (let i = 0; i < fadeIn; i++) {

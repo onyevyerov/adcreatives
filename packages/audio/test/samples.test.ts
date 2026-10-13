@@ -1,16 +1,31 @@
 import { describe, expect, it } from "vitest";
+import { Biquad } from "../src/dsp.ts";
 import { FALLBACK_KEY, nearestScaleNote, parseKey, scaleStep } from "../src/key.ts";
-import { createStereo, monoOf, peakOf, SAMPLE_RATE, secToSamples } from "../src/pcm.ts";
+import {
+  createStereo,
+  gainToDb,
+  monoOf,
+  peakOf,
+  rmsOf,
+  SAMPLE_RATE,
+  type StereoPcm,
+  secToSamples,
+} from "../src/pcm.ts";
 import {
   analyzeSample,
   ENVELOPE_WINDOW_SEC,
   estimatePitch,
   MAX_SAMPLE_SEC,
+  MONO_BELOW_HZ,
+  MONO_CUES,
+  MONO_MIN_CORRELATION,
   PITCH_CONFIDENCE,
   pitchShifts,
   RISER_TAIL_SEC,
   renderSample,
+  WIDE_MIN_CORRELATION,
 } from "../src/samples.ts";
+import { correlation } from "../src/stereo.ts";
 import { FAKE_LEAD_SEC, FAKE_PEAK_SEC, fakeSample } from "./fakeSfx.ts";
 import { mulberry32 } from "./signals.ts";
 
@@ -150,5 +165,113 @@ describe("висота тону", () => {
     // Детерміновано: той самий вхід — ті самі семпли.
     const again = renderSample(pcm, a, { semitones: 12, sampleRate: SAMPLE_RATE });
     expect(Buffer.from(again.left.buffer).equals(Buffer.from(up.left.buffer))).toBe(true);
+  });
+});
+
+/** Звук події як `StereoPcm` (для вимірювань). */
+const asPcm = (sound: { left: Float32Array; right: Float32Array }): StereoPcm => ({
+  sampleRate: SAMPLE_RATE,
+  left: sound.left,
+  right: sound.right,
+});
+
+/** Моно-сума (L+R)/2 відносно гучнішого каналу, дБ (RMS). */
+function monoLossDb(pcm: StereoPcm): number {
+  const mono = monoOf(pcm);
+  let m = 0;
+  for (const v of mono) m += v * v;
+  const ch = Math.max(rmsOf({ ...pcm, right: pcm.left }), rmsOf({ ...pcm, left: pcm.right }));
+  return gainToDb(Math.sqrt(m / mono.length) / ch);
+}
+
+/** Канал через каскад з 4 біквадів HPF (48 дБ/окт). */
+function highpassed(x: Float32Array, hz: number): Float32Array {
+  const out = Float32Array.from(x);
+  for (let k = 0; k < 4; k++) {
+    const f = new Biquad().setHighpass(hz, SAMPLE_RATE);
+    for (let i = 0; i < out.length; i++) out[i] = f.process(out[i] as number);
+  }
+  return out;
+}
+
+describe("моно-сумісність звуків подій", () => {
+  it("політика ТЗ: impact/slam — повністю моно, решта — моно нижче 150 Гц; поріг кореляції 0.3", () => {
+    expect([...MONO_CUES]).toEqual(["impact", "slam"]);
+    expect(MONO_BELOW_HZ).toBe(150);
+    expect(MONO_MIN_CORRELATION).toBe(0.3);
+    expect(WIDE_MIN_CORRELATION).toBe(-0.2);
+  });
+
+  it("протифазний семпл: аналіз бачить кореляцію < 0.3 → після renderSample моно-сума не тихіша за канал > 3 дБ", () => {
+    // Як `impact.1` у замірі (кореляція −0.89): правий канал — перевернутий лівий плюс трохи шуму.
+    const rand = mulberry32(21);
+    const pcm = createStereo(secToSamples(0.5));
+    for (let i = 0; i < pcm.left.length; i++) {
+      const t = i / SAMPLE_RATE;
+      const x = 0.5 * Math.exp(-t / 0.08) * (Math.sin(2 * Math.PI * 90 * t) + 0.5 * (rand() * 2 - 1));
+      pcm.left[i] = x;
+      pcm.right[i] = -0.85 * x + 0.05 * Math.exp(-t / 0.08) * (rand() * 2 - 1);
+    }
+    // Без політики моно-сума гасне на десятки дБ.
+    expect(monoLossDb(pcm)).toBeLessThan(-15);
+    for (const cue of ["pop", "click", "impact", "whoosh"] as const) {
+      const a = analyzeSample(cue, pcm);
+      if (!a) throw new Error(cue);
+      expect(a.correlation, cue).toBeLessThan(-0.8);
+      expect(a.monoFolded, cue).toBe(true);
+      const out = asPcm(renderSample(pcm, a, { semitones: 0, sampleRate: SAMPLE_RATE }));
+      expect(monoLossDb(out), cue).toBeGreaterThanOrEqual(-3);
+      expect(peakOf(out), cue).toBeCloseTo(1, 6);
+    }
+  });
+
+  it("impact/slam — у моно навіть з нормальною кореляцією; pop зі звичайним стерео — лише низ", () => {
+    for (const cue of ["impact", "slam"] as const) {
+      const pcm = fakeSample(cue);
+      const a = analyzeSample(cue, pcm);
+      if (!a) throw new Error(cue);
+      expect(a.correlation, cue).toBeGreaterThanOrEqual(MONO_MIN_CORRELATION);
+      expect(a.monoFolded, cue).toBe(true);
+      const out = renderSample(pcm, a, { semitones: 0, sampleRate: SAMPLE_RATE });
+      expect(Buffer.from(out.left.buffer).equals(Buffer.from(out.right.buffer)), cue).toBe(true);
+    }
+    const pop = analyzeSample("pop", fakeSample("pop"));
+    expect(pop?.correlation).toBeGreaterThanOrEqual(MONO_MIN_CORRELATION);
+    expect(pop?.monoFolded).toBe(false);
+  });
+
+  it("whoosh з декорельованим шумом (кореляція ≈ 0): верх лишається стерео, низ стає моно", () => {
+    const rand = mulberry32(22);
+    const n = secToSamples(0.8);
+    const pcm = createStereo(n);
+    // Шум кожного каналу свій: широкосмуговий плюс гул нижче 100 Гц.
+    const rumble = [new Biquad().setLowpass(80, SAMPLE_RATE), new Biquad().setLowpass(80, SAMPLE_RATE)];
+    for (let i = 0; i < n; i++) {
+      const env = Math.sin((Math.PI * i) / n) ** 2;
+      const [lo, ro] = rumble as [Biquad, Biquad];
+      pcm.left[i] = 0.3 * env * (rand() * 2 - 1 + 8 * lo.process(rand() * 2 - 1));
+      pcm.right[i] = 0.3 * env * (rand() * 2 - 1 + 8 * ro.process(rand() * 2 - 1));
+    }
+    const a = analyzeSample("whoosh", pcm);
+    if (!a) throw new Error("whoosh");
+    expect(Math.abs(a.correlation)).toBeLessThan(0.15);
+    expect(a.monoFolded).toBe(false);
+    const out = asPcm(renderSample(pcm, a, { semitones: 0, sampleRate: SAMPLE_RATE }));
+    // Низ: був декорельований — став моно.
+    const src = {
+      sampleRate: SAMPLE_RATE,
+      left: pcm.left.slice(a.from, a.to),
+      right: pcm.right.slice(a.from, a.to),
+    };
+    expect(Math.abs(correlation(src, 60))).toBeLessThan(0.3);
+    expect(correlation(out, 60)).toBeGreaterThan(0.95);
+    // Верх (вище 1 кГц): кореляція та сама, що в оригіналі, ≈ 0.
+    const hi = (p: StereoPcm) => ({
+      sampleRate: SAMPLE_RATE,
+      left: highpassed(p.left, 1000),
+      right: highpassed(p.right, 1000),
+    });
+    expect(Math.abs(correlation(hi(out)))).toBeLessThan(0.15);
+    expect(correlation(hi(out))).toBeCloseTo(correlation(hi(src)), 2);
   });
 });
