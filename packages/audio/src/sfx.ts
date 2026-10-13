@@ -13,8 +13,18 @@ import {
   stableStringify,
 } from "@adc/shared";
 import { z } from "zod";
-import { audioBytes, type ElevenLabsLike } from "./client.ts";
-import { SFX_MODEL_ID, SFX_PROMPT_INFLUENCE, SFX_TIMEOUT_SECONDS } from "./constants.ts";
+import { type ElevenLabsLike, receiveAudio } from "./client.ts";
+import {
+  FORMAT_FALLBACK,
+  isPcmFormat,
+  type OutputFormat,
+  SFX_MODEL_ID,
+  SFX_OUTPUT_FORMAT,
+  SFX_PROMPT_INFLUENCE,
+  SFX_TIMEOUT_SECONDS,
+} from "./constants.ts";
+import { audioExt } from "./decode.ts";
+import { classifyElevenLabsError } from "./errors.ts";
 import type { ElevenLabsGate } from "./gate.ts";
 import { SfxQc, type SfxQcHook } from "./sfxQc.ts";
 
@@ -91,20 +101,32 @@ export function loadSfxLibrary(prompts: PromptLoader): SfxLibrary {
 /** Мітка варіанта в журналі витрат і метаданих кешу: `pop.2`. */
 export const variantLabel = (cue: string, variant: number) => `${cue}.${variant}`;
 
-/** Хеш SFX-запиту = ім'я файлу в кеші. Однаковий запит — той самий файл. */
-export function sfxHash(def: CueDefinition): string {
+/** Формат кешу SFX до A1 (старі метадані без поля — теж він). */
+const LEGACY_SFX_FORMAT: OutputFormat = "mp3_44100_128";
+
+/**
+ * Хеш SFX-запиту = ім'я файлу в кеші. Однаковий запит — той самий файл; інший формат — новий файл.
+ * Формат `mp3_44100_128` у хеш не входить: так хеші кешу, згенерованого до A1, не змінюються.
+ */
+export function sfxHash(def: CueDefinition, format: OutputFormat = SFX_OUTPUT_FORMAT): string {
   return shortHash(
     stableStringify({
       text: def.text,
       durationSeconds: def.durationSeconds,
       promptInfluence: SFX_PROMPT_INFLUENCE,
       modelId: SFX_MODEL_ID,
+      ...(format === LEGACY_SFX_FORMAT ? {} : { outputFormat: format }),
     }),
   );
 }
 
-/** Формат файлів кешу SFX (поки єдиний; старі метадані без поля — теж він). */
-const SFX_CACHE_FORMAT = "mp3_44100_128";
+export type SfxFileExt = "mp3" | "wav";
+
+/** Файл спільного кешу за розширенням вмісту: `cache/sfx/<hash>.mp3` або `.wav` (PCM). */
+export function sfxCacheKey(hash: string, ext: SfxFileExt): string {
+  const mp3 = sharedPaths.sfxCache(hash);
+  return ext === "mp3" ? mp3 : mp3.replace(/\.mp3$/, ".wav");
+}
 
 export const SfxCacheMeta = z.object({
   cue: z.string(),
@@ -114,7 +136,8 @@ export const SfxCacheMeta = z.object({
   createdAt: z.string(),
   /** Контроль якості найкращої спроби; null — без QC (старий кеш або хук не спрацював). */
   qc: SfxQc.nullable().default(null),
-  outputFormat: z.string().default(SFX_CACHE_FORMAT),
+  /** Формат, у якому семпл реально отримано (після фолбеку — `FORMAT_FALLBACK`). */
+  outputFormat: z.string().default(LEGACY_SFX_FORMAT),
 });
 export type SfxCacheMeta = z.infer<typeof SfxCacheMeta>;
 
@@ -127,6 +150,11 @@ export interface SfxDeps {
   now?: () => Date;
   /** Контроль якості щойно згенерованого семпла; немає — без QC. */
   qc?: SfxQcHook;
+  /**
+   * Формат для одного повтору, якщо `SFX_OUTPUT_FORMAT` недоступний на тарифі (`format_not_allowed`);
+   * дефолт — `FORMAT_FALLBACK`, null — без повтору.
+   */
+  formatFallback?: OutputFormat | null;
 }
 
 /** Повторні генерації SFX, що не пройшли QC (разом із першою — до 3 спроб). */
@@ -142,32 +170,61 @@ export interface SfxFile {
   generated: boolean;
 }
 
-/** Один платний виклик textToSoundEffects + запис витрат. */
-export async function generateSfx(
+interface ReceivedSfx {
+  /** mp3 як є або WAV (PCM, загорнутий одразу після отримання). */
+  audio: Buffer;
+  outputFormat: OutputFormat;
+}
+
+/**
+ * Один платний виклик textToSoundEffects у `SFX_OUTPUT_FORMAT` + запис витрат. Формат недоступний
+ * на тарифі — один повтор у `deps.formatFallback` з попередженням у лог (відхилений запит не тарифікується).
+ */
+async function requestSfx(
   deps: SfxDeps,
   cost: CostRecorder,
   cue: string,
   def: CueDefinition,
-): Promise<Buffer> {
-  const result = await deps.gate.run(
-    `sfx:${cue}`,
-    () =>
-      deps.client().textToSoundEffects.convert(
-        {
-          text: def.text,
-          durationSeconds: def.durationSeconds,
-          promptInfluence: SFX_PROMPT_INFLUENCE,
-          modelId: SFX_MODEL_ID,
-        },
-        {
-          timeoutInSeconds: SFX_TIMEOUT_SECONDS,
-          maxRetries: 0,
-          ...(deps.signal ? { abortSignal: deps.signal } : {}),
-        },
-      ),
-    deps.signal,
-  );
-  const audio = await audioBytes(result);
+): Promise<ReceivedSfx> {
+  const logger = deps.logger ?? noopLogger;
+  const fallback = deps.formatFallback === undefined ? FORMAT_FALLBACK : deps.formatFallback;
+  const convert = async (format: OutputFormat): Promise<Buffer> => {
+    const result = await deps.gate.run(
+      `sfx:${cue}`,
+      () =>
+        deps.client().textToSoundEffects.convert(
+          {
+            text: def.text,
+            durationSeconds: def.durationSeconds,
+            promptInfluence: SFX_PROMPT_INFLUENCE,
+            modelId: SFX_MODEL_ID,
+            outputFormat: format,
+          },
+          {
+            timeoutInSeconds: SFX_TIMEOUT_SECONDS,
+            maxRetries: 0,
+            ...(deps.signal ? { abortSignal: deps.signal } : {}),
+          },
+        ),
+      deps.signal,
+    );
+    return receiveAudio(result, format, def.durationSeconds);
+  };
+  let outputFormat: OutputFormat = SFX_OUTPUT_FORMAT;
+  let audio: Buffer;
+  try {
+    audio = await convert(outputFormat);
+  } catch (err) {
+    if (!fallback || fallback === outputFormat || deps.signal?.aborted) throw err;
+    if (classifyElevenLabsError(err).kind !== "format_not_allowed") throw err;
+    logger.warn("формат SFX недоступний на тарифі — повтор у фолбек-форматі", {
+      cue,
+      format: outputFormat,
+      fallback,
+    });
+    outputFormat = fallback;
+    audio = await convert(outputFormat);
+  }
   try {
     await cost.record({
       provider: "elevenlabs",
@@ -177,9 +234,19 @@ export async function generateSfx(
       detail: `sfx:${cue}`,
     });
   } catch (err) {
-    (deps.logger ?? noopLogger).error("не вдалося записати витрати SFX", { cue, err: String(err) });
+    logger.error("не вдалося записати витрати SFX", { cue, err: String(err) });
   }
-  return audio;
+  return { audio, outputFormat };
+}
+
+/** Один платний виклик textToSoundEffects + запис витрат; байти — mp3 або WAV (PCM-формат). */
+export async function generateSfx(
+  deps: SfxDeps,
+  cost: CostRecorder,
+  cue: string,
+  def: CueDefinition,
+): Promise<Buffer> {
+  return (await requestSfx(deps, cost, cue, def)).audio;
 }
 
 /** Журнал витрат або лінива фабрика (спільний журнал створюється лише при промаху кешу). */
@@ -196,14 +263,14 @@ async function generateChecked(
   cost: CostRecorder,
   cue: string,
   def: CueDefinition,
-): Promise<{ audio: Buffer; qc: SfxQc | null }> {
+): Promise<ReceivedSfx & { qc: SfxQc | null }> {
   const logger = deps.logger ?? noopLogger;
-  let best: { audio: Buffer; qc: SfxQc } | null = null;
+  let best: (ReceivedSfx & { qc: SfxQc }) | null = null;
   let attempts = 0;
   for (let n = 1; n <= 1 + SFX_QC_MAX_RETRIES; n++) {
-    let audio: Buffer;
+    let received: ReceivedSfx;
     try {
-      audio = await generateSfx(deps, cost, cue, def);
+      received = await requestSfx(deps, cost, cue, def);
     } catch (err) {
       // Перша спроба — без звуку нема що віддати; повторна — лишаємо найкращу з наявних.
       if (!best || deps.signal?.aborted) throw err;
@@ -211,35 +278,44 @@ async function generateChecked(
       break;
     }
     attempts = n;
-    if (!deps.qc) return { audio, qc: null };
+    if (!deps.qc) return { ...received, qc: null };
     let qc: SfxQc;
     try {
-      qc = await deps.qc(audio, cue, def, deps.signal);
+      qc = await deps.qc(received.audio, cue, def, deps.signal);
     } catch (err) {
       if (deps.signal?.aborted) throw err;
       logger.warn("QC семпла SFX не вдався — без перевірки", { cue, err: String(err) });
-      return best ? { audio: best.audio, qc: { ...best.qc, attempts } } : { audio, qc: null };
+      return best ? { ...best, qc: { ...best.qc, attempts } } : { ...received, qc: null };
     }
-    if (!best || qc.reasons.length < best.qc.reasons.length) best = { audio, qc };
+    if (!best || qc.reasons.length < best.qc.reasons.length) best = { ...received, qc };
     if (qc.ok) break;
     logger.warn("семпл SFX не пройшов QC", { cue, attempt: n, reasons: qc.reasons });
   }
   if (!best) throw new Error(`SFX ${cue}: немає жодної спроби`);
-  return { audio: best.audio, qc: { ...best.qc, attempts } };
+  return { ...best, qc: { ...best.qc, attempts } };
 }
 
+/**
+ * Файл кешу за хешем: шукаємо обидва розширення (спершу за поточним форматом — після фолбеку
+ * PCM-запит лежить як `.mp3`); нового немає — генеруємо і пишемо з розширенням за вмістом.
+ */
 async function ensureCached(
   deps: SfxDeps,
   cost: CostSource,
   cue: string,
   def: CueDefinition,
-  key: string,
+  keyFor: (ext: SfxFileExt) => string,
   metaKey: string,
 ): Promise<SfxFile> {
   const hash = sfxHash(def);
   const durationMs = Math.round(def.durationSeconds * 1000);
-  if (await deps.storage.exists(key)) return { cue, key, hash, durationMs, generated: false };
-  const { audio, qc } = await generateChecked(deps, resolveCost(cost), cue, def);
+  const exts: SfxFileExt[] = isPcmFormat(SFX_OUTPUT_FORMAT) ? ["wav", "mp3"] : ["mp3", "wav"];
+  for (const ext of exts) {
+    const key = keyFor(ext);
+    if (await deps.storage.exists(key)) return { cue, key, hash, durationMs, generated: false };
+  }
+  const { audio, qc, outputFormat } = await generateChecked(deps, resolveCost(cost), cue, def);
+  const key = keyFor(audioExt(audio));
   await deps.storage.write(key, audio);
   const meta: SfxCacheMeta = {
     cue,
@@ -248,14 +324,14 @@ async function ensureCached(
     modelId: SFX_MODEL_ID,
     createdAt: (deps.now ?? (() => new Date()))().toISOString(),
     qc,
-    outputFormat: SFX_CACHE_FORMAT,
+    outputFormat,
   };
   await deps.storage.writeJson(metaKey, meta);
   return { cue, key, hash, durationMs, generated: true };
 }
 
 /**
- * Стандартний cue зі спільного кешу `cache/sfx/<hash>.mp3`. Якщо кеш не прогріто
+ * Стандартний cue зі спільного кешу `cache/sfx/<hash>.mp3` (`.wav` для PCM). Якщо кеш не прогріто
  * (`pnpm sfx-cache` не запускали) — генерує і пише витрати у спільний журнал.
  */
 export function ensureStandardSfx(
@@ -265,10 +341,17 @@ export function ensureStandardSfx(
   def: CueDefinition,
 ): Promise<SfxFile> {
   const hash = sfxHash(def);
-  return ensureCached(deps, sharedCost, cue, def, sharedPaths.sfxCache(hash), sharedPaths.sfxCacheMeta(hash));
+  return ensureCached(
+    deps,
+    sharedCost,
+    cue,
+    def,
+    (ext) => sfxCacheKey(hash, ext),
+    sharedPaths.sfxCacheMeta(hash),
+  );
 }
 
-/** Кастомний cue: кеш проєкту `audio/sfx/<hash>.mp3`, витрати — у журнал проєкту. */
+/** Кастомний cue: кеш проєкту `audio/sfx/<hash>.mp3` (`.wav` для PCM), витрати — у журнал проєкту. */
 export function ensureCustomSfx(
   deps: SfxDeps,
   cost: CostSource,
@@ -278,5 +361,5 @@ export function ensureCustomSfx(
 ): Promise<SfxFile> {
   const hash = sfxHash(def);
   const paths = projectPaths(projectId);
-  return ensureCached(deps, cost, cue, def, paths.sfx(`${hash}.mp3`), paths.sfx(`${hash}.json`));
+  return ensureCached(deps, cost, cue, def, (ext) => paths.sfx(`${hash}.${ext}`), paths.sfx(`${hash}.json`));
 }

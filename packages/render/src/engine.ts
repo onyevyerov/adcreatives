@@ -51,6 +51,14 @@ export class RenderError extends Error {
   }
 }
 
+/**
+ * Частота аудіо в mp4 = частота зведення (`SAMPLE_RATE` з `@adc/audio`; не імпортується, щоб рендер не
+ * залежав від аудіопакета — змінювати разом). Дефолт Remotion 48 кГц ресемплить мікс 44.1 кГц.
+ */
+export const OUTPUT_SAMPLE_RATE = 44_100;
+/** Бітрейт AAC у mp4: явно, а не дефолт Remotion. */
+export const OUTPUT_AUDIO_BITRATE = "320k";
+
 const LOG_TYPES = new Set<BrowserLog["type"]>(["log", "info", "warn", "error", "debug", "verbose", "trace"]);
 
 function toBrowserLog(log: RemotionBrowserLog, frame?: number): BrowserLog {
@@ -172,6 +180,8 @@ export class RemotionRenderEngine implements RenderEngine {
       inputProps,
       codec: "h264",
       audioCodec: "aac",
+      audioBitrate: OUTPUT_AUDIO_BITRATE,
+      sampleRate: OUTPUT_SAMPLE_RATE,
       crf: 18,
       x264Preset: "veryfast",
       overwrite: true,

@@ -9,19 +9,21 @@ import {
   type Storage,
 } from "@adc/shared";
 import {
-  audioBytes,
   type CompositionPlanV2,
   type ElevenLabsLike,
   type ElevenLabsRequestOptions,
+  receiveAudio,
 } from "./client.ts";
 import {
+  FORMAT_FALLBACK,
   MAX_MUSIC_RETRIES,
   MUSIC_MODEL_ID,
   MUSIC_OUTPUT_FORMAT,
   MUSIC_TIMEOUT_SECONDS,
   MUSIC_WINDOW_TAIL_MS,
+  type OutputFormat,
 } from "./constants.ts";
-import { type DecodeAudio, decodeAudio } from "./decode.ts";
+import { audioExt, type DecodeAudio, decodeAudio } from "./decode.ts";
 import { classifyElevenLabsError, type ElevenLabsErrorInfo } from "./errors.ts";
 import type { ElevenLabsGate } from "./gate.ts";
 import { pcmLength, type StereoPcm } from "./pcm.ts";
@@ -42,7 +44,10 @@ export interface MusicDeps {
 }
 
 export interface GeneratedMusic {
+  /** mp3 як є або WAV (PCM, загорнутий одразу після отримання). */
   audio: Buffer;
+  /** Формат, у якому трек реально отримано (після фолбеку — `FORMAT_FALLBACK`). */
+  outputFormat: OutputFormat;
   method: MusicMeta["method"];
   /** Промпт, що реально спрацював (compose), або null для composeDetailed. */
   promptUsed: string | null;
@@ -81,6 +86,8 @@ const isRejected = (info: ElevenLabsErrorInfo) =>
  *    на відхилений промпт із пропозицією — один повтор із запропонованим промптом;
  * 2) лише якщо промпт відхилено — фолбек `composeDetailed` з композиційним планом (один чанк);
  *    якщо API відхилив і план, але запропонував заміну — один повтор із нею.
+ * Формат — `MUSIC_OUTPUT_FORMAT`; якщо він недоступний на тарифі (`format_not_allowed`) — один повтор
+ * того самого запиту в `FORMAT_FALLBACK` з попередженням у лог, далі всі запити — у ньому.
  * Решта помилок (ключ, квота, мережа) кидається одразу. 429 і тимчасові відмови повторює `ElevenLabsGate`.
  */
 export async function generateMusic(
@@ -111,7 +118,24 @@ export async function generateMusic(
     }
   };
 
-  const compose = async (prompt: string, detail: string): Promise<GeneratedMusic> => {
+  // Формат недоступний на тарифі → один повтор того ж запиту у фолбек-форматі; далі всі запити — у ньому.
+  let format: OutputFormat = MUSIC_OUTPUT_FORMAT;
+  const withFormat = async (call: () => Promise<GeneratedMusic>): Promise<GeneratedMusic> => {
+    try {
+      return await call();
+    } catch (err) {
+      if (format === FORMAT_FALLBACK || deps.signal?.aborted) throw err;
+      if (classifyElevenLabsError(err).kind !== "format_not_allowed") throw err;
+      logger.warn("формат музики недоступний на тарифі — повтор у фолбек-форматі", {
+        format,
+        fallback: FORMAT_FALLBACK,
+      });
+      format = FORMAT_FALLBACK;
+      return call();
+    }
+  };
+
+  const composeOnce = async (prompt: string, detail: string): Promise<GeneratedMusic> => {
     const result = await deps.gate.run(
       "music:compose",
       () =>
@@ -121,34 +145,39 @@ export async function generateMusic(
             musicLengthMs: trackMs,
             forceInstrumental: true,
             modelId: MUSIC_MODEL_ID,
-            outputFormat: MUSIC_OUTPUT_FORMAT,
+            outputFormat: format,
           },
           reqOpts,
         ),
       deps.signal,
     );
-    const audio = await audioBytes(result);
+    const audio = await receiveAudio(result, format, trackMs / 1000);
     await record(trackMs / 1000, detail);
-    return { audio, method: "compose", promptUsed: prompt, durationMs: trackMs };
+    return { audio, outputFormat: format, method: "compose", promptUsed: prompt, durationMs: trackMs };
   };
 
-  const detailed = async (compositionPlan: CompositionPlanV2, detail: string): Promise<GeneratedMusic> => {
+  const compose = (prompt: string, detail: string) => withFormat(() => composeOnce(prompt, detail));
+
+  const detailedOnce = async (
+    compositionPlan: CompositionPlanV2,
+    detail: string,
+  ): Promise<GeneratedMusic> => {
     const result = await deps.gate.run(
       "music:composeDetailed",
       () =>
         deps
           .client()
-          .music.composeDetailed(
-            { compositionPlan, modelId: MUSIC_MODEL_ID, outputFormat: MUSIC_OUTPUT_FORMAT },
-            reqOpts,
-          ),
+          .music.composeDetailed({ compositionPlan, modelId: MUSIC_MODEL_ID, outputFormat: format }, reqOpts),
       deps.signal,
     );
-    const audio = await audioBytes(result);
     const ms = planMs(compositionPlan) || trackMs;
+    const audio = await receiveAudio(result, format, ms / 1000);
     await record(ms / 1000, detail);
-    return { audio, method: "composeDetailed", promptUsed: null, durationMs: ms };
+    return { audio, outputFormat: format, method: "composeDetailed", promptUsed: null, durationMs: ms };
   };
+
+  const detailed = (compositionPlan: CompositionPlanV2, detail: string) =>
+    withFormat(() => detailedOnce(compositionPlan, detail));
 
   /** Помилка, після якої фолбеку немає: скасування або не-відмова (ключ, квота, мережа). */
   const fatal = (err: unknown): ElevenLabsErrorInfo => {
@@ -202,6 +231,11 @@ export function musicWavKey(projectId: string, planHash: string): string {
   return `${projectPaths(projectId).audioDir}/${planHash}/music.wav`;
 }
 
+/** Сирий трек у PCM-форматі (WAV): `audio/<planHash>/music-raw.wav` — розширення за вмістом. */
+export function musicRawWavKey(projectId: string, planHash: string): string {
+  return `${projectPaths(projectId).audioDir}/${planHash}/music-raw.wav`;
+}
+
 interface Attempt {
   music: GeneratedMusic;
   pcm: StereoPcm | null;
@@ -214,8 +248,9 @@ interface Attempt {
  * 2) `ok=false` → до 2 повторних генерацій (витрати кожної — окремий рядок `costs.jsonl`);
  * 3) найкраща спроба (пройшла / найменше провалів) → вікно відео без провалів у межах треку
  *    (зсув кратний такту, `offsetMs`) → `music.wav` (вікно + 1 с хвоста) і перевірка вже його;
- * 4) сирий трек найкращої спроби — у `music.mp3`, метадані з `check`, `attempts`, `offsetMs` — у `music.json`.
- * Не вдалося декодувати (немає ffmpeg) або в плані немає темпу — лишається сирий `music.mp3`,
+ * 4) сирий трек найкращої спроби — у `music.mp3` (PCM-формат — `music-raw.wav`), метадані з `check`,
+ *    `attempts`, `offsetMs` — у `music.json`.
+ * Не вдалося декодувати (немає ffmpeg) або в плані немає темпу — лишається сирий трек,
  * `check: null`, `offsetMs: 0`.
  */
 export async function ensureMusic(
@@ -228,6 +263,7 @@ export async function ensureMusic(
   const planHash = musicPlanHash(plan);
   const paths = projectPaths(projectId);
   const rawKey = paths.music(planHash);
+  const rawWavKey = musicRawWavKey(projectId, planHash);
   const wavKey = musicWavKey(projectId, planHash);
   const metaKey = paths.musicMeta(planHash);
   if (await deps.storage.exists(metaKey)) {
@@ -238,7 +274,9 @@ export async function ensureMusic(
           ? wavKey
           : (await deps.storage.exists(rawKey))
             ? rawKey
-            : null;
+            : (await deps.storage.exists(rawWavKey))
+              ? rawWavKey
+              : null;
       if (key) return { planHash, key, meta, cached: true };
     } catch {
       // битий music.json — генеруємо заново
@@ -282,6 +320,7 @@ export async function ensureMusic(
     const check = checkTrack(pcm, bpm, { videoMs });
     logger.info("перевірка треку", {
       attempt: n,
+      outputFormat: music.outputFormat,
       ok: check.ok,
       kickOnsets: check.kickOnsets,
       beatConfidence: check.beatConfidence,
@@ -301,12 +340,13 @@ export async function ensureMusic(
     createdAt: (deps.now ?? (() => new Date()))().toISOString(),
     attempts: Math.max(1, attempts),
   };
-  await deps.storage.write(rawKey, best.music.audio);
+  const bestRawKey = audioExt(best.music.audio) === "wav" ? rawWavKey : rawKey;
+  await deps.storage.write(bestRawKey, best.music.audio);
 
   if (!best.pcm || !best.check || bpm === null) {
     const meta: MusicMeta = { ...base, durationMs: best.music.durationMs, check: null, offsetMs: 0 };
     await deps.storage.writeJson(metaKey, meta);
-    return { planHash, key: rawKey, meta, cached: false };
+    return { planHash, key: bestRawKey, meta, cached: false };
   }
 
   const sr = best.pcm.sampleRate;
@@ -315,6 +355,9 @@ export async function ensureMusic(
     videoMs,
     tailMs: MUSIC_WINDOW_TAIL_MS,
     bpm,
+    // Вікно — від сильної долі: вирівнювання такту у зведенні зрізає менше долі, а не до такту.
+    barOffsetMs: best.check.barOffsetMs,
+    barConfidence: best.check.barConfidence,
   });
   const cut = cutWindow(best.pcm, offsetMs, videoMs + MUSIC_WINDOW_TAIL_MS);
   const check = checkTrack(cut, bpm, { videoMs });

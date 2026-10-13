@@ -1,15 +1,25 @@
 import {
   createCostRecorder,
   createPromptLoader,
+  type Logger,
   loadPrices,
   MusicMeta,
+  noopLogger,
   projectPaths,
   readCosts,
 } from "@adc/shared";
 import { fixtureBrandKit, fixtureStoryboard } from "@adc/shared/fixtures";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { computeChunkLayout } from "../src/chunks.ts";
+import {
+  DEFAULT_OUTPUT_FORMAT,
+  MUSIC_OUTPUT_FORMAT,
+  OutputFormatError,
+  publicMusicFile,
+  readOutputFormat,
+} from "../src/constants.ts";
 import type { DecodeAudio } from "../src/decode.ts";
+import { classifyElevenLabsError } from "../src/errors.ts";
 import { ensureMusic, generateMusic, type MusicDeps, musicWavKey } from "../src/music.ts";
 import type { StereoPcm } from "../src/pcm.ts";
 import { musicPlanHash, normalizeAudioPlan } from "../src/plan.ts";
@@ -28,6 +38,12 @@ import {
   wrappedDetailedError,
 } from "./helpers.ts";
 import { groove, withGaps } from "./trackSignals.ts";
+
+// Формати — дефолтні незалежно від `.env` розробника: порожнє значення = дефолт, `.env` його не перекриває.
+vi.hoisted(() => {
+  process.env.ELEVENLABS_MUSIC_FORMAT = "";
+  process.env.ELEVENLABS_SFX_FORMAT = "";
+});
 
 const layout = computeChunkLayout(fixtureStoryboard);
 const plan = normalizeAudioPlan(draftFor(layout), {
@@ -89,11 +105,16 @@ const badPrompt = (suggestion?: string) =>
   });
 
 describe("generateMusic", () => {
-  it("один compose з promptFallback: music_v2_5, mp3_44100_128, трек = відео + 8 с, витрати в секундах", async () => {
+  it("один compose з promptFallback: music_v2_5, mp3_44100_192, трек = відео + 8 с, витрати в секундах", async () => {
     const client = mockElevenLabs();
     const d = deps(client);
     const res = await generateMusic(d, plan);
-    expect(res).toMatchObject({ method: "compose", promptUsed: plan.promptFallback, durationMs: 23_000 });
+    expect(res).toMatchObject({
+      method: "compose",
+      promptUsed: plan.promptFallback,
+      durationMs: 23_000,
+      outputFormat: "mp3_44100_192",
+    });
     expect(res.audio.toString()).toBe("MUSIC-COMPOSE");
     expect(client.calls).toHaveLength(1);
     expect(client.calls[0]?.request).toEqual({
@@ -101,8 +122,9 @@ describe("generateMusic", () => {
       musicLengthMs: 23_000,
       forceInstrumental: true,
       modelId: "music_v2_5",
-      outputFormat: "mp3_44100_128",
+      outputFormat: MUSIC_OUTPUT_FORMAT,
     });
+    expect(MUSIC_OUTPUT_FORMAT).toBe("mp3_44100_192");
     expect(client.calls[0]?.options).toMatchObject({ timeoutInSeconds: 300, maxRetries: 0 });
     expect(plan.promptFallback).toMatch(/no breakdown, no fill, no stop in the first 15 seconds/);
 
@@ -317,5 +339,155 @@ describe("ensureMusic: перевірка, повтори, вікно відео
     expect(res).toMatchObject({ cached: true, key: paths.music(hash) });
     expect(res.meta).toMatchObject({ check: null, attempts: 1, offsetMs: 0 });
     expect(client.calls).toHaveLength(0);
+  });
+});
+
+/** Сирий PCM 16 біт LE стерео, як його віддає ElevenLabs у `pcm_44100` (без заголовка). */
+function rawPcm(pcm: StereoPcm): Buffer {
+  const buf = Buffer.alloc(pcm.left.length * 4);
+  const i16 = (x: number) => Math.round(Math.max(-1, Math.min(1, x)) * 32767);
+  for (let i = 0; i < pcm.left.length; i++) {
+    buf.writeInt16LE(i16(pcm.left[i] as number), i * 4);
+    buf.writeInt16LE(i16(pcm.right[i] as number), i * 4 + 2);
+  }
+  return buf;
+}
+
+/** Модулі, завантажені заново з іншим env форматів (формати читаються при завантаженні модуля). */
+async function withFormatEnv<T>(env: Record<string, string>, load: () => Promise<T>): Promise<T> {
+  for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+  vi.resetModules();
+  try {
+    return await load();
+  } finally {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  }
+}
+
+function captureLogger(): Logger & { warns: Array<{ msg: string; meta?: Record<string, unknown> }> } {
+  const warns: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
+  const logger: Logger = {
+    ...noopLogger,
+    warn: (msg, meta) => {
+      warns.push({ msg, ...(meta ? { meta: meta as Record<string, unknown> } : {}) });
+    },
+    child: () => logger,
+  };
+  return Object.assign(logger, { warns });
+}
+
+/** Відмова ElevenLabs «формат недоступний на тарифі». */
+const formatDenied = () =>
+  elError(403, {
+    detail: {
+      status: "output_format_not_allowed",
+      message: "To use output format mp3_44100_192 you need to be subscribed to Creator tier or above.",
+    },
+  });
+
+describe("формат вихідних даних (A1)", () => {
+  it("env: порожньо — mp3_44100_192; допустимі 128/192/pcm; невалідне — помилка", () => {
+    expect(DEFAULT_OUTPUT_FORMAT).toBe("mp3_44100_192");
+    expect(readOutputFormat("ELEVENLABS_MUSIC_FORMAT", {})).toBe("mp3_44100_192");
+    expect(readOutputFormat("ELEVENLABS_MUSIC_FORMAT", { ELEVENLABS_MUSIC_FORMAT: "  " })).toBe(
+      "mp3_44100_192",
+    );
+    for (const f of ["mp3_44100_128", "mp3_44100_192", "pcm_44100"]) {
+      expect(readOutputFormat("ELEVENLABS_SFX_FORMAT", { ELEVENLABS_SFX_FORMAT: f })).toBe(f);
+    }
+    expect(() =>
+      readOutputFormat("ELEVENLABS_SFX_FORMAT", { ELEVENLABS_SFX_FORMAT: "mp3_22050_32" }),
+    ).toThrow(OutputFormatError);
+  });
+
+  it("невалідний формат у env — помилка при завантаженні модуля (старт процесу)", async () => {
+    await expect(
+      withFormatEnv({ ELEVENLABS_MUSIC_FORMAT: "wav" }, () => import("../src/constants.ts")),
+    ).rejects.toThrow(/ELEVENLABS_MUSIC_FORMAT=wav/);
+    await expect(
+      withFormatEnv({ ELEVENLABS_SFX_FORMAT: "pcm_48000" }, () => import("../src/music.ts")),
+    ).rejects.toThrow(/ELEVENLABS_SFX_FORMAT=pcm_48000/);
+  });
+
+  it("errors.ts: відмова за форматом — format_not_allowed (код або текст), інші відмови — ні", () => {
+    expect(classifyElevenLabsError(formatDenied()).kind).toBe("format_not_allowed");
+    expect(
+      classifyElevenLabsError(
+        elError(400, {
+          detail: { message: "Output format pcm_44100 is not available on your subscription tier" },
+        }),
+      ).kind,
+    ).toBe("format_not_allowed");
+    expect(
+      classifyElevenLabsError(wrappedDetailedError(403, { detail: { status: "format_not_allowed" } })).kind,
+    ).toBe("format_not_allowed");
+    expect(classifyElevenLabsError(badPrompt()).kind).toBe("bad_prompt");
+    expect(classifyElevenLabsError(elError(429, concurrencyBody)).kind).toBe("concurrency");
+    expect(classifyElevenLabsError(elError(401, { detail: "invalid api key" })).kind).toBe("other");
+  });
+
+  it("формат недоступний → рівно один повтор у mp3_44100_128 з попередженням; далі запити — теж у ньому", async () => {
+    const logger = captureLogger();
+    const client = mockElevenLabs({ compose: [formatDenied(), badPrompt()] });
+    const d = { ...deps(client), logger };
+    const res = await generateMusic(d, plan);
+    expect(client.calls.map((c) => [c.method, c.request.outputFormat])).toEqual([
+      ["compose", "mp3_44100_192"],
+      ["compose", "mp3_44100_128"],
+      ["composeDetailed", "mp3_44100_128"],
+    ]);
+    expect(res).toMatchObject({ method: "composeDetailed", outputFormat: "mp3_44100_128" });
+    expect(logger.warns.filter((w) => w.msg.startsWith("формат музики"))).toHaveLength(1);
+    expect(logger.warns[0]?.meta).toMatchObject({ format: "mp3_44100_192", fallback: "mp3_44100_128" });
+    // Відхилені запити не тарифікуються.
+    expect((await readCosts(d.storage, PROJECT_ID)).map((c) => c.detail)).toEqual(["music:composeDetailed"]);
+
+    const twice = mockElevenLabs({ compose: [formatDenied(), formatDenied()] });
+    await expect(generateMusic(deps(twice), plan)).rejects.toThrow();
+    expect(twice.calls).toHaveLength(2);
+  });
+
+  it("pcm_44100: трек — WAV одразу після отримання, декодується без ffmpeg; planHash залежить від формату", async () => {
+    const { music, planMod } = await withFormatEnv({ ELEVENLABS_MUSIC_FORMAT: "pcm_44100" }, async () => ({
+      music: await import("../src/music.ts"),
+      planMod: await import("../src/plan.ts"),
+    }));
+    expect(planMod.musicPlanHash(plan)).not.toBe(musicPlanHash(plan));
+    // Справжній decodeAudio: WAV іде через decodeWav; ffmpeg недосяжний — якби викликався, тест упав би.
+    vi.stubEnv("ADC_FFMPEG", "/nonexistent/ffmpeg");
+    try {
+      const client = mockElevenLabs({ compose: [Buffer.from(rawPcm(GOOD))] });
+      const { decode: _skip, ...d } = deps(client);
+      const res = await music.ensureMusic(d, PROJECT_ID, plan, "b");
+      expect(client.calls[0]?.request).toMatchObject({ outputFormat: "pcm_44100" });
+      expect(res.planHash).toBe(planMod.musicPlanHash(plan));
+      expect(res.key).toBe(musicWavKey(PROJECT_ID, res.planHash));
+      expect(res.meta.check).toMatchObject({ ok: true });
+      expect(decodeWav(await d.storage.read(res.key)).left.length).toBe(16 * 44_100);
+      // Сирий трек — WAV із розширенням `.wav`, а не `music.mp3`.
+      const raw = await d.storage.read(music.musicRawWavKey(PROJECT_ID, res.planHash));
+      expect(raw.toString("ascii", 0, 4)).toBe("RIFF");
+      expect(decodeWav(raw).left.length).toBe(GOOD.left.length);
+      expect(await d.storage.exists(projectPaths(PROJECT_ID).music(res.planHash))).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("pcm_44100 без перевірки (не декодувалось) → ключ — сирий `music-raw.wav`, public — music.wav; повтор — кеш", async () => {
+    const music = await withFormatEnv(
+      { ELEVENLABS_MUSIC_FORMAT: "pcm_44100" },
+      () => import("../src/music.ts"),
+    );
+    const client = mockElevenLabs({ compose: [rawPcm(GOOD)] });
+    const d = deps(client, fakeDecode({ fail: true }));
+    const res = await music.ensureMusic(d, PROJECT_ID, plan, "b");
+    expect(res.key).toBe(music.musicRawWavKey(PROJECT_ID, res.planHash));
+    expect(res.meta.check).toBeNull();
+    expect(publicMusicFile(res.key)).toBe("music.wav");
+    const again = await music.ensureMusic(d, PROJECT_ID, plan, "b");
+    expect(again).toMatchObject({ cached: true, key: res.key });
+    expect(client.calls).toHaveLength(1);
   });
 });

@@ -1,5 +1,5 @@
 import type { MusicTrackCheck } from "@adc/shared";
-import { estimateBarPhase } from "./bars.ts";
+import { BEATS_PER_BAR, estimateBarPhase, MIN_BAR_CONFIDENCE } from "./bars.ts";
 import { estimateBeatPhase, lowBandOnsets, MIN_BEAT_CONFIDENCE, shiftPcm } from "./beat.ts";
 import { GAP_DROP_DB, GAP_MIN_MS, MIN_KICKS_PER_BEAT } from "./constants.ts";
 import { detectKey } from "./keyDetect.ts";
@@ -10,7 +10,7 @@ import { correlation } from "./stereo.ts";
 /**
  * Перевірка згенерованого треку (A2): чи є бочка на сітці долей і чи нема провалів
  * (брейк, стоп, тихий філ) у вікні відео. Плюс вибір вікна відео в довшому треку
- * (зсув кратний такту) і обрізання PCM на нього — до зведення, без `stage.ts`.
+ * (зсув кратний такту від першого downbeat) і обрізання PCM на нього — до зведення, без `stage.ts`.
  */
 
 /** Крок, з яким ковзне вікно шукає провали. */
@@ -19,8 +19,6 @@ const GAP_HOP_MS = 50;
 const GAP_WINDOW_MIN_MS = 500;
 /** Онсет «на долі» — не далі за 80 мс (і за чверть долі) від сітки. */
 const ON_BEAT_TOLERANCE_SEC = 0.08;
-/** Долей у такті (4/4). */
-export const BEATS_PER_BAR = 4;
 /** Межа «низу» для кореляції L/R треку, Гц. */
 export const LOW_CORRELATION_HZ = 150;
 
@@ -105,7 +103,8 @@ export interface CheckTrackOptions {
  * `kickOnsets` — долі треку, на яких є онсет (бочка на сітці); RMS по секундах; провали.
  * `ok` — сітка певна (`MIN_BEAT_CONFIDENCE`, як у зведенні), у перших `videoMs` бочка є
  * на ≥ 0.8 долі і там нема провалів. Плюс замір: тональність (`detectKey`), фаза такту
- * (`estimateBarPhase`), кореляція L/R (уся і нижче 150 Гц), LUFS і true peak — на `ok` не впливають.
+ * (`estimateBarPhase`, лише при певній сітці долей; від неї — вікно відео), кореляція L/R (уся
+ * і нижче 150 Гц), LUFS і true peak — на `ok` не впливають.
  */
 export function checkTrack(pcm: StereoPcm, bpm: number, opts: CheckTrackOptions = {}): MusicTrackCheck {
   const totalSec = pcmLength(pcm) / pcm.sampleRate;
@@ -136,7 +135,7 @@ export function checkTrack(pcm: StereoPcm, bpm: number, opts: CheckTrackOptions 
   const enoughKicks = beatsInVideo > 0 && kicksInVideo >= MIN_KICKS_PER_BEAT * beatsInVideo;
   const gapInVideo = gaps.some((g) => g.fromMs < videoSec * 1000);
   const key = detectKey(pcm);
-  const bar = estimateBarPhase(pcm, bpm, phase.offsetSec);
+  const bar = sure ? estimateBarPhase(pcm, bpm, phase.offsetSec) : null;
   return {
     bpm,
     kickOnsets: kicks,
@@ -171,20 +170,28 @@ export interface WindowOptions {
   /** Хвіст після вікна, що теж має вміститись у трек, мс. */
   tailMs: number;
   bpm: number;
+  /** Перший downbeat треку (`MusicTrackCheck.barOffsetMs`), мс; null — не визначено. */
+  barOffsetMs?: number | null;
+  /** Впевненість фази такту (`MusicTrackCheck.barConfidence`); нижче `MIN_BAR_CONFIDENCE` — від 0. */
+  barConfidence?: number | null;
 }
 
 /**
- * Зсув вікна відео в треку: кратний такту, вікно + хвіст уміщаються в трек; перше вікно
- * без провалів, інакше — з найменшою їх тривалістю у вікні (за рівності — раніше).
+ * Зсув вікна відео в треку: кратний такту від першого downbeat (при певній фазі такту, інакше
+ * від 0), вікно + хвіст уміщаються в трек; перше вікно без провалів, інакше — з найменшою їх
+ * тривалістю у вікні (за рівності — раніше). Downbeat, що не вміщається, — зсув від 0, як без такту.
  */
 export function chooseWindowOffset(gaps: MusicTrackCheck["gaps"], opts: WindowOptions): number {
   const bar = barMs(opts.bpm);
   const room = opts.trackMs - opts.videoMs - opts.tailMs;
-  const maxBars = bar > 0 && room > 0 ? Math.floor(room / bar) : 0;
-  let best = 0;
+  const downbeat =
+    opts.barOffsetMs != null && (opts.barConfidence ?? 0) >= MIN_BAR_CONFIDENCE ? opts.barOffsetMs : 0;
+  const start = downbeat >= 0 && downbeat <= room ? downbeat : 0;
+  const maxBars = bar > 0 && room > start ? Math.floor((room - start) / bar) : 0;
+  let best = Math.round(start);
   let bestOverlap = Number.POSITIVE_INFINITY;
   for (let k = 0; k <= maxBars; k++) {
-    const offset = Math.round(k * bar);
+    const offset = Math.round(start + k * bar);
     const overlap = gapOverlapMs(gaps, offset, opts.videoMs);
     if (overlap < bestOverlap) {
       best = offset;

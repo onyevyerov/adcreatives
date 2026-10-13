@@ -483,7 +483,11 @@ describe("звук кейсу", () => {
     expect(audio.mix?.peakDb).toBeLessThanOrEqual(-1);
     expect(audio.beat).toMatchObject({ bpm: 85 });
     expect(audio.beat?.onsets).toBeGreaterThan(10);
-    expect(audio.masterGainDb).toEqual(expect.any(Number));
+    expect(audio.musicGainDb).toEqual(expect.any(Number));
+    // Фікстура audio.json без мастера (mix: null) — старе зведення: null, а не падіння.
+    expect(audio).toMatchObject({ integratedLufs: null, truePeakDbtp: null, masterGainDb: null });
+    expect(audio.mixLowCorrelation).toBeGreaterThanOrEqual(0.9);
+    expect(audio).toMatchObject({ keyPlanned: "A minor", keyDetected: null, attempts: 2, offsetMs: 2824 });
     // whoosh (s1, 0 с), pop + impact (s2), shimmer (s3).
     expect(audio.events?.count).toBe(4);
     expect(audio.events?.list.map((e) => e.cue).sort()).toEqual(["impact", "pop", "shimmer", "whoosh"]);
@@ -518,7 +522,16 @@ describe("звук кейсу", () => {
     expect(noTrack).toMatchObject({ source: "mix" });
     expect(noTrack.note).toMatch(/немає файлу треку/);
     const empty = await measureCaseAudio(storage, "p2", 1, caseStoryboard, { decode });
-    expect(empty).toMatchObject({ source: null, mix: null, music: null, events: null });
+    expect(empty).toMatchObject({
+      source: null,
+      mix: null,
+      music: null,
+      events: null,
+      integratedLufs: null,
+      keyPlanned: null,
+      mixLowCorrelation: null,
+      attempts: null,
+    });
     expect(empty.note).toMatch(/soundtrack\.wav/);
   });
 
@@ -545,6 +558,33 @@ describe("звіт кейсу", () => {
       fixtureProject({ id: "p1", status: "delivered", durationSeconds: 25, formats: ["landscape"] }),
     );
     await writeAudioArtifacts(storage, "p1");
+    // Зведення й трек після ТЗ звуку: мастер у audio.json, тональність/такт/стерео в music.json.
+    const rp = projectPaths("p1");
+    await storage.writeJson(rp.rev(1).audio, {
+      ...fixtureAudioManifest,
+      music: { ...fixtureAudioManifest.music, planHash: "ph1" },
+      mix: {
+        src: PUBLIC_MIX_FILE,
+        durationMs: 15_000,
+        integratedLufs: -14.3,
+        truePeakDbtp: -1.2,
+        masterGainDb: 2.5,
+      },
+    });
+    const meta = JSON.parse(await readFile(storage.absPath(rp.musicMeta("ph1")), "utf8"));
+    await storage.writeJson(rp.musicMeta("ph1"), {
+      ...meta,
+      check: {
+        ...meta.check,
+        keyDetected: { root: 9, minor: true, confidence: 0.42 },
+        barOffsetMs: 0,
+        barConfidence: 0.8,
+        stereoCorrelation: 0.71,
+        lowCorrelation: 0.97,
+        integratedLufs: -12,
+        truePeakDbtp: -0.4,
+      },
+    });
     const since = new Date("2026-10-12T10:00:00.000Z");
     const recorder = (at: string) =>
       createCostRecorder(
@@ -616,9 +656,24 @@ describe("звіт кейсу", () => {
       },
       storyboard: { scenes: 3, seconds: 15, impactSlam: 1, impactSlamLimit: 3, impactSlamMaxIn3s: 1 },
       music: { planHash: "ph1", attempts: 2, offsetMs: 2824, check: { ok: true }, note: null },
-      audio: { source: "stems" },
+      audio: {
+        source: "stems",
+        integratedLufs: -14.3,
+        truePeakDbtp: -1.2,
+        masterGainDb: 2.5,
+        keyPlanned: "A minor",
+        keyDetected: { root: 9, minor: true, confidence: 0.42 },
+        barConfidence: 0.8,
+        stereoCorrelation: 0.71,
+        lowCorrelation: 0.97,
+        attempts: 2,
+        offsetMs: 2824,
+      },
     });
     const byId = Object.fromEntries(report.criteria.map((c) => [c.id, c]));
+    expect(byId.loudness).toMatchObject({ value: -14.3, ok: true });
+    expect(byId.true_peak).toMatchObject({ value: -1.2, ok: true });
+    expect(byId.low_mono?.ok).toBe(true);
     expect(byId.music_check).toMatchObject({ value: true, ok: true });
     expect(byId.impact_count).toMatchObject({ value: 1, ok: true });
     expect(byId.music_level?.ok).toEqual(expect.any(Boolean));
@@ -627,6 +682,8 @@ describe("звіт кейсу", () => {
     const md = caseReportMarkdown(report);
     expect(md).toContain("# Кейс parity — agent");
     expect(md).toContain("| MusicTrackCheck.ok | true | так |");
+    expect(md).toContain("| Мастер: LUFS / dBTP / підсилення | -14.3 / -1.2 / +2.5 дБ |");
+    expect(md).toContain("| Тональність: план / трек | A minor / A minor (0.42) |");
   });
 
   it("старий music.json без check і порожній проєкт — null з причиною, а не падіння", async () => {
@@ -648,6 +705,19 @@ describe("звіт кейсу", () => {
     });
     expect(r.music).toMatchObject({ check: null, attempts: 1, offsetMs: null });
     expect(r.criteria.find((c) => c.id === "music_check")).toMatchObject({ ok: null });
+    // Старі audio.json/music.json: нові поля звуку — null, критерії мастера не виміряні.
+    expect(r.audio).toMatchObject({
+      integratedLufs: null,
+      truePeakDbtp: null,
+      masterGainDb: null,
+      keyDetected: null,
+      barConfidence: null,
+      stereoCorrelation: null,
+      attempts: 1,
+      offsetMs: null,
+    });
+    expect(r.criteria.find((c) => c.id === "loudness")).toMatchObject({ ok: null });
+    expect(r.criteria.find((c) => c.id === "true_peak")).toMatchObject({ ok: null });
 
     const none = await buildCaseReport(storage, "nobody", {
       caseName: "none",

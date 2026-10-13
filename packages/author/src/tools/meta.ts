@@ -1,5 +1,15 @@
 import { currentVersion, rejectedScenes } from "@adc/director";
-import { type AgentTool, computeEventPlacements, computeTimeline, type Storyboard } from "@adc/shared";
+import {
+  type AgentTool,
+  AudioManifest,
+  computeEventPlacements,
+  computeTimeline,
+  MusicMeta,
+  type MusicTrackCheck,
+  projectPaths,
+  type Storage,
+  type Storyboard,
+} from "@adc/shared";
 import { z } from "zod";
 import { type AuthorSession, brokenScenes } from "../session.ts";
 
@@ -30,18 +40,113 @@ export function audioEventsTable(storyboard: Storyboard): string {
   return lines.join("\n");
 }
 
+/** Що відомо про трек ревізії на момент виклику (гілка звуку йде паралельно — може ще не бути). */
+export interface AudioTrackInfo {
+  /** Темп: з перевірки треку, інакше з музичного брифу розкадровки. */
+  bpm: number | null;
+  /** Тональність плану звуку (`audio-plan.json`). */
+  keyPlanned: string | null;
+  /** Перевірка треку (`music.json`); null — трек ще не готовий або не перевірявся. */
+  check: MusicTrackCheck | null;
+  /** Мастер зведення (`audio.json`); null — зведення ще немає або воно старе. */
+  mix: { integratedLufs: number | null; truePeakDbtp: number | null } | null;
+}
+
+const NOTE_NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"] as const;
+const fx = (v: number | null | undefined, digits: number) =>
+  typeof v === "number" ? v.toFixed(digits) : "?";
+
+/** Ширина стерео словами за кореляцією L/R: 1 — моно, 0 — незалежні канали. */
+const widthWord = (corr: number) => (corr >= 0.95 ? "almost mono" : corr >= 0.6 ? "moderate" : "wide");
+
+/** Заголовок `audio_events`: чим грає фільм — темп, тональності плану й треку, гучність, долі й такти, ширина. */
+export function audioTrackHeader(info: AudioTrackInfo): string {
+  const { check } = info;
+  const detected = check?.keyDetected
+    ? `${NOTE_NAMES[check.keyDetected.root] ?? "?"} ${check.keyDetected.minor ? "minor" : "major"} ` +
+      `(confidence ${fx(check.keyDetected.confidence, 2)})`
+    : "unknown";
+  const lines = [
+    `track: ${info.bpm ? `${info.bpm} bpm` : "tempo unknown"}, key planned ${info.keyPlanned ?? "none"}, ` +
+      `detected in the track ${detected}`,
+  ];
+  if (!check) {
+    lines.push(
+      "track check: not available yet (music is generated in parallel); sound times below still hold",
+    );
+  } else {
+    const width =
+      typeof check.stereoCorrelation === "number"
+        ? `${widthWord(check.stereoCorrelation)} (L/R correlation ${fx(check.stereoCorrelation, 2)}, ` +
+          `below 150 Hz ${fx(check.lowCorrelation, 2)}; 1 = mono)`
+        : "unknown";
+    lines.push(
+      `track check: ${check.ok ? "ok" : "FAILED"}, beat confidence ${fx(check.beatConfidence, 2)}, ` +
+        `bar (downbeat) confidence ${fx(check.barConfidence, 2)}, raw loudness ${fx(check.integratedLufs, 1)} LUFS, ` +
+        `stereo width ${width}`,
+    );
+  }
+  lines.push(
+    info.mix && info.mix.integratedLufs !== null
+      ? `mix: ${fx(info.mix.integratedLufs, 1)} LUFS, true peak ${fx(info.mix.truePeakDbtp, 1)} dBTP`
+      : "mix: not built yet",
+  );
+  return lines.join("\n");
+}
+
+async function readJsonOrNull<T>(storage: Storage, key: string, parse: (v: unknown) => T): Promise<T | null> {
+  try {
+    if (!(await storage.exists(key))) return null;
+    return await storage.readJson(key, parse);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Трек ревізії зі сховища: `audio-plan.json` (тональність), `audio.json` (мастер і `planHash`),
+ * `audio/<planHash>/music.json` (перевірка). Чого ще немає — null, без помилки.
+ */
+export async function readAudioTrackInfo(
+  storage: Storage,
+  projectId: string,
+  rev: number,
+  storyboard: Storyboard,
+): Promise<AudioTrackInfo> {
+  const paths = projectPaths(projectId);
+  const plan = await readJsonOrNull(storage, paths.rev(rev).audioPlan, (v) => v as { key?: unknown });
+  const manifest = await readJsonOrNull(storage, paths.rev(rev).audio, (v) => AudioManifest.parse(v));
+  const planHash = manifest?.music?.planHash ?? null;
+  const meta = planHash
+    ? await readJsonOrNull(storage, paths.musicMeta(planHash), (v) => MusicMeta.parse(v))
+    : null;
+  const check = meta?.check ?? null;
+  return {
+    bpm: check?.bpm ?? storyboard.musicBrief?.bpm ?? null,
+    keyPlanned: typeof plan?.key === "string" ? plan.key : null,
+    check,
+    mix: manifest?.mix
+      ? { integratedLufs: manifest.mix.integratedLufs, truePeakDbtp: manifest.mix.truePeakDbtp }
+      : null,
+  };
+}
+
 const Empty = z.object({});
 
-/** `audio_events` — read-only: моменти розкадровки зі звуком у секундах фільму. */
+/** `audio_events` — read-only: трек (темп, тональність, гучність, ширина) і моменти зі звуком у секундах фільму. */
 export function audioEventsTool(session: AuthorSession): AgentTool<z.infer<typeof Empty>> {
   return {
     name: "audio_events",
     description:
-      "List every event of the film with its sound: scene, event id, frame within the scene, time in the film, " +
+      "Describe the music track (tempo, planned and detected key, loudness, beat and bar confidence, stereo width) " +
+      "and list every event of the film with its sound: scene, event id, frame within the scene, time in the film, " +
       "cue and what happens. The soundtrack is built from these frames; read-only.",
     input: Empty,
     async run() {
-      return { text: audioEventsTable(session.storyboard) };
+      const { storage, projectId, rev } = session.ctx;
+      const info = await readAudioTrackInfo(storage, projectId, rev, session.storyboard);
+      const header = audioTrackHeader(info);
+      return { text: `${header}\n${audioEventsTable(session.storyboard)}` };
     },
   };
 }

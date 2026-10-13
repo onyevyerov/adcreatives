@@ -1,13 +1,18 @@
 import {
   createCostRecorder,
   createPromptLoader,
+  type Logger,
   loadPrices,
+  noopLogger,
   projectPaths,
   readCosts,
   SoundCue,
   sharedPaths,
+  shortHash,
+  stableStringify,
 } from "@adc/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { publicSfxFile, SFX_OUTPUT_FORMAT } from "../src/constants.ts";
 import {
   ensureCustomSfx,
   ensureStandardSfx,
@@ -15,11 +20,19 @@ import {
   loadStandardCues,
   SFX_QC_MAX_RETRIES,
   SfxCacheMeta,
+  sfxCacheKey,
   sfxHash,
 } from "../src/sfx.ts";
 import { runSfxCacheCli, warmSfxCache } from "../src/sfxCache.ts";
 import type { SfxQc, SfxQcHook } from "../src/sfxQc.ts";
-import { audioStream, instantGate, mockElevenLabs, PROJECT_ID, tmpStorage } from "./helpers.ts";
+import { decodeWav } from "../src/wav.ts";
+import { audioStream, elError, instantGate, mockElevenLabs, PROJECT_ID, tmpStorage } from "./helpers.ts";
+
+// Формати — дефолтні незалежно від `.env` розробника: порожнє значення = дефолт, `.env` його не перекриває.
+vi.hoisted(() => {
+  process.env.ELEVENLABS_MUSIC_FORMAT = "";
+  process.env.ELEVENLABS_SFX_FORMAT = "";
+});
 
 const prompts = createPromptLoader();
 const library = loadStandardCues(prompts);
@@ -142,7 +155,7 @@ describe("QC семплів SFX", () => {
     ...(qc ? { qc } : {}),
   });
 
-  it("прогрів кешу з хуком за замовчуванням: QC пройдено з першої спроби, у метаданих qc і формат", async () => {
+  it("прогрів кешу з хуком: QC пройдено з першої спроби, у метаданих qc і формат запиту", async () => {
     const storage = tmpStorage();
     const client = mockElevenLabs();
     await warmSfxCache({
@@ -151,13 +164,14 @@ describe("QC семплів SFX", () => {
       client: () => client,
       gate: instantGate(),
       cost: sharedCost(storage),
+      qc: reasonsHook,
     });
     expect(client.calls).toHaveLength(30);
     const meta = await storage.readJson(sharedPaths.sfxCacheMeta(sfxHash(library.pop)), (v) =>
       SfxCacheMeta.parse(v),
     );
     expect(meta.qc).toMatchObject({ ok: true, reasons: [], attempts: 1 });
-    expect(meta.outputFormat).toBe("mp3_44100_128");
+    expect(meta.outputFormat).toBe("mp3_44100_192");
   });
 
   it("не пройшов QC → повтор; у кеш — перша спроба, що пройшла; кожна спроба — рядок витрат", async () => {
@@ -209,5 +223,189 @@ describe("QC семплів SFX", () => {
       createdAt: "2026-10-01T00:00:00.000Z",
     };
     expect(SfxCacheMeta.parse(old)).toMatchObject({ qc: null, outputFormat: "mp3_44100_128" });
+  });
+});
+
+/** Сирий PCM 16 біт LE, як його віддає ElevenLabs у `pcm_44100` (без заголовка). */
+function rawPcm(seconds: number, channels: 1 | 2): Buffer {
+  const frames = Math.round(seconds * 44_100);
+  const buf = Buffer.alloc(frames * channels * 2);
+  for (let i = 0; i < frames; i++) {
+    const v = Math.round(Math.sin(i / 20) * 16_000);
+    buf.writeInt16LE(v, i * channels * 2);
+    if (channels === 2) buf.writeInt16LE(-v, i * channels * 2 + 2);
+  }
+  return buf;
+}
+
+/** Модулі, завантажені заново з іншим env форматів (формати читаються при завантаженні модуля). */
+async function withFormatEnv<T>(env: Record<string, string>, load: () => Promise<T>): Promise<T> {
+  for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+  vi.resetModules();
+  try {
+    return await load();
+  } finally {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  }
+}
+
+function captureLogger(): Logger & { warns: Array<{ msg: string; meta?: Record<string, unknown> }> } {
+  const warns: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
+  const logger: Logger = {
+    ...noopLogger,
+    warn: (msg, meta) => {
+      warns.push({ msg, ...(meta ? { meta: meta as Record<string, unknown> } : {}) });
+    },
+    child: () => logger,
+  };
+  return Object.assign(logger, { warns });
+}
+
+/** Відмова ElevenLabs «формат недоступний на тарифі». */
+const formatDenied = () =>
+  elError(403, {
+    detail: {
+      status: "output_format_not_allowed",
+      message: "To use output format pcm_44100 you need to be subscribed to Pro tier or above.",
+    },
+  });
+
+describe("формат вихідних даних SFX (A1)", () => {
+  const def = { text: "glass ding", durationSeconds: 1 };
+
+  it("запит у SFX_OUTPUT_FORMAT (дефолт mp3_44100_192); формат — у хеші, 128 — старий хеш без поля", async () => {
+    expect(SFX_OUTPUT_FORMAT).toBe("mp3_44100_192");
+    const storage = tmpStorage();
+    const client = mockElevenLabs();
+    const file = await ensureStandardSfx(
+      { storage, client: () => client, gate: instantGate() },
+      sharedCost(storage),
+      "ding.1",
+      def,
+    );
+    expect(client.calls[0]?.request).toMatchObject({ outputFormat: "mp3_44100_192" });
+    expect(file.key).toBe(sharedPaths.sfxCache(sfxHash(def)));
+    expect(file.key.endsWith(".mp3")).toBe(true);
+
+    const hashes = new Set([
+      sfxHash(def),
+      sfxHash(def, "mp3_44100_192"),
+      sfxHash(def, "mp3_44100_128"),
+      sfxHash(def, "pcm_44100"),
+    ]);
+    expect(hashes.size).toBe(3);
+    expect(sfxHash(def)).toBe(sfxHash(def, "mp3_44100_192"));
+    // Кеш до A1 (mp3_44100_128) лишається валідним: хеш той самий, що й до появи формату в хеші.
+    expect(sfxHash(def, "mp3_44100_128")).toBe(
+      shortHash(
+        stableStringify({
+          text: def.text,
+          durationSeconds: 1,
+          promptInfluence: 0.6,
+          modelId: "eleven_text_to_sound_v2",
+        }),
+      ),
+    );
+  });
+
+  it("формат недоступний на тарифі → рівно один повтор у mp3_44100_128, попередження в лозі", async () => {
+    const storage = tmpStorage();
+    const logger = captureLogger();
+    const client = mockElevenLabs({ convert: [formatDenied(), audioStream("FALLBACK")] });
+    const file = await ensureStandardSfx(
+      { storage, client: () => client, gate: instantGate(), logger },
+      sharedCost(storage),
+      "ding.1",
+      def,
+    );
+    expect(client.calls.map((c) => c.request.outputFormat)).toEqual(["mp3_44100_192", "mp3_44100_128"]);
+    expect((await storage.read(file.key)).toString()).toBe("FALLBACK");
+    const meta = await storage.readJson(sharedPaths.sfxCacheMeta(sfxHash(def)), (v) => SfxCacheMeta.parse(v));
+    expect(meta.outputFormat).toBe("mp3_44100_128");
+    expect(logger.warns.map((w) => w.msg)).toEqual([
+      "формат SFX недоступний на тарифі — повтор у фолбек-форматі",
+    ]);
+    expect(logger.warns[0]?.meta).toMatchObject({ format: "mp3_44100_192", fallback: "mp3_44100_128" });
+    // Відхилений запит не тарифікується.
+    expect(await readCosts(storage, null)).toHaveLength(1);
+  });
+
+  it("фолбек теж відхилено або formatFallback: null → помилка, без нових повторів", async () => {
+    const storage = tmpStorage();
+    const twice = mockElevenLabs({ convert: [formatDenied(), formatDenied()] });
+    await expect(
+      ensureStandardSfx({ storage, client: () => twice, gate: instantGate() }, sharedCost(storage), "d", def),
+    ).rejects.toThrow();
+    expect(twice.calls).toHaveLength(2);
+
+    const off = mockElevenLabs({ convert: [formatDenied()] });
+    await expect(
+      ensureStandardSfx(
+        { storage, client: () => off, gate: instantGate(), formatFallback: null },
+        sharedCost(storage),
+        "d",
+        def,
+      ),
+    ).rejects.toThrow();
+    expect(off.calls).toHaveLength(1);
+  });
+
+  it("pcm_44100: PCM загортається у WAV одразу, кеш і public — `.wav`, інший хеш; повтор — кеш", async () => {
+    const { sfx, constants } = await withFormatEnv({ ELEVENLABS_SFX_FORMAT: "pcm_44100" }, async () => ({
+      sfx: await import("../src/sfx.ts"),
+      constants: await import("../src/constants.ts"),
+    }));
+    expect(constants.SFX_OUTPUT_FORMAT).toBe("pcm_44100");
+    expect(sfx.sfxHash(def)).toBe(sfxHash(def, "pcm_44100"));
+    expect(sfx.sfxHash(def)).not.toBe(sfxHash(def));
+
+    const storage = tmpStorage();
+    const client = mockElevenLabs({ convert: [rawPcm(1, 2)] });
+    const deps = { storage, client: () => client, gate: instantGate() };
+    const file = await sfx.ensureStandardSfx(deps, sharedCost(storage), "ding.1", def);
+    expect(client.calls[0]?.request).toMatchObject({ outputFormat: "pcm_44100" });
+    expect(file.key).toBe(sfxCacheKey(sfx.sfxHash(def), "wav"));
+    const wav = decodeWav(await storage.read(file.key));
+    expect(wav.left.length).toBe(44_100);
+    // Стерео розпізнано за тривалістю: канали в протифазі (так згенеровано), а не склеєні в моно.
+    expect(wav.left[20]).toBeCloseTo(-(wav.right[20] as number), 3);
+    const meta = await storage.readJson(sharedPaths.sfxCacheMeta(sfx.sfxHash(def)), (v) =>
+      SfxCacheMeta.parse(v),
+    );
+    expect(meta.outputFormat).toBe("pcm_44100");
+    expect(publicSfxFile("ding", file.key)).toBe("sfx/ding.wav");
+    expect(publicSfxFile("ding")).toBe("sfx/ding.mp3");
+
+    const again = await sfx.ensureStandardSfx(deps, sharedCost(storage), "ding.1", def);
+    expect(again).toMatchObject({ key: file.key, generated: false });
+    expect(client.calls).toHaveLength(1);
+
+    // Кастомний cue: кеш проєкту `<hash>.wav`; моно-PCM дублюється в обидва канали.
+    const mono = mockElevenLabs({ convert: [rawPcm(1, 1)] });
+    const custom = await sfx.ensureCustomSfx(
+      { storage, client: () => mono, gate: instantGate() },
+      sharedCost(storage),
+      PROJECT_ID,
+      "cup",
+      def,
+    );
+    expect(custom.key).toBe(projectPaths(PROJECT_ID).sfx(`${sfx.sfxHash(def)}.wav`));
+    const monoWav = decodeWav(await storage.read(custom.key));
+    expect(monoWav.left.length).toBe(44_100);
+    expect(monoWav.right[20]).toBe(monoWav.left[20]);
+  });
+
+  it("pcm_44100 недоступний → фолбек mp3 лежить як `.mp3` під хешем запиту і знаходиться в кеші", async () => {
+    const sfx = await withFormatEnv({ ELEVENLABS_SFX_FORMAT: "pcm_44100" }, () => import("../src/sfx.ts"));
+    const storage = tmpStorage();
+    const client = mockElevenLabs({ convert: [formatDenied(), audioStream("MP3")] });
+    const deps = { storage, client: () => client, gate: instantGate() };
+    const file = await sfx.ensureStandardSfx(deps, sharedCost(storage), "ding.1", def);
+    expect(file.key).toBe(sfxCacheKey(sfx.sfxHash(def), "mp3"));
+    expect((await storage.read(file.key)).toString()).toBe("MP3");
+    const again = await sfx.ensureStandardSfx(deps, sharedCost(storage), "ding.1", def);
+    expect(again).toMatchObject({ key: file.key, generated: false });
+    expect(client.calls).toHaveLength(2);
   });
 });

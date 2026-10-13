@@ -25,7 +25,8 @@ import {
  * - `musicBrief.bpm` → найближчий з `BPM_GRID`; тривалості сцен — цілі долі (`beatFrames`),
  *   загальна тривалість та сама (остачу забирає остання сцена);
  * - `items`: trim, унікальні id, відомі factIds; `events`: унікальні id, `at` у межах сцени
- *   (пропорційно до зміни тривалості), звукові удари — на найближчу восьму; legacy `sfxCue` → подія "arrive";
+ *   (пропорційно до зміни тривалості; riser — до першого кадру наступної сцени), звукові удари — на найближчу
+ *   восьму, riser ближче пів долі до наступної озвученої події — рівно на неї; legacy `sfxCue` → подія "arrive";
  * - щільність ударів (`limitHits`): impact/slam ≤ `1 + floor(totalSec / 6)` на ролик і ≤ 1 у вікні 3 с,
  *   зайві → `pop`; riser далі ніж за 2 такти до події — попередження;
  * - довжина текстів звіряється з `copyRules` для обраних форматів → `textIssues` (текст не
@@ -304,18 +305,25 @@ function snapToGrid(at: number, from: number, last: number, half: number): numbe
   return best;
 }
 
+/** Найпізніший `at` riser: перший кадр наступної сцени; в останній сцені — її останній кадр (не за кінцем ролика). */
+function riserEnd(scene: Scene, last: boolean): number {
+  return last ? scene.durationFrames - 1 : scene.durationFrames;
+}
+
 /**
- * Кадри подій після таймінгів: пропорційно до зміни тривалості сцени, у межах `[0, durationFrames − 1]`,
- * удари — на найближчу восьму. Порядок — за кадром.
+ * Кадри подій після таймінгів: пропорційно до зміни тривалості сцени, у межах `[0, durationFrames − 1]`
+ * (riser — `[0, riserEnd]`: закінчується на першому кадрі наступної сцени), удари — на найближчу
+ * восьму. Порядок — за кадром.
  */
 function placeEvents(
   scene: Scene,
-  opts: { from: number; modelDuration: number; half: number; changes: string[] },
+  opts: { from: number; modelDuration: number; half: number; changes: string[]; last: boolean },
 ): void {
-  const last = scene.durationFrames - 1;
+  const end = riserEnd(scene, opts.last);
   const k = opts.modelDuration > 0 ? scene.durationFrames / opts.modelDuration : 1;
   let moved = 0;
   for (const e of scene.events) {
+    const last = e.sound?.cue === "riser" ? end : scene.durationFrames - 1;
     let at = k === 1 ? e.at : Math.round(e.at * k);
     at = clamp(at, 0, last);
     // Подія "arrive" на кадрі 0 (з legacy sfxCue) лишається на початку сцени, як звучав старий sfxCue.
@@ -350,7 +358,39 @@ function isLegacyArrive(scene: Scene, e: Scene["events"][number]): boolean {
 }
 
 /**
- * Щільність ударів (після `placeEvents`, кадри вже остаточні):
+ * riser закінчується на кадрі події (`computeEventPlacements`), тож має закінчитись рівно на ударі, до якого
+ * наростає: якщо наступна озвучена подія (у цій або наступних сценах) не далі ніж пів долі від кінця riser —
+ * `at` riser підтягується до її кадру, у межах сцени (≤ `riserEnd`). Після `placeEvents`.
+ */
+function pullRisers(sb: Storyboard, half: number, changes: string[]): void {
+  const timeline = computeTimeline(sb);
+  // Восьмі округлені до кадрів (при 7.5 кадра — то 7, то 8): сусідня восьма завжди в межах.
+  const reach = Math.ceil(half);
+  const all = sb.scenes.flatMap((scene, i) => {
+    const from = timeline.scenes[i]?.from ?? 0;
+    const end = riserEnd(scene, i === sb.scenes.length - 1);
+    return scene.events.map((event) => ({ scene, event, from, end, frame: from + event.at }));
+  });
+  for (const p of all) {
+    if (p.event.sound?.cue !== "riser" || isLegacyArrive(p.scene, p.event)) continue;
+    let target: number | null = null;
+    for (const q of all) {
+      if (q === p || !q.event.sound || q.event.sound.cue === "riser" || q.frame < p.frame) continue;
+      if (target === null || q.frame < target) target = q.frame;
+    }
+    if (target === null || target === p.frame || target - p.frame > reach) continue;
+    const at = Math.min(target - p.from, p.end);
+    if (at === p.event.at) continue;
+    changes.push(
+      `${p.scene.id}: riser «${p.event.id}» ${p.event.at} → ${at} — закінчується на наступній події`,
+    );
+    p.event.at = at;
+  }
+  for (const scene of sb.scenes) scene.events.sort((a, b) => a.at - b.at);
+}
+
+/**
+ * Щільність ударів (після `placeEvents` і `pullRisers`, кадри вже остаточні):
  * - impact/slam ближче `HIT_WINDOW_SEC` до попереднього залишеного удару → `pop` (`normal`);
  * - понад `maxHits` на ролик → `pop` (`normal`), починаючи з `soft`, далі `normal`, далі `hard`,
  *   у межах рівня — за порядком у ролику;
@@ -537,8 +577,10 @@ export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): 
       modelDuration: modelDurations[i] ?? scene.durationFrames,
       half: beat / 2,
       changes,
+      last: i === sb.scenes.length - 1,
     });
   });
+  pullRisers(sb, beat / 2, changes);
   limitHits(sb, changes);
 
   const parsed = Storyboard.parse(sb);

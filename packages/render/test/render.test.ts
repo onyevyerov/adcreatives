@@ -12,7 +12,7 @@ import type { ScenePreviewProps } from "@adc/shared/types/video";
 import { parseMedia } from "@remotion/media-parser";
 import { nodeReader } from "@remotion/media-parser/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RemotionRenderEngine, RenderError } from "../src/engine.ts";
+import { OUTPUT_SAMPLE_RATE, RemotionRenderEngine, RenderError } from "../src/engine.ts";
 import { createFixtureJob, type FixtureJob, fixtureMainProps, shortStoryboard } from "../src/testing.ts";
 
 /**
@@ -169,7 +169,7 @@ describe("slow: RemotionRenderEngine", () => {
     expect(existsSync(path.join(job.jobDir, "bundle", "public", "hero.png"))).toBe(true);
   });
 
-  it("renderMedia: 2-секундний mp4 (h264 + aac) з TemplateScene", async () => {
+  it("renderMedia: 2-секундний mp4 (h264 + aac 44.1 кГц, без ресемплінгу зведення) з TemplateScene", async () => {
     const sb = shortStoryboard([
       { id: "s1", purpose: "hook" },
       { id: "s2", purpose: "cta", text: { headline: "Забронюйте столик", sub: null, emphasis: [] } },
@@ -200,6 +200,10 @@ describe("slow: RemotionRenderEngine", () => {
     expect(meta.dimensions).toMatchObject({ width: 1080, height: 1920 });
     const codecs = meta.tracks.map((t) => ("codecEnum" in t ? `${t.type}:${t.codecEnum}` : t.type));
     expect(codecs).toEqual(expect.arrayContaining(["video:h264", "audio:aac"]));
+    // Частота з sample entry `mp4a` (stsd) — та сама, що в зведенні (44.1 кГц), а не дефолт Remotion 48 кГц.
+    const audio = meta.tracks.filter((t) => t.type === "audio");
+    expect(audio.map((t) => t.sampleRate)).toEqual([44_100]);
+    expect(OUTPUT_SAMPLE_RATE).toBe(44_100);
   });
 
   it("renderStill: Main у square, кадр за таймлайном", async () => {

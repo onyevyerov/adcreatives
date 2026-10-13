@@ -26,7 +26,7 @@ import { defaultGate, type ElevenLabsGate } from "./gate.ts";
 import { resolveEventKey } from "./keyDetect.ts";
 import { buildAudioManifest } from "./manifest.ts";
 import { renderSoundtrack, soundtrackHash } from "./mixer.ts";
-import { ensureMusic, musicWavKey } from "./music.ts";
+import { ensureMusic, musicRawWavKey, musicWavKey } from "./music.ts";
 import { gainToDb } from "./pcm.ts";
 import {
   AUDIO_PLAN_PROMPT,
@@ -141,8 +141,11 @@ async function findPreviousMusic(
   if (!meta) return null;
   const wavKey = musicWavKey(projectId, planHash);
   if (meta.check !== null && (await storage.exists(wavKey))) return { rev: baseRev, meta, key: wavKey };
-  const rawKey = paths.music(planHash);
-  return (await storage.exists(rawKey)) ? { rev: baseRev, meta, key: rawKey } : null;
+  // Сирий трек: `music.mp3`, а для PCM-формату — `music-raw.wav` (A1).
+  for (const rawKey of [paths.music(planHash), musicRawWavKey(projectId, planHash)]) {
+    if (await storage.exists(rawKey)) return { rev: baseRev, meta, key: rawKey };
+  }
+  return null;
 }
 
 /**
@@ -371,7 +374,7 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
     await storage.copy(music.key, musicPublic);
     artifacts.push(musicPublic);
     for (const f of sfxFiles) {
-      const dest = revPaths.publicFile(publicSfxFile(f.cue));
+      const dest = revPaths.publicFile(publicSfxFile(f.cue, f.key));
       await storage.copy(f.key, dest);
       artifacts.push(dest);
     }
@@ -380,7 +383,7 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
     // Кеш — за planHash + тональністю + таймлайном + подіями + хешами варіантів семплів;
     // без зведення хост грає music і sfx, як раніше.
     // Тональність звуків подій: план або визначена за треком (`resolveEventKey`).
-    const eventKey = resolveEventKey(music.meta.check, plan.key);
+    const eventKey = resolveEventKey(music.meta.check, plan.key, logger);
     let mix: ({ durationMs: number } & MixMasterMeta) | null = null;
     try {
       const decode = deps.decode ?? decodeAudio;
@@ -479,7 +482,7 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       buildAudioManifest({
         storyboard,
         music: { planHash: music.planHash, durationMs: music.meta.durationMs, src: musicSrc },
-        sfx: sfxFiles.map((f) => ({ cue: f.cue, durationMs: f.durationMs })),
+        sfx: sfxFiles.map((f) => ({ cue: f.cue, durationMs: f.durationMs, key: f.key })),
         mix,
       }),
     );

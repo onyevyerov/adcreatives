@@ -5,17 +5,19 @@ import { createStereo, dbToGain, frameToSample, pcmLength, type StereoPcm, secTo
 /**
  * Автоматизація частин треку за `musicBrief.structure[].mix`: генератор план аранжування
  * ігнорує, тож арку (вступ / повна / брейкдаун) робить зведення — low-pass і гучність.
+ * Фінал — повний рівень до кінця і короткий антиклік: ролик закінчується на долі, а не згасає.
  */
 
 /** «Відкритий» фільтр частини `full`: на цьому зрізі фільтр обходиться (звук без змін). */
 const OPEN_CUTOFF_HZ = 20_000;
 /** Параметри фільтра оновлюються блоками (крок у семплах). */
 const BLOCK = 32;
-/** Fade-out музики в останню секунду ролика. */
-export const MUSIC_TAIL_FADE_SEC = 1;
+/** Антиклік у кінці ролика (raised cosine): до нього музика звучить на повному рівні. */
+export const ENDING_FADE_SEC = 0.25;
 
 export const MIX_SETTINGS: Record<MusicMix, { cutoffHz: number; gainDb: number }> = {
-  filtered: { cutoffHz: 800, gainDb: -4 },
+  // М'яко: стримана частина (проблема, наростання) не звучить глухо — лише тихіше за `full`.
+  filtered: { cutoffHz: 1600, gainDb: -3 },
   full: { cutoffHz: OPEN_CUTOFF_HZ, gainDb: 0 },
   breakdown: { cutoffHz: 400, gainDb: -10 },
 };
@@ -76,7 +78,7 @@ export interface AutomationOptions {
   bpm: number;
 }
 
-/** Нова копія музики з автоматизацією частин і fade-out останніх `MUSIC_TAIL_FADE_SEC`. */
+/** Нова копія музики з автоматизацією частин і антикліком останніх `ENDING_FADE_SEC`. */
 export function applyMixAutomation(
   music: StereoPcm,
   sections: readonly MixSection[],
@@ -90,7 +92,7 @@ export function applyMixAutomation(
   const ramp = frameToSample(beatFrames(opts.bpm, opts.fps), opts.fps, sr);
   const fl = new Biquad();
   const fr = new Biquad();
-  const fadeStart = n - Math.min(n, secToSamples(MUSIC_TAIL_FADE_SEC, sr));
+  const fadeStart = n - Math.min(n, secToSamples(ENDING_FADE_SEC, sr));
   for (let b = 0; b < n; b += BLOCK) {
     const p = paramsAt(b + BLOCK / 2, starts, ramp);
     const open = p.cutoffHz >= OPEN_CUTOFF_HZ - 1;

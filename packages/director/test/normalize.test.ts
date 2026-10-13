@@ -1,4 +1,4 @@
-import { computeTimeline, Storyboard } from "@adc/shared";
+import { computeEventPlacements, computeTimeline, Storyboard } from "@adc/shared";
 import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { checkCopy, maxHits, normalizeStoryboard } from "../src/normalize.ts";
@@ -391,6 +391,95 @@ describe("normalizeStoryboard", () => {
     expect(ev.build).toEqual(["riser", "normal", 30]);
     expect(ev.build2).toEqual(["riser", "hard", 240]);
     expect(ev.peak).toEqual(["impact", "hard", 345]);
+  });
+
+  it("riser може закінчитись на першому кадрі наступної сцени (at = durationFrames), решта — ≤ durationFrames − 1", () => {
+    const base = hitsVideo([]);
+    const [s1, s2] = base.scenes as [Storyboard["scenes"][number], Storyboard["scenes"][number]];
+    s1.events = [
+      { id: "build", at: 180, what: "Tension.", sound: { cue: "riser", accent: "normal" }, textIds: [] },
+      { id: "late", at: 999, what: "Too late.", sound: { cue: "pop", accent: "normal" }, textIds: [] },
+      { id: "far", at: 999, what: "Too late.", sound: { cue: "riser", accent: "soft" }, textIds: [] },
+    ];
+    s2.events = [{ id: "land", at: 0, what: "Lands.", sound: { cue: "slam", accent: "hard" }, textIds: [] }];
+    const res = normalizeStoryboard(base, { assetIds: ASSETS });
+    expect(res.totalFrames).toBe(720);
+    const out = res.storyboard.scenes[0] as Storyboard["scenes"][number];
+    // pop — на останню восьму в межах сцени (173), riser — на межу сцени 180.
+    expect(out.events.map((e) => [e.id, e.at])).toEqual([
+      ["late", 173],
+      ["build", 180],
+      ["far", 180],
+    ]);
+
+    // computeEventPlacements: frame = from + durationFrames = перший кадр наступної сцени; timeline той самий.
+    const tl = computeTimeline(res.storyboard);
+    expect(tl.totalFrames).toBe(720);
+    const frames = Object.fromEntries(
+      computeEventPlacements(res.storyboard).map((p) => [p.eventId, p.frame]),
+    );
+    expect(frames.build).toBe((tl.scenes[0]?.from ?? 0) + out.durationFrames);
+    expect(frames.build).toBe(tl.scenes[1]?.from);
+    expect(frames.land).toBe(frames.build);
+  });
+
+  it("riser в останній сцені не виходить за кінець ролика: at ≤ durationFrames − 1", () => {
+    const base = hitsVideo([]);
+    const s4 = base.scenes[3] as Storyboard["scenes"][number];
+    s4.events = [
+      { id: "tail", at: 180, what: "Tension.", sound: { cue: "riser", accent: "normal" }, textIds: [] },
+      { id: "end", at: 179, what: "Lands.", sound: { cue: "slam", accent: "hard" }, textIds: [] },
+    ];
+    const res = normalizeStoryboard(base, { assetIds: ASSETS });
+    expect(res.totalFrames).toBe(720);
+    const ev = eventsById(res);
+    // slam — на останню восьму сцени (713), riser підтягується до нього, а не на кадр 720 за кінцем.
+    expect(ev.end).toEqual(["slam", "hard", 713]);
+    expect(ev.tail).toEqual(["riser", "normal", 713]);
+    for (const p of computeEventPlacements(res.storyboard)) expect(p.frame).toBeLessThan(res.totalFrames);
+  });
+
+  it("riser ближче пів долі до наступної озвученої події — підтягується рівно на неї (запис у changes)", () => {
+    const base = hitsVideo([]);
+    const [s1, s2, s3] = base.scenes as [
+      Storyboard["scenes"][number],
+      Storyboard["scenes"][number],
+      Storyboard["scenes"][number],
+    ];
+    // Як у проєкті QrsPgSOfm8mGSsIXhlYv6: riser закінчувався за 7 кадрів (233 мс) до slam наступної сцени.
+    s1.events = [
+      { id: "build", at: 174, what: "Tension.", sound: { cue: "riser", accent: "normal" }, textIds: [] },
+    ];
+    s2.events = [
+      { id: "land", at: 0, what: "Lands.", sound: { cue: "slam", accent: "hard" }, textIds: [] },
+      // У межах сцени: riser на 60, pop на восьмій 67.5 → 68 (8 кадрів — сусідня восьма).
+      { id: "rise", at: 60, what: "Tension.", sound: { cue: "riser", accent: "soft" }, textIds: [] },
+      { id: "quiet", at: 62, what: "Seen, not heard.", sound: null, textIds: [] },
+      { id: "pop", at: 68, what: "Pops.", sound: { cue: "pop", accent: "normal" }, textIds: [] },
+      // Далі пів долі — не чіпається.
+      { id: "early", at: 120, what: "Tension.", sound: { cue: "riser", accent: "normal" }, textIds: [] },
+    ];
+    s3.events = [{ id: "hit", at: 0, what: "Hit.", sound: { cue: "pop", accent: "normal" }, textIds: [] }];
+    const res = normalizeStoryboard(base, { assetIds: ASSETS });
+    const ev = eventsById(res);
+    expect(ev.build).toEqual(["riser", "normal", 180]);
+    expect(ev.land).toEqual(["slam", "hard", 180]);
+    expect(ev.rise).toEqual(["riser", "soft", 248]);
+    expect(ev.pop).toEqual(["pop", "normal", 248]);
+    expect(ev.early).toEqual(["riser", "normal", 300]);
+    expect(res.storyboard.scenes[1]?.events.map((e) => e.id)).toEqual([
+      "land",
+      "quiet",
+      "rise",
+      "pop",
+      "early",
+    ]);
+    expect(res.changes.filter((c) => c.includes("закінчується на наступній події"))).toEqual([
+      "s1: riser «build» 173 → 180 — закінчується на наступній події",
+      "s2: riser «rise» 60 → 68 — закінчується на наступній події",
+    ]);
+    // Попередження про riser довший за 2 такти лишається: «early» за 4 долі до «hit» — без попередження.
+    expect(res.changes.some((c) => c.includes("попередження"))).toBe(false);
   });
 
   it("старі розкадровки з sfxCue: подія arrive з impact не рахується і не понижується", () => {

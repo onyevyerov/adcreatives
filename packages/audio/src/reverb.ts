@@ -1,23 +1,36 @@
+import { Biquad } from "./dsp.ts";
 import { createStereo, pcmLength, SAMPLE_RATE, type StereoPcm, secToSamples } from "./pcm.ts";
 
 /**
  * Спільний реверб зведення: один «простір» для музики й подій, щоб сухі семпли ElevenLabs
- * («dry, no reverb tail») звучали в тій самій кімнаті, що й трек. Детермінований стерео-IR
- * (шум з фіксованим зерном × експоненційний спад) і FFT-згортка overlap-add. Вхід — моно-посил,
- * вихід — стерео (лівий і правий IR декорельовані).
+ * («dry, no reverb tail») звучали в тій самій кімнаті, що й трек. Детермінований стерео-IR:
+ * шум з фіксованим зерном у двох смугах (низ спадає повільно, верх — швидко, як у справжній
+ * кімнаті повітря й стіни гасять верх) і LPF на хвості — без металевого шипіння білого шуму.
+ * FFT-згортка overlap-add. Посил — стерео: кожен канал у свій IR з перехресним посилом, тож подія
+ * зліва лишає хвіст зліва.
  */
 
-/** Час спаду IR до −60 дБ, с. */
+/** Час спаду IR до −60 дБ нижче `REVERB_CROSSOVER_HZ`, с. */
 export const REVERB_DECAY_SEC = 1.2;
+/** Час спаду до −60 дБ вище `REVERB_CROSSOVER_HZ` (демпфування верху), с. */
+export const REVERB_HIGH_DECAY_SEC = 0.5;
+/** Розділ смуг IR (Лінквіц — Райлі 24 дБ/окт: сума LPF і HPF — рівна АЧХ), Гц. */
+export const REVERB_CROSSOVER_HZ = 3000;
+/** LPF на хвості IR (48 дБ/окт: енергія вище зрізу ≤ −20 дБ від усієї), Гц. */
+export const REVERB_DAMPING_HZ = 6000;
 /** Предзатримка (тиша на початку IR), с. */
 export const REVERB_PREDELAY_SEC = 0.01;
 /** Рівні посилу в реверб: події — 0.25, музика — 0.08 (у треку вже є свій реверб). */
 export const REVERB_SEND = { events: 0.25, music: 0.08 } as const;
+/** HPF посилу (12 дБ/окт): бас у реверб не йде — хвіст не гуде й не каламутить низ, Гц. */
+export const REVERB_SEND_HPF_HZ = 200;
+/** Перехресний посил: L → IR_L з домішкою 0.3·R (і навпаки); сума нормується на 1 + 0.3. */
+export const REVERB_CROSSFEED = 0.3;
 
 /** Зерна шуму лівого і правого IR (зміна = інший простір = нова `MIX_VERSION`). */
 const SEED_LEFT = 0x5eed_0001;
 const SEED_RIGHT = 0x5eed_0002;
-/** ln(1000): амплітуда −60 дБ за `REVERB_DECAY_SEC`. */
+/** ln(1000): амплітуда −60 дБ за час спаду. */
 const LN_1000 = Math.log(1000);
 
 /** Імпульсна характеристика: два канали однакової довжини, кожен з одиничною енергією. */
@@ -39,32 +52,83 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function decayingNoise(seed: number, predelay: number, length: number, sampleRate: number, decaySec: number) {
-  const out = new Float64Array(predelay + length);
-  const rand = mulberry32(seed);
-  let energy = 0;
-  for (let i = 0; i < length; i++) {
-    const v = (rand() * 2 - 1) * Math.exp((-LN_1000 * i) / (decaySec * sampleRate));
-    out[predelay + i] = v;
-    energy += v * v;
+/** Каскад `stages` однакових біквадів Баттерворта (12 дБ/окт кожен; два — Лінквіц — Райлі), на місці. */
+function cascade(
+  x: Float64Array,
+  kind: "lowpass" | "highpass",
+  cutoffHz: number,
+  sampleRate: number,
+  stages: number,
+) {
+  for (let pass = 0; pass < stages; pass++) {
+    const f =
+      kind === "lowpass"
+        ? new Biquad().setLowpass(cutoffHz, sampleRate)
+        : new Biquad().setHighpass(cutoffHz, sampleRate);
+    for (let i = 0; i < x.length; i++) x[i] = f.process(x[i] as number);
   }
+}
+
+interface DampedNoiseOptions {
+  decaySec: number;
+  highDecaySec: number;
+  crossoverHz: number;
+  dampingHz: number;
+}
+
+/**
+ * Один канал IR: той самий шум у двох смугах — нижче розділу × e^(−t·ln1000/decaySec), вище ×
+ * e^(−t·ln1000/highDecaySec); сума, LPF хвоста, одинична енергія, `predelay` тиші попереду.
+ */
+function dampedNoise(
+  seed: number,
+  predelay: number,
+  length: number,
+  sampleRate: number,
+  o: DampedNoiseOptions,
+) {
+  const rand = mulberry32(seed);
+  const low = new Float64Array(length);
+  const high = new Float64Array(length);
+  for (let i = 0; i < length; i++) {
+    const u = rand() * 2 - 1;
+    low[i] = u * Math.exp((-LN_1000 * i) / (o.decaySec * sampleRate));
+    high[i] = u * Math.exp((-LN_1000 * i) / (o.highDecaySec * sampleRate));
+  }
+  cascade(low, "lowpass", o.crossoverHz, sampleRate, 2);
+  cascade(high, "highpass", o.crossoverHz, sampleRate, 2);
+  for (let i = 0; i < length; i++) low[i] = (low[i] as number) + (high[i] as number);
+  cascade(low, "lowpass", o.dampingHz, sampleRate, 4);
+  let energy = 0;
+  for (let i = 0; i < length; i++) energy += (low[i] as number) ** 2;
   const norm = energy > 0 ? 1 / Math.sqrt(energy) : 0;
-  for (let i = predelay; i < out.length; i++) out[i] = (out[i] as number) * norm;
+  const out = new Float64Array(predelay + length);
+  for (let i = 0; i < length; i++) out[predelay + i] = (low[i] as number) * norm;
   return out;
 }
 
-/** Детермінований стерео-IR: `predelaySec` тиші, далі шум × e^(−t·ln1000/decaySec) довжиною `decaySec`. */
+/**
+ * Детермінований стерео-IR: `predelaySec` тиші, далі двосмуговий шум довжиною `decaySec` — низ
+ * спадає до −60 дБ за `decaySec`, верх (вище `REVERB_CROSSOVER_HZ`) — за `highDecaySec`, на хвості
+ * LPF `REVERB_DAMPING_HZ`. Канали — різні зерна (декорельовані), кожен з одиничною енергією.
+ */
 export function reverbImpulse(
   sampleRate = SAMPLE_RATE,
-  opts: { decaySec?: number; predelaySec?: number } = {},
+  opts: { decaySec?: number; highDecaySec?: number; predelaySec?: number } = {},
 ): ImpulseResponse {
   const decaySec = opts.decaySec ?? REVERB_DECAY_SEC;
+  const o: DampedNoiseOptions = {
+    decaySec,
+    highDecaySec: Math.min(decaySec, opts.highDecaySec ?? REVERB_HIGH_DECAY_SEC),
+    crossoverHz: REVERB_CROSSOVER_HZ,
+    dampingHz: REVERB_DAMPING_HZ,
+  };
   const predelay = secToSamples(opts.predelaySec ?? REVERB_PREDELAY_SEC, sampleRate);
   const length = Math.max(1, secToSamples(decaySec, sampleRate));
   return {
     sampleRate,
-    left: decayingNoise(SEED_LEFT, predelay, length, sampleRate, decaySec),
-    right: decayingNoise(SEED_RIGHT, predelay, length, sampleRate, decaySec),
+    left: dampedNoise(SEED_LEFT, predelay, length, sampleRate, o),
+    right: dampedNoise(SEED_RIGHT, predelay, length, sampleRate, o),
   };
 }
 
@@ -141,10 +205,22 @@ function fftSizeFor(irLength: number): number {
   return n;
 }
 
-const spectrumCache = new WeakMap<ImpulseResponse, { n: number; re: Float64Array; im: Float64Array }>();
+/** Спектри каналів IR окремо: `left` і `right` — дійсні сигнали, спектри комплексні. */
+interface IrSpectrum {
+  n: number;
+  lRe: Float64Array;
+  lIm: Float64Array;
+  rRe: Float64Array;
+  rIm: Float64Array;
+}
 
-/** Спектр комплексного IR `left + i·right` (один FFT на обидва канали). */
-function irSpectrum(ir: ImpulseResponse) {
+const spectrumCache = new WeakMap<ImpulseResponse, IrSpectrum>();
+
+/**
+ * Спектри лівого і правого IR одним FFT: `Z = FFT(left + i·right)`, далі за спряженою симетрією
+ * `L[k] = (Z[k] + Z*[n−k]) / 2`, `R[k] = (Z[k] − Z*[n−k]) / 2i`.
+ */
+function irSpectrum(ir: ImpulseResponse): IrSpectrum {
   let s = spectrumCache.get(ir);
   if (!s) {
     const len = Math.max(ir.left.length, ir.right.length);
@@ -154,22 +230,41 @@ function irSpectrum(ir: ImpulseResponse) {
     re.set(ir.left);
     im.set(ir.right);
     fft(re, im);
-    s = { n, re, im };
+    s = {
+      n,
+      lRe: new Float64Array(n),
+      lIm: new Float64Array(n),
+      rRe: new Float64Array(n),
+      rIm: new Float64Array(n),
+    };
+    for (let k = 0; k < n; k++) {
+      const m = (n - k) % n;
+      const ar = re[k] as number;
+      const ai = im[k] as number;
+      const br = re[m] as number;
+      const bi = im[m] as number;
+      s.lRe[k] = (ar + br) / 2;
+      s.lIm[k] = (ai - bi) / 2;
+      s.rRe[k] = (ai + bi) / 2;
+      s.rIm[k] = (br - ar) / 2;
+    }
     spectrumCache.set(ir, s);
   }
   return s;
 }
 
 /**
- * Згортка моно-сигналу `x` зі стерео-IR (FFT, overlap-add), обрізана до довжини `x`.
- * Вхід дійсний, IR — комплексний `left + i·right`: дійсна частина результату — лівий канал,
- * уявна — правий.
+ * Згортка стерео-входу зі стерео-IR (FFT, overlap-add), обрізана до довжини входу: `xLeft ∗ IR_L`
+ * і `xRight ∗ IR_R` (без `xRight` — моно-вхід в обидва IR). Обидва входи йдуть одним комплексним
+ * FFT `xLeft + i·xRight`, спектри розділяються за симетрією, добуток `XL·HL + i·XR·HR` після
+ * зворотного FFT дає лівий канал у дійсній частині, правий — в уявній.
  */
 export function convolveStereo(
-  x: Float64Array,
+  xLeft: Float64Array,
   ir: ImpulseResponse,
+  xRight: Float64Array = xLeft,
 ): { left: Float64Array; right: Float64Array } {
-  const total = x.length;
+  const total = Math.min(xLeft.length, xRight.length);
   const left = new Float64Array(total);
   const right = new Float64Array(total);
   const irLen = Math.max(ir.left.length, ir.right.length);
@@ -179,12 +274,14 @@ export function convolveStereo(
   const block = n - irLen + 1;
   const re = new Float64Array(n);
   const im = new Float64Array(n);
+  const yRe = new Float64Array(n);
+  const yIm = new Float64Array(n);
   for (let from = 0; from < total; from += block) {
     const len = Math.min(block, total - from);
-    // Тихий блок (повна тиша) нічого не додає.
+    // Тихий блок (повна тиша в обох каналах) нічого не додає.
     let silent = true;
     for (let i = 0; i < len; i++) {
-      if (x[from + i] !== 0) {
+      if (xLeft[from + i] !== 0 || xRight[from + i] !== 0) {
         silent = false;
         break;
       }
@@ -192,21 +289,35 @@ export function convolveStereo(
     if (silent) continue;
     re.fill(0);
     im.fill(0);
-    re.set(x.subarray(from, from + len));
+    re.set(xLeft.subarray(from, from + len));
+    im.set(xRight.subarray(from, from + len));
     fft(re, im);
     for (let k = 0; k < n; k++) {
-      const ar = re[k] as number;
-      const ai = im[k] as number;
-      const br = h.re[k] as number;
-      const bi = h.im[k] as number;
-      re[k] = ar * br - ai * bi;
-      im[k] = ar * bi + ai * br;
+      const m = (n - k) % n;
+      const zr = re[k] as number;
+      const zi = im[k] as number;
+      const wr = re[m] as number;
+      const wi = im[m] as number;
+      // Спектри входів: XL = (Z[k] + Z*[m]) / 2, XR = (Z[k] − Z*[m]) / 2i.
+      const xlr = (zr + wr) / 2;
+      const xli = (zi - wi) / 2;
+      const xrr = (zi + wi) / 2;
+      const xri = (wr - zr) / 2;
+      const hlr = h.lRe[k] as number;
+      const hli = h.lIm[k] as number;
+      const hrr = h.rRe[k] as number;
+      const hri = h.rIm[k] as number;
+      // P = XR·HR; Y = XL·HL + i·P.
+      const pr = xrr * hrr - xri * hri;
+      const pi = xrr * hri + xri * hrr;
+      yRe[k] = xlr * hlr - xli * hli - pi;
+      yIm[k] = xlr * hli + xli * hlr + pr;
     }
-    fft(re, im, true);
+    fft(yRe, yIm, true);
     const end = Math.min(total, from + len + irLen - 1);
     for (let j = from; j < end; j++) {
-      left[j] = (left[j] as number) + (re[j - from] as number);
-      right[j] = (right[j] as number) + (im[j - from] as number);
+      left[j] = (left[j] as number) + (yRe[j - from] as number);
+      right[j] = (right[j] as number) + (yIm[j - from] as number);
     }
   }
   return { left, right };
@@ -224,16 +335,30 @@ export function sharedImpulse(sampleRate = SAMPLE_RATE): ImpulseResponse {
   return ir;
 }
 
-/** Повернення реверба для стерео-посилу: моно-сума (L+R)/2 → стерео-згортка, довжина посилу. */
+/**
+ * Повернення реверба для стерео-посилу: HPF `REVERB_SEND_HPF_HZ` на кожному каналі, перехресний
+ * посил `(L + 0.3·R) / 1.3 → IR_L`, `(R + 0.3·L) / 1.3 → IR_R` (моно-посил звучить так само
+ * гучно, як без перехресного), довжина посилу.
+ */
 export function applyReverb(
   send: StereoPcm,
   ir: ImpulseResponse = sharedImpulse(send.sampleRate),
 ): StereoPcm {
   const n = pcmLength(send);
-  const out = createStereo(n, send.sampleRate);
-  const mono = new Float64Array(n);
-  for (let i = 0; i < n; i++) mono[i] = ((send.left[i] as number) + (send.right[i] as number)) / 2;
-  const wet = convolveStereo(mono, ir);
+  const sr = send.sampleRate;
+  const out = createStereo(n, sr);
+  const hpL = new Biquad().setHighpass(REVERB_SEND_HPF_HZ, sr);
+  const hpR = new Biquad().setHighpass(REVERB_SEND_HPF_HZ, sr);
+  const inL = new Float64Array(n);
+  const inR = new Float64Array(n);
+  const norm = 1 / (1 + REVERB_CROSSFEED);
+  for (let i = 0; i < n; i++) {
+    const l = hpL.process(send.left[i] as number);
+    const r = hpR.process(send.right[i] as number);
+    inL[i] = (l + REVERB_CROSSFEED * r) * norm;
+    inR[i] = (r + REVERB_CROSSFEED * l) * norm;
+  }
+  const wet = convolveStereo(inL, ir, inR);
   out.left.set(wet.left);
   out.right.set(wet.right);
   return out;

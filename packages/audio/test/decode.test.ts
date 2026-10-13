@@ -1,7 +1,17 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { decodeWithFfmpeg, findFfmpeg, remotionCompositorPackage } from "../src/decode.ts";
+import { describe, expect, it, vi } from "vitest";
+import { receiveAudio } from "../src/client.ts";
+import {
+  audioExt,
+  DecodeError,
+  decodeAudio,
+  decodeWithFfmpeg,
+  findFfmpeg,
+  isWavBytes,
+  remotionCompositorPackage,
+  wrapPcm,
+} from "../src/decode.ts";
 import { createStereo, rmsOf, SAMPLE_RATE } from "../src/pcm.ts";
 import { decodeWav, encodeWav, WavError } from "../src/wav.ts";
 import { metronome } from "./signals.ts";
@@ -66,5 +76,60 @@ describe("ffmpeg зі збірки Remotion", () => {
     expect(Math.abs(pcm.left.length - source.left.length)).toBeLessThan(2 * 1152 + 600);
     expect(rmsOf(pcm)).toBeCloseTo(rmsOf(source), 1);
     await expect(decodeWithFfmpeg(Buffer.from("not audio"), { ffmpeg: bin })).rejects.toThrow(/ffmpeg/);
+  });
+});
+
+/** Сирий PCM 16 біт LE (як `pcm_44100` ElevenLabs): синус, у стерео — правий канал у протифазі. */
+function rawPcm(frames: number, channels: 1 | 2): Buffer {
+  const buf = Buffer.alloc(frames * channels * 2);
+  for (let i = 0; i < frames; i++) {
+    const v = Math.round(Math.sin(i / 15) * 12_000);
+    buf.writeInt16LE(v, i * channels * 2);
+    if (channels === 2) buf.writeInt16LE(-v, i * channels * 2 + 2);
+  }
+  return buf;
+}
+
+describe("PCM/WAV без ffmpeg (A1)", () => {
+  it("wrapPcm: канали за очікуваною тривалістю, без тривалості — моно; WAV лишається як є", () => {
+    const stereo = decodeWav(wrapPcm(rawPcm(4410, 2), { expectedSeconds: 0.1 }));
+    expect(stereo.sampleRate).toBe(44_100);
+    expect(stereo.left.length).toBe(4410);
+    expect(stereo.left[10]).toBeCloseTo(Math.round(Math.sin(10 / 15) * 12_000) / 32768, 3);
+    expect(stereo.right[10]).toBeCloseTo(-(stereo.left[10] as number), 3);
+
+    const mono = decodeWav(wrapPcm(rawPcm(4410, 1)));
+    expect(mono.left.length).toBe(4410);
+    expect(mono.right[10]).toBe(mono.left[10]);
+    // Та сама тривалість, моно-байти: канал один.
+    expect(decodeWav(wrapPcm(rawPcm(4410, 1), { expectedSeconds: 0.1 })).left.length).toBe(4410);
+
+    const wav = encodeWav(createStereo(10));
+    expect(wrapPcm(wav)).toBe(wav);
+    expect([isWavBytes(wav), audioExt(wav), audioExt(Buffer.from("ID3 mp3"))]).toEqual([true, "wav", "mp3"]);
+  });
+
+  it("receiveAudio: pcm_44100 → WAV одразу після отримання, mp3 — байти як є", async () => {
+    const pcm = await receiveAudio(rawPcm(441, 2), "pcm_44100", 0.01);
+    expect(pcm.toString("ascii", 0, 4)).toBe("RIFF");
+    expect(decodeWav(pcm).left.length).toBe(441);
+    const mp3 = Buffer.from("MP3-BYTES");
+    expect(await receiveAudio(mp3, "mp3_44100_192")).toEqual(mp3);
+  });
+
+  it("decodeAudio: WAV 44.1 кГц — через decodeWav без ffmpeg; інша частота й mp3 — через ffmpeg", async () => {
+    vi.stubEnv("ADC_FFMPEG", "/nonexistent/ffmpeg");
+    try {
+      const source = createStereo(1000);
+      source.left[5] = 0.5;
+      const pcm = await decodeAudio(encodeWav(source));
+      expect(pcm.left.length).toBe(1000);
+      expect(pcm.left[5]).toBeCloseTo(0.5, 4);
+      // 48 кГц потребує ресемплінгу — це робота ffmpeg (тут недосяжного).
+      await expect(decodeAudio(encodeWav(createStereo(1000, 48_000)))).rejects.toThrow(DecodeError);
+      await expect(decodeAudio(Buffer.from("not wav"))).rejects.toThrow(DecodeError);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

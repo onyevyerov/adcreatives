@@ -42,7 +42,8 @@ pnpm eval -- --case webreportio-parity --mode agent      # після злитт
   `breakdown` у структурі музики, items і ролі (`eyebrow`, `status`, …);
 - `music` — з `audio/<hash>/music.json`: `check` (`MusicTrackCheck`: bpm, онсети бочки, впевненість долі,
   провали, RMS по секундах, `ok`), `attempts`, `offsetMs`; для треків до A2 — `check: null` з поясненням;
-- `audio` — рівні звуку (див. §4);
+- `audio` — рівні звуку і зворотний зв'язок ТЗ якості звуку: мастер з `audio.json`, тональність плану й
+  треку, такт і стерео з `music.json` (див. §4, цілі — §7);
 - `criteria` — критерії паритету з §8 (`ok`: true / false / null — не виміряно автоматично).
 
 ## 3. Картинка: контакт-листи 1 fps
@@ -93,6 +94,12 @@ ffmpeg -y -i sheet-ref.png -i sheet-ours.png -filter_complex vstack sheet-compar
 | `audio.beat` | онсети бочки (низи < 150 Гц), онсетів на долю і впевненість фази долі при BPM розкадровки |
 | `audio.music.outsideEvents` | RMS музики по секундах, де немає подій (зона події — від її вікна до кадру + 1¼ долі, ≥ 1 с; у режимі `mix` — до кадру + 2 с, riser — від −2 с), поза сценами з `mix: filtered/breakdown` і без останньої секунди (fade-out); `minDb` — критерій |
 | `audio.events.list[].overMusicDb` | пік події у її вікні чутності (100 мс; riser — до кадру, whoosh — навколо) над RMS музики за секунду до кадру, дБ; `maxOverMusicDb` — критерій |
+| `audio.integratedLufs`, `audio.truePeakDbtp`, `audio.masterGainDb` | мастер зведення з `audio.json` (`mix`): інтегральна гучність BS.1770-4, true peak (4× оверсемплінг) і підсилення мастера; null — зведення до ТЗ звуку |
+| `audio.musicGainDb` | підсилення музики до рівня міксу (лише при `source = "stems"`); до ТЗ звуку це поле звалося `masterGainDb` |
+| `audio.mixLowCorrelation` | кореляція L/R `soundtrack.wav` нижче 150 Гц (1 — моно); критерій моно-сумісності басу |
+| `audio.keyPlanned`, `audio.keyDetected` | тональність з `audio-plan.json` і визначена за треком (`music.json` → `check.keyDetected`: `root` C = 0 … B = 11, `minor`, `confidence`) |
+| `audio.barConfidence`, `audio.stereoCorrelation`, `audio.lowCorrelation` | з `check` у `music.json`: впевненість сильної долі (такту), кореляція L/R сирого треку — уся і нижче 150 Гц |
+| `audio.attempts`, `audio.offsetMs` | генерацій треку і зсув вікна відео в сирому треку, мс (`music.json`; ті самі, що в `music`) |
 
 Еталон міряється тими самими функціями:
 
@@ -114,16 +121,55 @@ RMS −12.4 dBFS, p90 100 мс −7.5 dBFS, 46 онсетів на сітці 0.
 | Музика в міксі поза подіями | ≥ −16 dBFS | `criteria[music_level]` ← `audio.music.outsideEvents.minDb` |
 | Піки подій над музикою | ≤ +6 дБ | `criteria[event_peaks]` ← `audio.events.maxOverMusicDb` |
 | Трек без провалів, бочка на сітці | `MusicTrackCheck.ok = true` | `criteria[music_check]` ← `music.check.ok` |
+| Гучність зведення | −14 ±1 LUFS | `criteria[loudness]` ← `audio.integratedLufs` |
+| True peak зведення | ≤ −1 dBTP | `criteria[true_peak]` ← `audio.truePeakDbtp` |
+| Низ зведення моно | кореляція L/R < 150 Гц ≥ 0.9 | `criteria[low_mono]` ← `audio.mixLowCorrelation` |
 | impact/slam у розкадровці | ≤ 5 (25 с; загалом `1 + ⌊с/6⌋`) | `criteria[impact_count]` ← `storyboard.impactSlam` |
 | Категорії перевірки і приклад результату в кадрі | є, з реальними рядками | контакт-лист (§3), `storyboard.roles` |
 | Живий фон у кожній сцені | так | контакт-лист (§3) |
 | Сусідні сцени не повторюють макет | так | контакт-лист (§3) |
 
 Значення `ok: null` при наявному звуці означає «не виміряно» (напр. `music.check` немає в старому
-`music.json`), а не «виконано».
+`music.json` або мастера немає в старому `audio.json`), а не «виконано».
 
 ## 6. Таблиця $ і хвилин
 
 Після кожного режиму перенесіть у таблицю §8 ТЗ: `$` — `cost.usd`, `хв` — `time.wallMinutes` (машинні —
 `time.machineMinutes` у примітці), `Токени` — `cost.tokens.total` (input + output + cache write + cache read),
 у примітку — назву прогону (`run`) і `criteria`, що не пройшли.
+
+## 7. Звук: замір `pnpm audio-measure` і цілі якості
+
+Інструмент приймання ТЗ `docs/superpowers/specs/2026-10-13-audio-quality-tz.md` — без мережі й ключів, читає
+сховище лише на читання. Декодує через ffmpeg зі збірки Remotion (`decodeAudio`).
+
+```bash
+# ревізія проєкту: сирий трек music.mp3, обрізаний music.wav, soundtrack.wav, рендери mp4
+pnpm audio-measure -- --project <id> [--rev n]
+# з основного checkout (worktree має свій .data)
+pnpm audio-measure -- --project <id> --data-dir "<основний checkout>/.data"
+# будь-які файли: наш прогін і еталон поруч — у кінці зведена таблиця
+pnpm audio-measure -- "eval/runs/<прогін>/sites/01-webreportio-parity/soundtrack.wav" "$REF"
+# усі семпли кешу SFX: тривалість, onset, якір, пік, pitch, кореляція, QC
+pnpm audio-measure -- --sfx-cache
+```
+
+На кожен файл друкує інтегральний LUFS (BS.1770-4) і short-term/momentary max, true peak dBTP, пік і RMS
+dBFS, crest, кореляцію L/R (усю і нижче 150 Гц), енергію смуг 20 Гц–20 кГц відносно загальної (смуга 16–20k
+показує, чи не зрізано верх) і RMS по секундах.
+
+Цілі (§8 ТЗ; у звіті кейсу — `criteria[loudness|true_peak|low_mono]`, §5):
+
+| Що | Ціль | Де дивитись |
+|---|---|---|
+| Інтегральна гучність `soundtrack.wav` | −14 ±1 LUFS | `audio-measure` (LUFS інтегр.), `audio.json` → `mix.integratedLufs` |
+| True peak `soundtrack.wav` | ≤ −1 dBTP | `audio-measure` (true peak), `audio.json` → `mix.truePeakDbtp` |
+| Низ зведення в моно | кореляція L/R < 150 Гц ≥ 0.9 | `audio-measure` (`corr<150`), `audio.mixLowCorrelation` |
+| Семпли кешу SFX | QC `ok` у кожного | `audio-measure -- --sfx-cache`, колонка `QC` (`✗` — причини; `—` — семпл до A2) |
+| Трек | `keyDetected` і `barConfidence` не null | `music.json` → `check`, `audio.keyDetected`, `audio.barConfidence` |
+
+Порядок заміру після злиття хвилі (власник): `audio-measure` на `soundtrack.wav` і mp4 нового прогону —
+порівняти з таблицею §1 ТЗ (LUFS, dBTP, кореляції, смуга 16–20k у mp4); `LIVE=1 pnpm sfx-cache
+--regenerate-failed`, далі `audio-measure -- --sfx-cache` — усі рядки `QC ok`. Агент-автор бачить ті самі
+числа треку в заголовку інструмента `audio_events` (темп, тональність плану й треку, LUFS, впевненість долі й
+такту, ширина стерео).

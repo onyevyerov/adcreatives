@@ -13,6 +13,8 @@ export type ElevenLabsErrorKind =
   | "busy"
   /** API відхилив промпт/план (назви артистів, бренди, авторські тексти). */
   | "bad_prompt"
+  /** Формат відповіді недоступний на тарифі (mp3 192 — від Creator, PCM 44.1 — від Pro). */
+  | "format_not_allowed"
   | "aborted"
   | "timeout"
   | "other";
@@ -35,7 +37,16 @@ const KNOWN_CODES = [
   "bad_prompt",
   "bad_composition_plan",
   "quota_exceeded",
+  "output_format_not_allowed",
+  "format_not_allowed",
 ] as const;
+
+/**
+ * Відмова через формат без коду в тілі: текст API згадує формат виводу разом із тарифом
+ * («… output format pcm_44100 … requires Pro tier or above»).
+ */
+const FORMAT_TEXT = /output[_ ]?format|(?:mp3|pcm)_\d{4,5}/i;
+const TIER_TEXT = /not (?:allowed|available)|subscri|tier|upgrade|plan does not/i;
 
 const PROMPT_SUGGESTION_KEYS = [
   "prompt_suggestion",
@@ -153,6 +164,17 @@ export function classifyElevenLabsError(err: unknown): ElevenLabsErrorInfo {
   if (names.includes("AbortError") || (/aborted/i.test(message) && !status)) kind = "aborted";
   else if (names.includes("ElevenLabsTimeoutError") || (/timed? ?out/i.test(message) && !status))
     kind = "timeout";
+  else if (
+    code === "output_format_not_allowed" ||
+    code === "format_not_allowed" ||
+    (status !== null &&
+      status >= 400 &&
+      status < 500 &&
+      status !== 429 &&
+      FORMAT_TEXT.test(haystack) &&
+      TIER_TEXT.test(haystack))
+  )
+    kind = "format_not_allowed";
   else if (code === "too_many_concurrent_requests") kind = "concurrency";
   else if (code === "system_busy") kind = "busy";
   else if (code === "bad_prompt" || code === "bad_composition_plan" || promptSuggestion || planSuggestion)
