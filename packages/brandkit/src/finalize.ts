@@ -199,7 +199,8 @@ export function finalizeBrandKit(
 
   // --- Дрібниці: ліміти, діапазони.
   kit.confidence = Math.min(1, Math.max(0, kit.confidence));
-  kit.questions = kit.questions.slice(0, 2).map((q, i) => ({ ...q, id: q.id?.trim() ? q.id : `q${i + 1}` }));
+  // Питання власнику тимчасово вимкнені: акцент, аудиторію й CTA обирає сценарист сам.
+  kit.questions = [];
   if (kit.socialProof.rating !== null && (kit.socialProof.rating < 0 || kit.socialProof.rating > 5)) {
     fixes.push(`Рейтинг ${kit.socialProof.rating} поза шкалою 0–5 — прибрано.`);
     kit.socialProof.rating = null;

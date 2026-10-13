@@ -70,7 +70,6 @@ export interface BrandSummary {
     /** «з сайту: <url>» / «від вас». */
     sourceLabel: string;
   }>;
-  questions: Array<{ id: string; text: string; default: string; options: string[] }>;
   gaps: Array<{ kind: string; note: string }>;
   /** Найкращі фото (quality ≥ 3), до 8. */
   photos: MediaLink[];
@@ -168,7 +167,6 @@ export function summarizeBrandKit(
       quote: f.quote,
       sourceLabel: f.source === "client" ? "від вас" : `з сайту: ${f.sourceUrl ?? "—"}`,
     })),
-    questions: kit.questions.map((q) => ({ id: q.id, text: q.text, default: q.default, options: q.options })),
     gaps: kit.gaps.map((g) => ({ kind: g.kind, note: g.note })),
     photos,
     goodPhotos: good,
@@ -226,10 +224,6 @@ export function formatBrandSummaryText(s: BrandSummary): string {
   if (s.facts.length) {
     lines.push("", "**Факти:**");
     for (const f of s.facts) lines.push(`- ${f.text} — ${f.sourceLabel}`);
-  }
-  if (s.questions.length) {
-    lines.push("", "**Питання:**");
-    for (const q of s.questions) lines.push(`- ${q.text} (якщо не відповісте: «${q.default}»)`);
   }
   if (s.needMorePhotos) {
     lines.push("", `Придатних фото замало — додайте, будь ласка, ще хоча б ${s.missingPhotos}.`);

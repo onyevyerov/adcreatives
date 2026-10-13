@@ -25,7 +25,6 @@ import { clear, h, text } from "../dom.js";
 /** @typedef {BrandCheckpointPayload["brandkit"]} BrandKitFile */
 /** @typedef {BrandKitFile["typography"]["heading"]} FontChoice */
 /** @typedef {BrandKitFile["facts"][number]} Fact */
-/** @typedef {BrandKitFile["questions"][number]} BrandQuestion */
 /** @typedef {HTMLButtonElement | HTMLInputElement} Control */
 
 // ───────────── Підписи ─────────────
@@ -336,8 +335,6 @@ export function mount(el, ctx) {
 
   /** Тайли форматів для патчу без перебудови. @type {Map<Format, HTMLButtonElement>} */
   const formatTiles = new Map();
-  /** Локальні відповіді на питання (до нової ревізії): id питання → обрана опція. @type {Map<string, string>} */
-  const answers = new Map();
   /** @type {string | null} */
   let language = null;
 
@@ -681,34 +678,6 @@ export function mount(el, ctx) {
     );
   }
 
-  /** @param {BrandQuestion} q */
-  function questionGroup(q) {
-    const chips = q.options.map((opt) =>
-      control(h("button", { type: "button", class: "chip cb-option", "data-option": opt, text: opt }), () => {
-        if ((answers.get(q.id) ?? q.default) === opt) return;
-        answers.set(q.id, opt);
-        markQuestion(q, chips);
-        actions.answer(opt);
-      }),
-    );
-    markQuestion(q, chips);
-    return h(
-      "div",
-      { class: "cb-group", "data-question": q.id },
-      h("p", { class: "cb-group__label", text: q.text }),
-      h("div", { class: "cb-chips", role: "group", "aria-label": q.text }, chips),
-    );
-  }
-
-  /** @param {BrandQuestion} q @param {HTMLButtonElement[]} chips */
-  function markQuestion(q, chips) {
-    const chosen = answers.get(q.id) ?? q.default;
-    for (const chip of chips) {
-      const on = chip.dataset.option === chosen;
-      chip.setAttribute("aria-pressed", String(on));
-    }
-  }
-
   /** @param {Format} format */
   function formatTile(format) {
     const tile = h(
@@ -779,7 +748,6 @@ export function mount(el, ctx) {
     put(
       decisions,
       h("h2", { class: "display-s cb-decisions__title", id: "cb-decisions-title", text: "Ваші рішення" }),
-      payload.brandkit.questions.map(questionGroup),
       h(
         "div",
         { class: "cb-group", "data-group": "formats" },
@@ -805,10 +773,7 @@ export function mount(el, ctx) {
     const cpState = entry?.state ?? null;
 
     if (!shown || shown.payload !== payload || shown.rev !== rev) {
-      if (!shown || shown.rev !== rev) {
-        answers.clear();
-        language = null;
-      }
+      if (!shown || shown.rev !== rev) language = null;
       active = isActive(state);
       empty.hidden = payload !== null;
       for (const node of [hero, specs, decisions]) node.hidden = payload === null;

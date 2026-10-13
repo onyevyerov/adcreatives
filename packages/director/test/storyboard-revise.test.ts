@@ -180,11 +180,13 @@ describe("storyboardStage: речовина продукту, семантичн
     expect(semantic.success).toContain("виведе код");
     // <brand> той самий, що й для правок: речовина — окремим блоком.
     expect(block(params, "brand")).not.toContain("exampleIssues");
+    // Відповідей власника немає: акцент, аудиторію й CTA сценарист обирає сам.
+    expect(userText(params)).not.toContain("<answers>");
 
     // Правила промпта: обов'язкові сцени, ролі, повні моки, звукова дисципліна, такти, колір.
     const system = systemText(params);
     for (const rule of [
-      "Two scenes are in every film, whatever the owner answered",
+      "Two scenes are in every film, whatever the accent",
       "`eyebrow` (a small overline",
       "`status` (the state, severity or estimate",
       "A scene that shows the product at work usually carries 8–12 items",

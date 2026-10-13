@@ -241,15 +241,13 @@ describe("cp-brand · рендер payload фікстури (S2)", () => {
     expect(input.getAttribute("accept")).toBe("image/*,.heic,.heif");
   });
 
-  it("панель «Ваші рішення»: питання чипами (default обрано), формати C6, мова — сегмент", () => {
+  it("панель «Ваші рішення»: без питань (навіть якщо вони є в старому кіті), формати C6, мова — сегмент", () => {
     const { $, $$ } = setup();
     expect($(".cb-decisions__title").textContent).toBe("Ваші рішення");
     expect($(".cb-decisions__title").classList.contains("display-s")).toBe(true);
-    expect($('[data-question="q1"] .cb-group__label').textContent).toBe("Яка головна мета ролика?");
-    const chips = $$(".cb-option");
-    expect(chips.map((c) => c.textContent)).toEqual(["Привести нових гостей", "Анонс сніданків"]);
-    expect(chips.every((c) => c.classList.contains("chip"))).toBe(true);
-    expect(pressed(chips)).toEqual(["Привести нових гостей"]);
+    expect(brandPayload.brandkit.questions.length).toBeGreaterThan(0);
+    expect($$("[data-question]")).toEqual([]);
+    expect($$(".cb-decisions .chip")).toEqual([]);
 
     const tiles = $$(".cb-fmt");
     expect(tiles.map((t) => t.dataset.format)).toEqual(["vertical", "square", "landscape"]);
@@ -374,15 +372,6 @@ describe("cp-brand · дії", () => {
     expect(called("setLogo")).toEqual([["a07"]]);
   });
 
-  it("чип питання → answer(текст опції) і перемикає вибір", () => {
-    const { $$, called } = setup();
-    const chips = $$<HTMLButtonElement>(".cb-option");
-    chips[0]?.click(); // default — уже обрано
-    chips[1]?.click();
-    expect(called("answer")).toEqual([["Анонс сніданків"]]);
-    expect(pressed($$(".cb-option"))).toEqual(["Анонс сніданків"]);
-  });
-
   it("тайли форматів → setFormats з мультивибором у канонічному порядку", () => {
     const { $, called } = setup();
     $<HTMLButtonElement>('.cb-fmt[data-format="landscape"]').click();
@@ -492,14 +481,12 @@ describe("cp-brand · інкрементальний update", () => {
     const name = $(".cb-name");
     const swatch = $(".cb-swatch");
     const tile = $(".cb-fmt");
-    const chip = $(".cb-option");
     store.setState({ totalUsd: 9.99 });
     store.setState((s) => ({ ui: { ...s.ui, notice: "x", draft: "abc" } }));
     store.setState((s) => ({ feed: [...s.feed] }));
     expect($(".cb-name")).toBe(name);
     expect($(".cb-swatch")).toBe(swatch);
     expect($(".cb-fmt")).toBe(tile);
-    expect($(".cb-option")).toBe(chip);
   });
 
   it("ui.pendingFormats лише перемикає класи й aria-pressed тайлів", () => {

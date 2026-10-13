@@ -7,7 +7,7 @@
  * програє фікстуру подій (з `&jump=…` або `&project=…` — одразу робочий простір).
  * Переходи createProject → project і newProject → start теж робить шар даних.
  *
- * Дії, що шлють повідомлення не з композера (`setFormats`, `setLanguage`, `answer`), не чіпають
+ * Дії, що шлють повідомлення не з композера (`setFormats`, `setLanguage`), не чіпають
  * чернетку `ui.draft` і режим правки — їх скидає лише `sendMessage`.
  */
 import { FORMAT_LABELS, FORMATS, FORMATS_DEBOUNCE_MS } from "../contracts.js";
@@ -308,10 +308,6 @@ export function createActions(store, opts) {
 
     setLanguage(lang) {
       void send(`Мова відео: ${lang}`, false);
-    },
-
-    answer(text) {
-      void send(text, false);
     },
 
     startEdit() {

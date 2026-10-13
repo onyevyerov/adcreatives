@@ -415,23 +415,10 @@ button.cb-logo:hover:not(:disabled) {
   gap: 12px;
 }
 
-.cb-group__label {
-  color: var(--ink-2);
-  font: 500 14px / 1.4 var(--f-ui);
-}
-
-.cb-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.cb-option:disabled,
 .cb-lang:disabled {
   cursor: not-allowed;
 }
 
-.cb-option:disabled:not([aria-pressed="true"]),
 .cb-lang:disabled:not([aria-pressed="true"]) {
   opacity: 0.45;
 }

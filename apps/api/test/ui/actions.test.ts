@@ -158,15 +158,14 @@ describe("повідомлення", () => {
     });
   });
 
-  it("setLanguage і answer шлють текст, не чіпаючи чернетку", async () => {
+  it("setLanguage шле текст, не чіпаючи чернетку", async () => {
     const calls = stubFetch();
     const store = projectStore();
     store.setState((s) => ({ ui: { ...s.ui, draft: "моя правка", editing: true } }));
     const actions = make(store);
     actions.setLanguage("en");
-    actions.answer("Анонс сніданків");
-    await vi.waitFor(() => expect(calls).toHaveLength(2));
-    expect(calls.map(jsonBody)).toEqual([{ text: "Мова відео: en" }, { text: "Анонс сніданків" }]);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls.map(jsonBody)).toEqual([{ text: "Мова відео: en" }]);
     await vi.waitFor(() => expect(store.getState().ui.sending).toBe(false));
     expect(store.getState().ui).toMatchObject({ draft: "моя правка", editing: true });
   });

@@ -66,8 +66,7 @@
 // ───────────── Дії (реалізує B2 у data/actions.js) ─────────────
 
 /**
- * `setFormats` — debounce FORMATS_DEBOUNCE_MS → «Формати: 9:16, 1:1»; `setLanguage` → «Мова відео: en»;
- * `answer` — опція питання бренд-кіта → текст як повідомлення.
+ * `setFormats` — debounce FORMATS_DEBOUNCE_MS → «Формати: 9:16, 1:1»; `setLanguage` → «Мова відео: en».
  * @typedef {{
  *   createProject(form: FormData): Promise<void>,
  *   newProject(): void,
@@ -79,7 +78,6 @@
  *   uploadPhotos(files: FileList | File[]): Promise<void>,
  *   setFormats(formats: Format[]): void,
  *   setLanguage(lang: string): void,
- *   answer(text: string): void,
  *   startEdit(): void,
  *   setDraft(text: string): void,
  *   setDoneFormat(f: Format): void

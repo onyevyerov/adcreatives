@@ -159,6 +159,8 @@ describe("brandkitStage", () => {
     expect(file.gaps[0]).toMatchObject({ kind: "few_photos" });
     expect(file.fixes.join("\n")).toMatch(/a99/);
     expect(file.fixes.join("\n")).toMatch(/Найкраща кава/);
+    // Питання власнику вимкнені: навіть якщо модель їх повернула, код прибирає.
+    expect(file.questions).toEqual([]);
     // Семантичні кольори й моношрифт заповнено кодом.
     for (const role of ["danger", "warning", "success"] as const) {
       const c = file.palette[role] as string;
