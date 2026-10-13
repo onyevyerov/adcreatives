@@ -22,7 +22,7 @@ export function musicVolumeAt(
 
 /**
  * Лише для хоста: звук ролика. Є готове зведення (`audio.mix`) — грає лише його, як є:
- * музика, події, дакінг, fade-out і мастер уже всередині. Інакше (старий `audio.json`) —
+ * музика, події, дакінг, антиклік у кінці (250 мс) і мастер уже всередині. Інакше (старий `audio.json`) —
  * музика з fade-out наприкінці; довший трек підрізається.
  */
 export function MusicTrack(props: { audio: AudioManifest; totalFrames: number }) {
