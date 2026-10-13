@@ -18,6 +18,7 @@ import { computeChunkLayout } from "../src/chunks.ts";
 import type { DecodeAudio } from "../src/decode.ts";
 import { computeAudioPlacements } from "../src/manifest.ts";
 import { loadSfxLibrary, loadStandardCues, sfxHash } from "../src/sfx.ts";
+import type { SfxQcHook } from "../src/sfxQc.ts";
 import { canReuseMusic, createAudioStage } from "../src/stage.ts";
 import { decodeWav } from "../src/wav.ts";
 import { fakeSample } from "./fakeSfx.ts";
@@ -118,6 +119,16 @@ function fakeDecoder(opts: { fail?: boolean; failSfx?: (cue: SoundCue) => boolea
   });
 }
 
+const PASSING_QC = {
+  ok: true,
+  peakDb: null,
+  onsetMs: null,
+  correlation: null,
+  pitchHz: null,
+  reasons: [],
+  attempts: 1,
+};
+
 function stage(
   client: ReturnType<typeof mockElevenLabs>,
   storage: ReturnType<typeof tmpStorage>,
@@ -132,7 +143,9 @@ function stage(
     source: "test",
     attempt: 1,
   });
-  return { run: createAudioStage({ client, gate, sharedCost, decode }), gate };
+  // QC семплів перевіряється в `sfxQc.test.ts`; тут байти мока — не аудіо, ffmpeg на них не запускаємо.
+  const qc: SfxQcHook = async () => ({ ...PASSING_QC });
+  return { run: createAudioStage({ client, gate, sharedCost, decode, qc }), gate };
 }
 
 describe("audioStage", () => {
