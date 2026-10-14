@@ -7,6 +7,7 @@ import {
   QaReport,
   revPaths,
 } from "@adc/shared";
+import { fixtureStoryboard } from "@adc/shared/fixtures";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { readLedger } from "../src/ledger.ts";
@@ -270,7 +271,64 @@ describe("qaStage", () => {
     expect(res.outputs).toEqual({ verdict: "fix", seriousScenes: ["s2"] });
   });
 
-  it("промпт qa: розділ Showreel bar — 4 критерії, поріг ≤ 2, бал у summary", () => {
+  it("Showreel bar · object: throughline у промпті арт-директора; 2/5 → off_brief major, «–» → minor", async () => {
+    const throughline = {
+      object: "the teal dot",
+      states: [
+        { sceneId: "s1", state: "a dot on the cup that grows into the price badge" },
+        { sceneId: "s2", state: "the price badge that shrinks back into a dot" },
+        { sceneId: "s3", state: "the dot that becomes the logo's mark" },
+      ],
+    };
+    const storage = await checked({ storyboard: { ...structuredClone(fixtureStoryboard), throughline } });
+    const desc = (
+      sceneId: string,
+      description: string,
+      severity: QaIssue["severity"] = "minor",
+    ): QaIssue => ({
+      ...issue(sceneId, severity, "weak_moment"),
+      description,
+    });
+    const ctx = makeCtx(storage, "qa", { sceneIds: null }, [
+      {
+        json: {
+          verdict: "pass",
+          issues: [
+            desc("s2", "Showreel bar · object 2/5: бейдж з'являється нізвідки на 0.5 с"),
+            desc("s3", "Showreel bar · object –: розкадровка без об'єкта", "major"),
+          ],
+          summary: "Showreel bar 3.4/5, object 3.0/5 — s2 рве об'єкт на стику.",
+        },
+      },
+    ]);
+    const res = await qaStage(ctx);
+    const text = userText(ctx.anthropic.calls[0]?.params);
+    expect(text).toMatch(/"throughline": \{\s*"object": "the teal dot",/);
+    expect(text).toContain('"state": "the price badge that shrinks back into a dot"');
+    const qa = await storage.readJson(revPaths(PROJECT_ID, 1).qa, (v) => QaReport.parse(v));
+    expect(qa.issues.map((i) => [i.sceneId, i.kind, i.severity])).toEqual([
+      ["s2", "off_brief", "major"],
+      ["s3", "weak_moment", "minor"],
+    ]);
+    expect(res.outputs).toEqual({ verdict: "fix", seriousScenes: ["s2"] });
+  });
+
+  it("старий звіт без критерію object (чотири критерії) парситься й проходить рубрику без змін", () => {
+    const old = QaReport.parse({
+      verdict: "fix",
+      issues: [
+        { ...issue("s1", "minor", "off_brief"), description: "Showreel bar · layout 2/5: повтор s2" },
+        issue("s2", "major"),
+      ],
+      summary: "Showreel bar 3.0/5 — s1 повторює макет s2.",
+    });
+    expect(applyShowreelRubric(old.issues).map((i) => [i.sceneId, i.kind, i.severity])).toEqual([
+      ["s1", "off_brief", "major"],
+      ["s2", "clipped_text", "major"],
+    ]);
+  });
+
+  it("промпт qa: розділ Showreel bar — 5 критеріїв (object — R7), поріг ≤ 2, бал у summary", () => {
     const prompt = createPromptLoader().load("qa", {
       sheetsLegend: "-",
       storyboard: {},
@@ -289,6 +347,29 @@ describe("qaStage", () => {
     );
     expect(prompt.system).toContain("`Showreel bar · <criterion> <score>/5:`");
     expect(prompt.system).toContain("starts with `Showreel bar X.X/5`");
+    expect(Object.keys(SHOWREEL_CRITERIA)).toHaveLength(5);
+    expect(SHOWREEL_CRITERIA.object).toBe("off_brief");
+    expect(prompt.system).toContain("score every scene you check on five criteria");
+    // R7 дослівно
+    expect(prompt.system).toContain(
+      "- `object` — the throughline. 1: the object named in `throughline` is missing from the scene or appears from nothing; 3: it is present, but the join cuts it to its next state instead of transforming it; 5: it is present in the state the storyboard gives and the last frame visibly hands it over to the next scene's first frame. Write `–` when the storyboard has no `throughline`. A score of 1 or 2 is an `off_brief` `major` remark whose `fix` names the object, the frames and the transformation.",
+    );
+    expect(prompt.system).toContain("`off_brief` for `layout`, `background`, `colour` and `object`");
+    // середнє — лише по поставлених оцінках, «–» не рахується
+    expect(prompt.system).toContain("a `–` is not a score and is left out of the mean");
+  });
+
+  it("showreelScore: object і прочерк", () => {
+    expect(showreelScore("Showreel bar · object 2/5: об'єкт зник")).toEqual({
+      criterion: "object",
+      score: 2,
+    });
+    expect(showreelScore("Showreel bar · object –: немає throughline")).toEqual({
+      criterion: "object",
+      score: null,
+    });
+    expect(showreelScore("Showreel bar · mocks –/5: без моку")).toEqual({ criterion: "mocks", score: null });
+    expect(showreelScore("Showreel bar · object 2: без шкали")).toBeNull();
   });
 
   it("applyShowreelRubric: розбір опису, одне зауваження на сцену й критерій, решта без змін", () => {

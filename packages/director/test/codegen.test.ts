@@ -17,6 +17,15 @@ import {
 } from "./helpers.ts";
 
 const ex = exampleSources();
+
+/** Правила R1–R4, R6 (ТЗ «прогалини якості» §2.7) — у промпті code-fix дослівно. */
+const FILM_RULES = [
+  "Nothing enters at rest and nothing leaves at rest. An element is already moving on its first visible frame (it arrives from off-frame, from a smaller scale, from behind a mask or a colour field) and it leaves accelerating (`easings.in`-like, never slowing down and fading out in place). A hit may land up to one frame before its event frame, never after it: the landing is seen on the beat, the sound is on the event frame.",
+  "In an interface mock nothing changes by itself. Every change of state (a field filling, a toggle, a row selected, a slider moved, a button pressed) is caused by the `Cursor`: it travels to the control (`path`), grows on arrival (`hoverAt`), squeezes on the click (`clickAt`), and the control reacts on that same frame. One cursor per scene, one action at a time; a mock that changes without the cursor is `off_brief`.",
+  "`Camera` is the scene's virtual camera. It pushes into the active zone of a mock (the field being typed, the row being ticked) and pulls back out. Never two camera moves at once and never a camera move during a cursor move: the push starts after the cursor arrives, the pull-back after the control has reacted. Text that must be read stays inside the camera's rectangle for its reading time.",
+  "`MotionBlur` wraps fast moves (a card flying in, a colour field pushing, kinetic text on an energetic brand) so they read as motion, not as a strobe. Use it on elements that travel more than about a quarter of the frame within six frames; never on text while it is being read; never on the whole scene; at most two `MotionBlur` wrappers active in one frame (each multiplies the render cost of its subtree by `samples`).",
+  "Build the throughline literally. In every scene the object named in `<storyboard>.throughline` is on screen in the state its entry gives, and at the join it transforms into its next state (`MorphShape`, `DrawPath`, `LogoPath`, your own `<svg>`): the same geometry, colour and position on the last frame of one scene and the first frame of the next. When `throughline` is null, keep the match cuts as before.",
+];
 const BAD = ex["cta-logo"].replace("const dark =", "const year = new Date().getFullYear();\n  const dark =");
 
 /** Послідовний режим із відкатом до WIP-поведінки (P0): anchor `xhigh`, решта `high`. */
@@ -268,6 +277,21 @@ describe("codegenStage (sequential)", () => {
     expect(fix.system).toContain("`useLogoGeometry()` returns `{ viewBox, paths }`");
     // зауваження рубрики QA «Showreel bar» — як їх лагодити
     expect(fix.system).toContain("a remark that starts with `Showreel bar`");
+    // R1–R4, R6 дослівно — у правилах фільму, які ремонт не ламає; object — у типових ремонтах
+    const filmRules = fix.system.slice(
+      fix.system.indexOf("# Film rules"),
+      fix.system.indexOf("# Output format"),
+    );
+    for (const rule of FILM_RULES) expect(filmRules).toContain(rule);
+    const repairs = fix.system.slice(
+      fix.system.indexOf("- Typical repairs:"),
+      fix.system.indexOf("# Hard rules"),
+    );
+    expect(repairs).toContain(
+      "`Showreel bar · object` → the throughline object is missing or cut at the join: put the object back into the frame in the state from `throughline`",
+    );
+    expect(repairs).toContain("and make the transformation at the join");
+    expect(repairs).toContain("«Camera: два рухи одночасно»");
   });
 
   it("усі виклики впали — помилка стадії з кодом LLM", async () => {
