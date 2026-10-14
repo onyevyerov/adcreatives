@@ -18,7 +18,7 @@ import {
   selectComposition,
 } from "@remotion/renderer";
 import { bundleJobDir } from "./bundle.ts";
-import { resolveBrandFonts } from "./fonts.ts";
+import { resolveBrandFonts, resolveLocalFonts } from "./fonts.ts";
 
 export interface RemotionEngineOptions {
   /** rspack-бандлер (дефолт true); false — webpack. */
@@ -38,6 +38,9 @@ export interface RemotionEngineOptions {
   /** Прогрес бандла, %. */
   onBundleProgress?: (percent: number) => void;
 }
+
+/** Шрифтові доповнення до inputProps (`HostExtras`). */
+type FontProps = Required<Pick<MainInput, "fonts" | "localFonts">>;
 
 /** Помилка рендера з логами браузера, зібраними до збою (для прив'язки runtime-помилки до сцени). */
 export class RenderError extends Error {
@@ -80,7 +83,7 @@ function cancelFrom(signal: AbortSignal | undefined) {
 export class RemotionRenderEngine implements RenderEngine {
   private browser: Promise<HeadlessBrowser> | null = null;
   private readonly chromiumOptions: ChromiumOptions = { enableMultiProcessOnLinux: true };
-  private readonly fontCache = new WeakMap<BrandKit, Promise<MainInput["fonts"]>>();
+  private readonly fontCache = new WeakMap<BrandKit, Promise<FontProps>>();
 
   constructor(private readonly options: RemotionEngineOptions = {}) {}
 
@@ -100,10 +103,11 @@ export class RemotionRenderEngine implements RenderEngine {
     return this.browser;
   }
 
-  private fontsFor(brand: BrandKit): Promise<MainInput["fonts"]> {
+  /** Шрифти бренду для inputProps: метадані Google Fonts і локальні файли сайту (кешуються разом). */
+  private fontsFor(brand: BrandKit): Promise<FontProps> {
     let p = this.fontCache.get(brand);
     if (!p) {
-      p = resolveBrandFonts(brand);
+      p = resolveBrandFonts(brand).then((fonts) => ({ fonts, localFonts: resolveLocalFonts(brand) }));
       this.fontCache.set(brand, p);
     }
     return p;
@@ -123,7 +127,7 @@ export class RemotionRenderEngine implements RenderEngine {
     const logs: BrowserLog[] = [];
     const cancelSignal = cancelFrom(opts.signal);
     const base = { ...opts.inputProps, format: opts.format };
-    const inputProps: MainInput | ScenePreviewInput = { ...base, fonts: await this.fontsFor(base.brand) };
+    const inputProps: MainInput | ScenePreviewInput = { ...base, ...(await this.fontsFor(base.brand)) };
     const puppeteerInstance = await this.getBrowser();
     const logLevel = this.options.logLevel ?? "error";
     try {
@@ -161,7 +165,7 @@ export class RemotionRenderEngine implements RenderEngine {
     const started = Date.now();
     const cancelSignal = cancelFrom(opts.signal);
     const base = { ...opts.inputProps, format: opts.format };
-    const inputProps: MainInput = { ...base, fonts: await this.fontsFor(base.brand) };
+    const inputProps: MainInput = { ...base, ...(await this.fontsFor(base.brand)) };
     const puppeteerInstance = await this.getBrowser();
     const logLevel = this.options.logLevel ?? "error";
     const composition = await selectComposition({

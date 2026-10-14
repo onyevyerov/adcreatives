@@ -25,6 +25,8 @@ export type { Scene, ScenePurpose, Storyboard } from "@adc/shared/schemas/storyb
 export { eventFrame } from "@adc/shared/timeline";
 export type { AssetRef, AudioManifest, MainProps, ScenePreviewProps, SceneProps, } from "@adc/shared/types/video";
 export { averageColor, contrastRatio, isDark, minContrastFor, mix, parseColor, readableOn, relativeLuminance, withAlpha, } from "./color.ts";
+export { MotionBlur, Trail } from "./devices/blur.tsx";
+export { Camera, type CameraKey, useCamera } from "./devices/camera.tsx";
 export { Breathe, useBeat } from "./devices/motion.tsx";
 export { ClipReveal, ColorField, type Side } from "./devices/reveal.tsx";
 export { DrawPath, type MorphKey, MorphShape } from "./devices/shape.tsx";
@@ -114,7 +116,7 @@ export declare function SafeArea(props: {
 
 ```ts
 import type { BrandKit, MotionPersonality, Palette } from "@adc/shared/schemas/brandkit";
-import type { AssetRef } from "@adc/shared/types/video";
+import type { AssetRef, LocalFont } from "@adc/shared/types/video";
 import { type ReactNode } from "react";
 import { type FontInfo, MONO_FALLBACK_STACK } from "./fonts.ts";
 export { MONO_FALLBACK_STACK };
@@ -164,12 +166,14 @@ export declare function headingWeight(theme: Theme): number;
 /** Вага основного тексту, найближча до 400. */
 export declare function bodyWeight(theme: Theme): number;
 /**
- * Ставить хост. Завантажує шрифти бренду (`fonts` — метадані Google Fonts від рендера),
- * не малює дітей, доки шрифти не готові (інакше виміри тексту були б з резервного шрифту).
+ * Ставить хост. Завантажує шрифти бренду (`fonts` — метадані Google Fonts від рендера,
+ * `localFonts` — файли шрифтів сайту в `public/fonts/`), не малює дітей, доки шрифти не готові
+ * (інакше виміри тексту були б з резервного шрифту).
  */
 export declare function ThemeProvider(props: {
     brand: BrandKit;
     fonts?: FontInfo[];
+    localFonts?: LocalFont[];
     children: ReactNode;
 }): import("react").JSX.Element;
 export declare function useTheme(): Theme;
@@ -672,6 +676,64 @@ export declare function MorphShape(props: {
 }): import("react").JSX.Element;
 ```
 
+## Девайси: MotionBlur, Trail
+
+`src/devices/blur`
+
+```ts
+import type { JSX, ReactNode } from "react";
+/** Субкадровий motion blur: `samples` проміжних кадрів у межах `shutterAngle` змішуються (@remotion/motion-blur CameraMotionBlur). */
+export declare function MotionBlur(props: {
+    /** 3 */
+    samples?: number;
+    /** 180 */
+    shutterAngle?: number;
+    children: ReactNode;
+}): JSX.Element;
+/** Шлейф: `layers` копій дітей із відставанням `lagInFrames`, прозорість спадає до `trailOpacity` (@remotion/motion-blur Trail). */
+export declare function Trail(props: {
+    /** 3 */
+    layers?: number;
+    /** 1 */
+    lagInFrames?: number;
+    /** 0.4 */
+    trailOpacity?: number;
+    children: ReactNode;
+}): JSX.Element;
+```
+
+## Девайси: Camera
+
+`src/devices/camera`
+
+```ts
+import { type JSX, type ReactNode } from "react";
+import { type EasingFn } from "../motion.ts";
+/** Ключ камери: з кадру `at` камера наїжджає на прямокутник `x, y, width, height` (px кадру). */
+export interface CameraKey {
+    at: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+/** Віртуальна камера: шар на весь кадр, що наїжджає на прямокутник ключа (масштаб + зсув), один рух за раз. */
+export declare function Camera(props: {
+    keys: CameraKey[];
+    /** 18 */
+    duration?: number;
+    easing?: EasingFn;
+    children: ReactNode;
+}): JSX.Element;
+/** Поточна трансформація камери для перевірок QA; identity поза Camera. */
+export declare function useCamera(): {
+    active: boolean;
+    scale: number;
+    tx: number;
+    ty: number;
+};
+```
+
 ## Іконки: Icon
 
 `src/icons/Icon`
@@ -889,10 +951,12 @@ export interface CursorPoint {
     y: number;
     frame: number;
 }
-/** Курсор миші: рух між точками `path`, клік о `clickAt`. */
+/** Курсор миші: рух між точками `path`, наведення о `hoverAt`, клік о `clickAt`. */
 export declare function Cursor(props: {
     path: CursorPoint[];
     clickAt?: number | readonly number[];
+    /** Кадри наведення: курсор зростає на 8 % до наступного кліку. */
+    hoverAt?: number | readonly number[];
     size?: number;
     style?: CSSProperties;
 }): import("react").JSX.Element;
@@ -962,6 +1026,7 @@ export declare function paint(theme: Theme, color: string | undefined, fallback:
 ```ts
 import { type AutoIssueKind, type QaLogEntry } from "@adc/shared/schemas/qa";
 import { type ReactNode, type RefObject } from "react";
+import { type Rect } from "./format.tsx";
 /**
  * QA-режим: компоненти перевіряють себе після рендеру кадру і пишуть у консоль браузера
  * `ADC_QA {json}` (QaLogEntry). Стадія `check` збирає ці рядки через `onBrowserLog`.
@@ -981,6 +1046,14 @@ export declare function QaProvider(props: {
 export declare function useQaEnabled(): boolean;
 /** Фон під точкою: перший непрозорий шар під елементом. null — невідомо (фото без затемнення). */
 export declare function backgroundAt(el: HTMLElement, x: number, y: number): string | null;
+/**
+ * Елемент, який камера (`Camera` з `scale > 1`) винесла цілком за кадр: його не видно, тож safe-зону
+ * не перевіряємо. `rect` — уже трансформовані координати композиції (getBoundingClientRect).
+ */
+export declare function hiddenByCamera(rect: Rect, camera: {
+    active: boolean;
+    scale: number;
+}, width: number, height: number): boolean;
 export interface QaCheckOptions {
     component: string;
     /** Перевірити, що елемент у safe-зоні. */
@@ -1022,11 +1095,16 @@ export declare function TemplateScene(props: SceneProps & {
 
 ```ts
 import type { AudioManifest } from "@adc/shared/types/video";
+/**
+ * Звук — через `Html5Audio`: при рендері Remotion бере аудіо з файлу цілком (ffmpeg), без змін.
+ * `<Audio>` з `@remotion/media` витягує аудіо покадрово й склеює з округленням до семпла —
+ * розрив хвилі на кожному стику кадрів (30 разів на секунду), чутний як тріск.
+ */
 /** Гучність музики з fade-out наприкінці ролика (чиста функція від кадру). */
 export declare function musicVolumeAt(frame: number, totalFrames: number, fadeOutFrames: number, volume: number): number;
 /**
  * Лише для хоста: звук ролика. Є готове зведення (`audio.mix`) — грає лише його, як є:
- * музика, події, дакінг, fade-out і мастер уже всередині. Інакше (старий `audio.json`) —
+ * музика, події, дакінг, антиклік у кінці (250 мс) і мастер уже всередині. Інакше (старий `audio.json`) —
  * музика з fade-out наприкінці; довший трек підрізається.
  */
 export declare function MusicTrack(props: {
@@ -1049,15 +1127,19 @@ export declare function Sfx(props: {
 `src/fonts`
 
 ```ts
+import type { LocalFont } from "@adc/shared/types/video";
 import type { FontInfo } from "@remotion/google-fonts/base";
 /**
- * Шрифти бренду з Google Fonts.
+ * Шрифти бренду: з Google Fonts або локальні файли сайту.
  *
  * Метадані шрифту (`FontInfo`, лише URL-и файлів) резолвить рендер на боці Node і передає в
  * inputProps — так у бандл не потрапляють ~1800 модулів `@remotion/google-fonts`.
  * У браузері `loadFontFromInfo` реєструє `@font-face` і чекає файли (`delayRender` усередині).
+ *
+ * Сімейства з `origin: "local"` (шрифт сайту, якого немає в Google Fonts) приходять як `LocalFont[]`:
+ * файли лежать у `public/fonts/` задачі, `loadFont` з `@remotion/fonts` реєструє їх через `staticFile`.
  */
-export type { FontInfo };
+export type { FontInfo, LocalFont };
 /** Потрібні підмножини: українська й англійська. */
 export declare const FONT_SUBSETS: readonly ["latin", "cyrillic"];
 export declare const FALLBACK_STACK = "system-ui, -apple-system, \"Segoe UI\", Roboto, Arial, sans-serif";
@@ -1091,11 +1173,19 @@ export interface FontPlan {
     /** Фактичні ваги, які буде завантажено (≤ запитаних, дедуплікація). */
     weights: number[];
     subsets: string[];
-    /** null — шрифту немає серед переданих метаданих (рендеримо резервним стеком). */
+    /** null — шрифту немає серед переданих метаданих Google Fonts. */
     info: FontInfo | null;
+    /**
+     * Локальні файли сімейства (лише коли `info` null): по одному на фактичну вагу.
+     * Порожньо разом з `info: null` — рендеримо резервним стеком.
+     */
+    local: LocalFont[];
 }
-/** Ваги і підмножини, які реально є в шрифті. */
-export declare function planFont(family: string, wanted: readonly number[], infos: readonly FontInfo[]): FontPlan;
+/**
+ * Ваги і підмножини, які реально є в шрифті. Спершу шукає серед метаданих Google Fonts, далі —
+ * серед локальних файлів сайту (`localFonts`).
+ */
+export declare function planFont(family: string, wanted: readonly number[], infos: readonly FontInfo[], localFonts?: readonly LocalFont[]): FontPlan;
 /**
  * Обрізає FontInfo до стилю normal, потрібних ваг і підмножин latin+cyrillic —
  * щоб inputProps лишались компактними.

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrandKit } from "../schemas/brandkit.ts";
+import type { BrandKit, FontFile } from "../schemas/brandkit.ts";
 import { Focal, type Format } from "../schemas/common.ts";
 import type { Scene, Storyboard } from "../schemas/storyboard.ts";
 
@@ -59,6 +59,15 @@ export const AudioManifest = z.object({
   totalFrames: z.number().int(),
 });
 export type AudioManifest = z.infer<typeof AudioManifest>;
+
+/** Локальний шрифт сайту для хоста: файл у `public/` ревізії, завантажується `@remotion/fonts`. */
+export interface LocalFont {
+  family: string;
+  weight: number;
+  format: FontFile["format"];
+  /** Шлях у public/: fonts/<file>. */
+  src: string;
+}
 
 /** Пропси сцени, згенерованої codegen: `export default function Scene(props: SceneProps)`. */
 export interface SceneProps {

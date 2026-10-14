@@ -186,6 +186,7 @@ export function shortStoryboard(scenes: Array<Pick<Scene, "id" | "purpose"> & Pa
       maxCharsPerLine: { vertical: 18, square: 22, landscape: 32 },
       maxLines: { headline: 3, sub: 2 },
     },
+    throughline: null,
   };
 }
 

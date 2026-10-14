@@ -17,6 +17,7 @@ import {
 } from "@adc/shared";
 import { addClientFacts } from "./facts.ts";
 import { finalizeBrandKit } from "./finalize.ts";
+import { loadSiteFonts } from "./fonts.ts";
 import { buildBrandkitInput } from "./input.ts";
 import { applyPatch } from "./jsonPatch.ts";
 import { applyLogoChoice, buildPatchVars, reconcilePatchedFacts } from "./patch.ts";
@@ -123,7 +124,13 @@ export function createBrandkitStage(opts: BrandkitStageOptions = {}): Stage<"bra
 
     const fin = finalizeBrandKit(
       data,
-      { site, assets, siteText: input.siteText, initial: true },
+      {
+        site,
+        assets,
+        siteText: input.siteText,
+        initial: true,
+        localFonts: await loadSiteFonts(storage, site?.design?.fontFaces ?? [], ctx.logger),
+      },
       input.sheetNumbers,
     );
     const version = (await latestBrandkitVersion(storage, projectId)) + 1;
@@ -252,6 +259,7 @@ export function createBrandkitPatchStage(
       assets,
       siteText: await readSiteText(storage, projectId, site),
       keepFactIds: new Set(prevKit.facts.map((f) => f.id)),
+      localFonts: await loadSiteFonts(storage, site?.design?.fontFaces ?? [], ctx.logger),
     });
     const version = current + 1;
     const origin = instruction ? "patch" : params.logoAssetId !== null ? "logo" : "facts";

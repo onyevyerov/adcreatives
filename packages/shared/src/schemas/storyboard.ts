@@ -170,6 +170,21 @@ export const CopyRules = z.object({
 });
 export type CopyRules = z.infer<typeof CopyRules>;
 
+/** Наскрізний об'єкт фільму: присутній у кожній сцені і трансформується у фокусний об'єкт наступної. */
+export const ThroughlineState = z.object({
+  sceneId: SceneId,
+  /** Чим об'єкт є в цій сцені і чим стає на стику з наступною; англійською, 1–2 речення. */
+  state: z.string().min(1),
+});
+export type ThroughlineState = z.infer<typeof ThroughlineState>;
+
+export const Throughline = z.object({
+  /** Що це за об'єкт: "the teal dot", "the caret of the search field", "one line". */
+  object: z.string().min(1),
+  states: z.array(ThroughlineState).min(1),
+});
+export type Throughline = z.infer<typeof Throughline>;
+
 /** Storyboard — LLM-схема стадії `storyboard`; `normalizeStoryboard` доводить таймінги кодом. */
 export const Storyboard = z.object({
   concept: z.string(),
@@ -178,6 +193,8 @@ export const Storyboard = z.object({
   scenes: z.array(Scene).min(1),
   musicBrief: MusicBrief,
   copyRules: CopyRules,
+  /** Наскрізний об'єкт (one object that never cuts); null — старі розкадровки без нього. */
+  throughline: Throughline.nullable().default(null),
 });
 export type Storyboard = z.infer<typeof Storyboard>;
 

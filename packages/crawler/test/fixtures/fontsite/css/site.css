@@ -1,0 +1,38 @@
+/* Шрифт заголовків: з кирилицею; ttf стоїть першим, але woff2 у пріоритеті. */
+@font-face {
+  font-family: "Zerno Display";
+  font-style: normal;
+  font-weight: 700 900;
+  src:
+    local("Zerno Display"),
+    url("../fonts/zerno-display-700.ttf") format("truetype"),
+    url("../fonts/zerno-display-700.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0400-045F, U+0490-0491;
+}
+
+/* Курсив не завантажуємо. */
+@font-face {
+  font-family: "Zerno Display";
+  font-style: italic;
+  font-weight: 700;
+  src: url(../fonts/zerno-display-700-italic.woff2) format("woff2");
+}
+
+/* Сімейство, якого немає в ролях сторінки. */
+@font-face {
+  font-family: "Unused Serif";
+  font-weight: 400;
+  src: url(/fonts/unused-400.woff2) format("woff2");
+}
+
+/* Приватна адреса — не проходить перевірку безпеки. */
+@font-face {
+  font-family: "Leaky";
+  src: url(http://127.0.0.1/leak.woff2) format("woff2");
+}
+
+h1,
+h2 {
+  font-family: "Zerno Display", Arial, sans-serif;
+  font-weight: 700;
+}

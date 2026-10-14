@@ -407,10 +407,12 @@ export interface CursorPoint {
 /** Вістря стрілки `mouse-pointer-2` у сітці 24×24. */
 const CURSOR_TIP = 4.2;
 
-/** Курсор миші: рух між точками `path`, клік о `clickAt`. */
+/** Курсор миші: рух між точками `path`, наведення о `hoverAt`, клік о `clickAt`. */
 export function Cursor(props: {
   path: CursorPoint[];
   clickAt?: number | readonly number[];
+  /** Кадри наведення: курсор зростає на 8 % до наступного кліку. */
+  hoverAt?: number | readonly number[];
   size?: number;
   style?: CSSProperties;
 }) {
@@ -457,6 +459,16 @@ export function Cursor(props: {
       );
     }
   }
+  // Наведення: з кадру наведення курсор зростає на 8 % за 4 кадри й тримається до наступного кліку;
+  // клік забирає приріст за ті ж 6 кадрів, що й стискання, тож розмір не стрибає.
+  const hovers =
+    props.hoverAt === undefined ? [] : typeof props.hoverAt === "number" ? [props.hoverAt] : props.hoverAt;
+  let hover = 0;
+  for (const h of hovers) {
+    const next = clicks.filter((c) => c >= h).sort((a, b) => a - b)[0];
+    const release = next === undefined ? 0 : progress(frame, next, 6, easings.inOut);
+    hover = Math.max(hover, progress(frame, h, 4, easings.out) * (1 - release));
+  }
   const offset = (CURSOR_TIP / 24) * size;
   return (
     <>
@@ -472,7 +484,7 @@ export function Cursor(props: {
           top: y - offset,
           overflow: "visible",
           transformOrigin: `${offset}px ${offset}px`,
-          transform: `scale(${(1 - 0.15 * squeeze).toFixed(4)})`,
+          transform: `scale(${((1 + 0.08 * hover) * (1 - 0.15 * squeeze)).toFixed(4)})`,
           filter: `drop-shadow(0 ${(4 * unit).toFixed(1)}px ${(8 * unit).toFixed(1)}px rgba(0,0,0,0.3))`,
           ...props.style,
         }}

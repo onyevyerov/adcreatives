@@ -57,6 +57,7 @@ export const fixtureSiteData: SiteData = {
       { role: "body", family: "Inter", weight: 400 },
     ],
     buttonRadius: "999px",
+    fontFaces: [],
   },
   screenshots: [
     {
@@ -139,8 +140,8 @@ export const fixtureBrandKit: BrandKit = {
     success: null,
   },
   typography: {
-    heading: { family: "Montserrat", weights: [700, 800], origin: "site" },
-    body: { family: "Inter", weights: [400, 600], origin: "site" },
+    heading: { family: "Montserrat", weights: [700, 800], origin: "site", files: [] },
+    body: { family: "Inter", weights: [400, 600], origin: "site", files: [] },
     mono: null,
     detected: ["Montserrat", "Inter"],
   },
@@ -314,6 +315,7 @@ export const fixtureStoryboard: Storyboard = {
     maxCharsPerLine: { vertical: 18, square: 22, landscape: 32 },
     maxLines: { headline: 3, sub: 2 },
   },
+  throughline: null,
 };
 
 export const fixtureAudioManifest: AudioManifest = {

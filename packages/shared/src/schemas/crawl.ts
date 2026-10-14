@@ -44,6 +44,21 @@ export type Contacts = z.infer<typeof Contacts>;
 
 export const ColorRole = z.enum(["background", "heading", "text", "button", "buttonText", "link"]);
 
+/** `@font-face` сайту: перший `src` у пріоритеті woff2 → woff → truetype → opentype. */
+export const SiteFontFace = z.object({
+  family: z.string(),
+  /** Діапазон "400 700" → нижня межа. */
+  weight: z.number().int(),
+  style: z.enum(["normal", "italic"]),
+  format: z.enum(["woff2", "woff", "truetype", "opentype"]),
+  /** Абсолютний, після safeUrl. */
+  url: z.string(),
+  unicodeRange: z.string().nullable(),
+  /** Ключ у сховищі після завантаження; null — не завантажено (ліміт, формат, помилка). */
+  path: z.string().nullable(),
+});
+export type SiteFontFace = z.infer<typeof SiteFontFace>;
+
 export const DesignStats = z.object({
   /** CSS-змінні з :root. */
   cssVars: z.record(z.string(), z.string()),
@@ -56,6 +71,7 @@ export const DesignStats = z.object({
     }),
   ),
   buttonRadius: z.string().nullable(),
+  fontFaces: z.array(SiteFontFace).default([]),
 });
 export type DesignStats = z.infer<typeof DesignStats>;
 

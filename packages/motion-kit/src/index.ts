@@ -32,6 +32,8 @@ export {
   relativeLuminance,
   withAlpha,
 } from "./color.ts";
+export { MotionBlur, Trail } from "./devices/blur.tsx";
+export { Camera, type CameraKey, useCamera } from "./devices/camera.tsx";
 export { Breathe, useBeat } from "./devices/motion.tsx";
 export { ClipReveal, ColorField, type Side } from "./devices/reveal.tsx";
 export { DrawPath, type MorphKey, MorphShape } from "./devices/shape.tsx";

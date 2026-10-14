@@ -26,6 +26,17 @@ export default function Scene(props: SceneProps) {
 }
 `;
 
+/** Правила R1–R4, R6 (ТЗ «прогалини якості» §2.7) — у промптах codegen/author/code-fix дослівно. */
+const FILM_RULES = [
+  "Nothing enters at rest and nothing leaves at rest. An element is already moving on its first visible frame (it arrives from off-frame, from a smaller scale, from behind a mask or a colour field) and it leaves accelerating (`easings.in`-like, never slowing down and fading out in place). A hit may land up to one frame before its event frame, never after it: the landing is seen on the beat, the sound is on the event frame.",
+  "In an interface mock nothing changes by itself. Every change of state (a field filling, a toggle, a row selected, a slider moved, a button pressed) is caused by the `Cursor`: it travels to the control (`path`), grows on arrival (`hoverAt`), squeezes on the click (`clickAt`), and the control reacts on that same frame. One cursor per scene, one action at a time; a mock that changes without the cursor is `off_brief`.",
+  "`Camera` is the scene's virtual camera. It pushes into the active zone of a mock (the field being typed, the row being ticked) and pulls back out. Never two camera moves at once and never a camera move during a cursor move: the push starts after the cursor arrives, the pull-back after the control has reacted. Text that must be read stays inside the camera's rectangle for its reading time.",
+  "`MotionBlur` wraps fast moves (a card flying in, a colour field pushing, kinetic text on an energetic brand) so they read as motion, not as a strobe. Use it on elements that travel more than about a quarter of the frame within six frames; never on text while it is being read; never on the whole scene; at most two `MotionBlur` wrappers active in one frame (each multiplies the render cost of its subtree by `samples`).",
+  "Build the throughline literally. In every scene the object named in `<storyboard>.throughline` is on screen in the state its entry gives, and at the join it transforms into its next state (`MorphShape`, `DrawPath`, `LogoPath`, your own `<svg>`): the same geometry, colour and position on the last frame of one scene and the first frame of the next. When `throughline` is null, keep the match cuts as before.",
+];
+const FILM_CHECKLIST =
+  "the throughline object is in the frame in its state and transforms at the join; every mock change is caused by the cursor; no two camera moves overlap";
+
 /** Дефолтний `Tuning` (режим film); env — перекриття. */
 const stageWith = (env: Record<string, string> = {}) => createCodegenStage({ tuning: () => readTuning(env) });
 const filmStage = stageWith();
@@ -282,6 +293,29 @@ describe("codegenStage (film)", () => {
     for (const changed of [itemText, eventAt, eventSound, noItems]) expect(hashOf(changed)).not.toBe(base);
     expect(hashOf(structuredClone(scene))).toBe(base);
 
+    // Наскрізний об'єкт: хеш s2 залежить від станів s1–s3 (свій і стики), не від далеких сцен.
+    const withThroughline = (states: Record<string, string>) =>
+      sceneCodegenHash({
+        scene,
+        storyboard: {
+          ...fixtureStoryboard,
+          throughline: {
+            object: "the teal dot",
+            states: Object.entries(states).map(([sceneId, state]) => ({ sceneId, state })),
+          },
+        },
+        brand: fixtureBrandKitFile,
+        manifest: fixtureAssets.assets,
+        formats: ["vertical"],
+        promptHash: "p",
+        contextHash: "c",
+        instruction: null,
+      });
+    const tl = withThroughline({ s1: "a dot", s2: "the cup", s3: "the logo" });
+    expect(tl).not.toBe(base);
+    expect(withThroughline({ s1: "a dot", s2: "the cup", s3: "the logo", s9: "far" })).toBe(tl);
+    expect(withThroughline({ s1: "a line", s2: "the cup", s3: "the logo" })).not.toBe(tl);
+
     // Стадія: s2 з іншими items у ревізії 2 → генерується лише s2, решта переноситься.
     const storage = await seeded();
     await filmStage(
@@ -331,6 +365,43 @@ describe("codegenStage (film)", () => {
     expect(system).toContain("fall back to `<Logo>` when it is `null`");
     // модель бачить тип лого в <brand> (фікстура — svg)
     expect(userText(p)).toMatch(/"logo": \{\s*"assetId": "a02",\s*"type": "svg"/);
+  });
+
+  it("промпт film: ритм, курсор, камера, motion blur, наскрізний об'єкт (R1–R4, R6); throughline — у <storyboard>", async () => {
+    const throughline: Storyboard["throughline"] = {
+      object: "the teal dot",
+      states: [
+        { sceneId: "s1", state: "a dot on the cup that grows into the price badge" },
+        { sceneId: "s2", state: "the price badge that shrinks back into a dot" },
+        { sceneId: "s3", state: "the dot that becomes the logo's mark" },
+      ],
+    };
+    const storage = await seeded({ ...structuredClone(fixtureStoryboard), throughline });
+    const ctx = makeCtx(storage, "codegen", { sceneIds: null, instructions: [] }, [
+      { text: files(["s1", "s2", "s3"]) },
+    ]);
+    await filmStage(ctx);
+    const p = paramsOf(ctx.anthropic.calls[0]?.params);
+    const system = systemText(p);
+    for (const rule of FILM_RULES) expect(system).toContain(rule);
+    expect(system).toContain(FILM_CHECKLIST);
+    // R1 — у «Timing and readability», R2–R4 — у «Building what the director asked for», R6 — перед правилом макету
+    const at = (s: string) => system.indexOf(s);
+    const [r1, r2, r3, r4, r6] = FILM_RULES.map(at);
+    expect(r1).toBeGreaterThan(at("# Timing and readability"));
+    expect(r1).toBeLessThan(at("# Three formats from one component"));
+    for (const r of [r2, r3, r4]) {
+      expect(r).toBeGreaterThan(at("# Building what the director asked for"));
+      expect(r).toBeLessThan(at("# Timing and readability"));
+    }
+    expect(r6).toBeGreaterThan(at("# One film"));
+    expect(r6).toBeLessThan(at("**Layout rule:"));
+    // нові девайси названі поруч із наявними
+    for (const name of ["`MotionBlur`", "`Trail`", "`Camera`", "`hoverAt`", "`useCamera()`"]) {
+      expect(system).toContain(name);
+    }
+    // модель бачить наскрізний об'єкт у розкадровці
+    expect(userText(p)).toMatch(/"throughline": \{\s*"object": "the teal dot",/);
   });
 
   it("brandForCode: є identity.tagline", () => {

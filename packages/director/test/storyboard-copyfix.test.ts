@@ -215,4 +215,31 @@ describe("storyboard: точковий ретрай текстів (storyboard-c
     ]);
     expect(meta.textIssues).toEqual([]);
   });
+
+  it("throughline переживає copyfix без змін; промпт сценарію вимагає наскрізний об'єкт (R5)", async () => {
+    const draft = longDraft();
+    draft.throughline = {
+      object: "the cup's steam line",
+      states: draft.scenes.map((s) => ({
+        sceneId: s.id,
+        state: `The line is in ${s.id} and curls into the next scene.`,
+      })),
+    };
+    const { ctx, sb, meta } = await runStage([{ json: draft }, { json: FIX }]);
+    expect(ctx.anthropic.calls).toHaveLength(2);
+    expect(meta.retried).toBe(true);
+    expect(sb.scenes[1]?.text.sub).toBe(FIXED_S2.sub);
+    expect(sb.throughline).toEqual(draft.throughline);
+
+    const system = systemText(ctx.anthropic.calls[0]?.params);
+    for (const rule of [
+      "`throughline` is the one object that never cuts: a graphic element (a dot, a line, a card, a ring, the caret of a field) present in every scene that transforms into the focal object of the next one.",
+      "Describe the hand-over of the object in both scenes' `motionIntent`.",
+      "Every storyboard you write has a `throughline`; it is never null.",
+      "As the object: is it in every scene and does every join transform it",
+      "The teal dot that led the scan line in the previous scene",
+    ]) {
+      expect(system).toContain(rule);
+    }
+  });
 });

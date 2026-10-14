@@ -1,15 +1,17 @@
 import type { FontInfo } from "@adc/motion-kit";
-import type { MainProps, ScenePreviewProps } from "@adc/shared/types/video";
+import type { LocalFont, MainProps, ScenePreviewProps } from "@adc/shared/types/video";
 
 /**
  * Пропси композицій хоста. До контрактних `MainProps` / `ScenePreviewProps` рендер
  * (`@adc/render`) додає `fonts` — метадані Google Fonts бренду, обрізані до потрібних ваг
- * і підмножин (резолвляться в Node, щоб не тягнути в бандл увесь `@remotion/google-fonts`).
+ * і підмножин (резолвляться в Node, щоб не тягнути в бандл увесь `@remotion/google-fonts`),
+ * і `localFonts` — файли шрифтів сайту в `public/fonts/` для сімейств з `origin: "local"`.
  *
  * Mapped-типи замість інтерфейсів — бо Remotion вимагає `Record<string, unknown>`.
  */
 export interface HostExtras {
   fonts?: FontInfo[];
+  localFonts?: LocalFont[];
 }
 
 type Plain<T> = { [K in keyof T]: T[K] };
