@@ -174,3 +174,11 @@ proof, CTA з лого), `device-reveal.tsx` (еталон девайсів) і 
 на фразу; `ui-demo` рендериться в трьох форматах, а без потрібної події падає з помилкою `eventFrame`.
 
 Префікс codegen: examples + `API.md` + `API.generated.md` зросли на ~36 % (91 936 → 125 292 байти).
+
+## Прогалини якості (ТЗ 2026-10-14)
+
+Сумісно — лише додано експорти `MotionBlur`/`Trail` (`src/devices/blur.tsx`, поверх `@remotion/motion-blur`,
+копії-семпли з вимкненим QA), `Camera`/`CameraKey`/`useCamera` (`src/devices/camera.tsx`; QA враховує камеру),
+необов'язковий проп `Cursor.hoverAt` і хостовий проп `ThemeProvider.localFonts` (шрифти сайту з `public/fonts/`
+через `@remotion/fonts`, `HostExtras.localFonts`); поведінка — `API.md`, еталони — `examples/motion-blur.tsx`,
+`examples/camera-cursor.tsx`.

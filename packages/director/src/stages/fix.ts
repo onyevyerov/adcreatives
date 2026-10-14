@@ -251,6 +251,7 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
           templates,
         }),
         concept: storyboard.concept,
+        throughline: storyboard.throughline ?? null,
         assets: assetsForPrompt(brandFile, manifest),
         code: code ?? "(no code: the previous generation returned nothing — write the scene from scratch)",
         problems: shots.legend.length ? `${imagesLegend(shots.legend)}\n\n${problems}` : problems,

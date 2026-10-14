@@ -293,6 +293,29 @@ describe("codegenStage (film)", () => {
     for (const changed of [itemText, eventAt, eventSound, noItems]) expect(hashOf(changed)).not.toBe(base);
     expect(hashOf(structuredClone(scene))).toBe(base);
 
+    // Наскрізний об'єкт: хеш s2 залежить від станів s1–s3 (свій і стики), не від далеких сцен.
+    const withThroughline = (states: Record<string, string>) =>
+      sceneCodegenHash({
+        scene,
+        storyboard: {
+          ...fixtureStoryboard,
+          throughline: {
+            object: "the teal dot",
+            states: Object.entries(states).map(([sceneId, state]) => ({ sceneId, state })),
+          },
+        },
+        brand: fixtureBrandKitFile,
+        manifest: fixtureAssets.assets,
+        formats: ["vertical"],
+        promptHash: "p",
+        contextHash: "c",
+        instruction: null,
+      });
+    const tl = withThroughline({ s1: "a dot", s2: "the cup", s3: "the logo" });
+    expect(tl).not.toBe(base);
+    expect(withThroughline({ s1: "a dot", s2: "the cup", s3: "the logo", s9: "far" })).toBe(tl);
+    expect(withThroughline({ s1: "a line", s2: "the cup", s3: "the logo" })).not.toBe(tl);
+
     // Стадія: s2 з іншими items у ревізії 2 → генерується лише s2, решта переноситься.
     const storage = await seeded();
     await filmStage(

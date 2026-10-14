@@ -308,6 +308,8 @@ describe("fixStage (записані відповіді LLM)", () => {
     expect(s2Prompt).toContain('size="huge"');
     const s3Prompt = prompts.find((p) => p.includes("Repair scene s3")) ?? "";
     expect(s3Prompt).toMatch(/AST-guard[\s\S]*Date/);
+    // наскрізний об'єкт розкадровки доходить до ремонту (у фікстурі його немає — null)
+    expect(s2Prompt).toContain("<throughline>\nnull\n</throughline>");
     // ремонт знає правила курсора, камери, blur і наскрізного об'єкта (R2–R4, R6) і як лагодити «object»
     const system = systemText(ctx.anthropic.calls[0]?.params);
     expect(system).toContain("- **The cursor:** In an interface mock nothing changes by itself.");
