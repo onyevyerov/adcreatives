@@ -2,6 +2,7 @@ import { type AutoIssueKind, QA_LOG_PREFIX, type QaLogEntry } from "@adc/shared/
 import { createContext, type ReactNode, type RefObject, useContext, useLayoutEffect, useRef } from "react";
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { contrastRatio, minContrastFor, parseColor, toHex } from "./color.ts";
+import { useCamera } from "./devices/camera.tsx";
 import { formatInfoFor, isInsideRect, type Rect } from "./format.tsx";
 
 /**
@@ -95,6 +96,20 @@ function effectiveOpacity(el: HTMLElement): number {
   return o;
 }
 
+/**
+ * Елемент, який камера (`Camera` з `scale > 1`) винесла цілком за кадр: його не видно, тож safe-зону
+ * не перевіряємо. `rect` — уже трансформовані координати композиції (getBoundingClientRect).
+ */
+export function hiddenByCamera(
+  rect: Rect,
+  camera: { active: boolean; scale: number },
+  width: number,
+  height: number,
+): boolean {
+  if (!camera.active || camera.scale <= 1) return false;
+  return rect.x >= width || rect.y >= height || rect.x + rect.width <= 0 || rect.y + rect.height <= 0;
+}
+
 export interface QaCheckOptions {
   component: string;
   /** Перевірити, що елемент у safe-зоні. */
@@ -116,6 +131,7 @@ export function useQaCheck(ref: RefObject<HTMLElement | null>, options: QaCheckO
   const { enabled, root } = useContext(QaContext);
   const frame = useCurrentFrame();
   const { width, height } = useVideoConfig();
+  const camera = useCamera();
   const seen = useRef(new Set<string>());
 
   useLayoutEffect(() => {
@@ -133,8 +149,14 @@ export function useQaCheck(ref: RefObject<HTMLElement | null>, options: QaCheckO
 
     options.extra?.(el, report);
 
+    // Під `Camera` прямокутник уже трансформований: перевіряємо те, що видно в кадрі.
     const rect = rectInComposition(el, root.current, width);
-    if (options.safeArea && rect.width > 0 && rect.height > 0) {
+    if (
+      options.safeArea &&
+      rect.width > 0 &&
+      rect.height > 0 &&
+      !hiddenByCamera(rect, camera, width, height)
+    ) {
       const { safe } = formatInfoFor(width, height);
       if (!isInsideRect(rect, safe)) {
         const r = (n: number) => Math.round(n);
