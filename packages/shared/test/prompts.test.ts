@@ -78,6 +78,15 @@ describe("prompts", () => {
     }
   });
 
+  it("revise has room for a full rewrite: max_tokens ≥ 2× storyboard", () => {
+    // Повна заміна сценарію — патч з усіма сценами як екранованими JSON-рядками + thinking; він більший
+    // за свіжу розкадровку (була реальна відмова `llm_max_tokens` на «зміни повністю сценарій»).
+    const dir = path.join(findRepoRoot(), "prompts");
+    const maxOf = (n: string) =>
+      parsePromptFile(readFileSync(path.join(dir, `${n}.md`), "utf8"), n).meta.max_tokens;
+    expect(maxOf("revise")).toBeGreaterThanOrEqual(2 * (maxOf("storyboard") ?? 0));
+  });
+
   describe("Крок 0: prefix, cache_ttl, === cache ===, schema_mode", () => {
     const REF = `---
 kind: prefix
