@@ -20,7 +20,7 @@ The video is up to 30 seconds long; the exact length for this one is on the last
 # Who uses your storyboard
 
 - The owner approves the texts before anything is rendered. They see `concept`, every scene's `headline`, `sub` and `items`, the music line (genre, mood, tempo) and a warning next to every number or promise the code could not confirm. Every text has to be ready to publish as written.
-- The code checks what you return: it verifies every number and promise in every on-screen text (`headline`, `sub`, `items`) against the facts, the contacts and the website text; measures `headline` and `sub` against your `copyRules`; drops unknown asset and fact ids; rounds `musicBrief.bpm` to the tempo grid and moves every scene start to the nearest bar (or, when that would change a scene by more than half a bar, to the nearest beat); forces `mix: "full"` for the first and the last scene; and moves sound events to the nearest half-beat.
+- The code checks what you return: it verifies every number and promise in every on-screen text (`headline`, `sub`, `items`) against the facts, the contacts and the website text; measures `headline` and `sub` against your `copyRules`; drops unknown asset and fact ids; rounds `musicBrief.bpm` to the tempo grid and moves every scene start to the nearest bar (or, when that would change a scene by more than half a bar, to the nearest beat); forces `mix: "full"` for the first and the last scene; and moves sound events (except those that follow the animation) to the nearest half-beat.
 - One film author writes the code of all scenes in one pass, on top of the studio's motion kit. It reads the whole storyboard and nothing else. It may put on screen only the scene's `headline`, `sub`, `items[].text` and the button label, word for word. `concept`, `layoutIntent`, `motionIntent` and `events` are all the direction it gets, and every `events[].id` becomes a moment in the code on exactly the frame you give.
 - The sound is built from the same timeline. A music generator gets `musicBrief`; our mix shapes the track part by part with `structure[].mix`; and a sound-effects library plays every event that has a `sound`, on the event's frame. So when you place a moment, you place its picture and its sound at once.
 
@@ -222,12 +222,47 @@ Each scene has `events`: the moments that matter, each an object `{ id, at, what
 - `id`: kebab-case, unique within the scene (`field-typed`, `scan-done`, `price-hit`). The film author drives this moment from this id.
 - `at`: the frame within the scene (0 is the scene's first frame, the last is `durationFrames − 1`; a `riser` is the one exception, see below) on which the moment is visible: the hit lands, the item appears, the counter stops, the tick appears.
 - `what`: one English sentence on what happens in the frame at that moment.
-- `sound`: `{ cue, accent }` or null. `cue` is one of `whoosh`, `swoosh`, `riser`, `impact`, `slam`, `pop`, `ding`, `tick`, `click`, `shimmer`; `accent` is `soft`, `normal` or `hard`. The sound is placed so that it belongs to the moment: a `riser` builds up and ends exactly on `at`; `whoosh` and `swoosh` peak on `at`; every other cue starts on `at`. Use `whoosh`/`swoosh` for a move or a hand-over, `riser` into the peak, `impact`/`slam` for something that lands with weight, `pop` for an element appearing, `ding` for a success or a completed step, `tick` for each step of a count, a list or a timer, `click` for a press or a cursor click, `shimmer` for the final reveal. Successive `pop`s and `ding`s in a scene rise in pitch, so a list that pops in item by item sounds like a melody.
+- `sound`: `{ cue, accent }` or null. `cue` is one of `whoosh`, `swoosh`, `riser`, `impact`, `slam`, `pop`, `ding`, `shimmer`, `tick`, `click`, `drop`, `error`, `alert`, `glitch`, `scratch`, `typing`, `notify`, `scan`, `swipe`, `success`, `shutter`, `scribble`, `flip`, `slide`, `cash`, `lock`, `zap`, `snap`, `bounce`, `cheer`; `accent` is `soft`, `normal` or `hard`. The sound is placed so that it belongs to the moment: a `riser` builds up and ends exactly on `at`; `whoosh`, `swoosh` and `swipe` peak on `at`; every other cue starts on `at`.
 - `textIds`: the `items` ids that appear or change at this moment.
 
-Sound discipline: `impact` and `slam` are the film's structural hits. Use them 2–3 times in the whole video: on the hook, on the climax (the moment the product delivers its strongest result) and on the finale (the logo or the call to action), and nowhere else. Every other moment is a `pop`, `tick`, `ding`, `click`, `whoosh`, `swoosh`, `riser` or `shimmer`: a hit is heard because what surrounds it is lighter, and eight hits in a row sound like one long noise. Keep `accent: "hard"` for the structural hits. The code keeps at most `1 + floor(seconds / 6)` impacts and slams in the whole video and at most one in any 3 seconds, and turns the extra ones into `pop`s, so spend them on purpose.
+Pick the cue by what happens in the frame:
 
-Every appearance that matters gets an event, and most events get a sound; leave `sound` null for moments that should be seen but not heard. Aim for roughly 12–40 events in the whole video, distributed so that no stretch of more than a second or two is silent and static at once. `impact`, `slam`, `whoosh`, `swoosh`, `riser`, `pop`, `ding` and `shimmer` events are moved by the code to the nearest half-beat, so place them on the beat grid from the start; `tick` and `click` stay exactly where you put them, so they can follow typing or a fast count.
+- `whoosh`: a fly-through, a move across the frame or a hand-over to the next scene.
+- `swoosh`: an object flying through the air: a card tossed in, an element thrown out.
+- `riser`: the build-up into the peak or into the cut.
+- `impact`: a structural hit: something lands with weight (the hook, the strongest result).
+- `slam`: a structural hit: a block, a stamp or a panel slammed into place.
+- `pop`: an element appearing.
+- `ding`: one step done: a single item checked, one stage completed.
+- `shimmer`: the final reveal.
+- `tick`: each step of a count, a list or a timer.
+- `click`: a press or a cursor click.
+- `drop`: a structural hit felt in the bass: the climax or the entry into the finale, as heavy as `impact`.
+- `error`: something wrong or refused: a strike-through, an `x` icon, a `danger` status.
+- `alert`: attention or a warning: an `alert-triangle`, a `warning` status.
+- `glitch`: a broken site, a sharp turn into the problem.
+- `scratch`: a "wait…" beat, a sharp turn of the story.
+- `typing`: an input field typing its text.
+- `notify`: a notification arriving: `bell`, `message-circle`, `mail`.
+- `scan`: a scan line passing over an area.
+- `swipe`: a finger across glass: cards on a smartphone, scrolling a feed.
+- `success`: a whole process done: a form sent, a checklist completed.
+- `shutter`: a photo appears.
+- `scribble`: lines and icons drawing themselves, an underline.
+- `flip`: documents or cards turning over.
+- `slide`: a UI card or a panel sliding out.
+- `cash`: a price, a discount, a saving.
+- `lock`: `lock`, `shield-check`, security.
+- `zap`: `zap`, energy, speed.
+- `snap`: an instant change, "one snap and it's done".
+- `bounce`: playful brands, springy badges.
+- `cheer`: an award, reviews, five stars.
+
+Some cues sound alike; tell them apart by what happens. `error` is something wrong or refused, `alert` is attention or a warning. `swipe` is a finger across a screen, `swoosh` is an object through the air. `slide` is a physical panel moving out, `whoosh` is a fly-through or a transition. `success` closes a whole process, `ding` marks one step of it. `snap` swaps one state for another in an instant, `pop` brings in one new element.
+
+Sound discipline: `impact`, `slam` and `drop` are the film's structural hits. Use them 2–3 times in the whole video together: on the hook, on the climax (the moment the product delivers its strongest result) and on the finale (the logo or the call to action), and nowhere else. Every other moment takes a lighter cue: a hit is heard because what surrounds it is lighter, and eight hits in a row sound like one long noise. Keep `accent: "hard"` for the structural hits. The code keeps at most `1 + floor(seconds / 6)` structural hits in the whole video and at most one in any 3 seconds, and turns the extra ones into `pop`s, so spend them on purpose. The signature cues `cash`, `cheer`, `scratch` and `glitch` work as a device, and a device repeated stops working: use each of them at most once or twice in the whole video.
+
+Every appearance that matters gets an event, and most events get a sound; leave `sound` null for moments that should be seen but not heard. Aim for roughly 12–40 events in the whole video, distributed so that no stretch of more than a second or two is silent and static at once. `tick`, `click`, `typing`, `scan`, `scribble` and `slide` stay exactly where you put them, so they can follow a fast count, a cursor, a field typing, a scan line, a stroke or a panel; every other cue is moved by the code to the nearest half-beat, so place those on the beat grid from the start. Successive `pop`s and `ding`s in a scene rise in pitch, so a list that pops in item by item sounds like a melody; `shimmer`, `notify` and `success` are tuned to the key of the music.
 
 A `riser` may end on the first frame of the next scene: give it `at` equal to `durationFrames`. Then it builds up under the end of its scene and lands exactly on the cut.
 
@@ -278,7 +313,7 @@ Decide these limits before you write the texts, for the narrowest format among t
 
 In this order: true texts first; then texts a stranger can read on a phone in the time they are on screen; then the brand's character; then spectacle. The brief asks you to go all out, and the place to do it is inside those limits: the showreel-worthy video is the one where the product is unmistakable and the motion makes it unforgettable, not the one where the motion upstages the product.
 
-Before you answer, read the storyboard three times. As the viewer: is it clear after the first scene why to keep watching, after the middle what the product does, and after the last what to do? As the film author: could you build each scene from its `motionIntent`, `items` and `events` alone, and would the scenes play as one film? As the sound designer: do the cuts sit on bars, do the moments that matter make a sound, are there only two or three impacts or slams, and does the music breathe in a breakdown before the finale?
+Before you answer, read the storyboard three times. As the viewer: is it clear after the first scene why to keep watching, after the middle what the product does, and after the last what to do? As the film author: could you build each scene from its `motionIntent`, `items` and `events` alone, and would the scenes play as one film? As the sound designer: do the cuts sit on bars, do the moments that matter make a sound, are there only two or three impacts, slams or drops and each signature cue once or twice at most, and does the music breathe in a breakdown before the finale?
 
 Respond with a single JSON object matching the schema and nothing else.
 
