@@ -1,4 +1,4 @@
-import type { EventPlacement, SoundCue } from "@adc/shared";
+import { type EventPlacement, SOUND_CUE_TRAITS, SoundCue } from "@adc/shared";
 import {
   analyzeSample,
   PITCHED_CUES,
@@ -10,12 +10,14 @@ import {
 /**
  * Бібліотека семплів зведення і вибір варіанта для кожної події (A5): аналіз варіантів
  * (порожні й тихі відкидаються) і ротація варіантів по подіях. Тональні cue беруть лише
- * варіанти з визначеною висотою (лише їх можна строїти в тональність); pop/ding тримають
- * один варіант на сцену, щоб мелодія сцени звучала одним тембром.
+ * варіанти з визначеною висотою (лише їх можна строїти в тональність); cue з `perScene`
+ * (pop/ding) тримають один варіант на сцену, щоб мелодія сцени звучала одним тембром.
  */
 
-/** Cue з одним варіантом на сцену: наступна сцена з цим cue бере наступний варіант. */
-export const PER_SCENE_CUES: ReadonlySet<SoundCue> = new Set(["pop", "ding"]);
+/** Cue з одним варіантом на сцену (`SOUND_CUE_TRAITS.perScene`): наступна сцена бере наступний варіант. */
+export const PER_SCENE_CUES: ReadonlySet<SoundCue> = new Set(
+  SoundCue.options.filter((cue) => SOUND_CUE_TRAITS[cue].perScene),
+);
 
 export interface PreparedEntry {
   sample: SfxSample;

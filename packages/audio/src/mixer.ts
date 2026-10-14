@@ -5,8 +5,9 @@ import {
   type EventPlacement,
   framesToMs,
   inputsHash,
+  SOUND_CUE_TRAITS,
   type SoundAccent,
-  type SoundCue,
+  SoundCue,
   type Storyboard,
 } from "@adc/shared";
 import { applyMixAutomation, duckMusic, type MusicDuck, mixSections } from "./automation.ts";
@@ -51,25 +52,13 @@ export const MASTER_RMS_DBFS = -14;
 /** Максимальне підсилення музики при нормалізації (тиха музика не стає шумом). */
 const MASTER_MAX_GAIN_DB = 24;
 
-/** Пік події над RMS музики у вікні, дБ: удари трохи над музикою, дрібниці — під нею. */
-export const CUE_LEVEL_DB: Record<SoundCue, number> = {
-  impact: 5,
-  slam: 5,
-  riser: 2,
-  whoosh: 0,
-  swoosh: 0,
-  pop: -2,
-  ding: -2,
-  shimmer: -2,
-  tick: -4,
-  click: -4,
-};
+/** Пік події над RMS музики у вікні, дБ (`SOUND_CUE_TRAITS.levelDb`): удари над музикою, дрібниці — під нею. */
+export const CUE_LEVEL_DB: Record<SoundCue, number> = Object.fromEntries(
+  SoundCue.options.map((cue) => [cue, SOUND_CUE_TRAITS[cue].levelDb]),
+) as Record<SoundCue, number>;
 export const ACCENT_DB: Record<SoundAccent, number> = { soft: -3, normal: 0, hard: 3 };
-/** Стеля рівня події над музикою (cue + accent), дБ: hard impact/slam не вище +6. */
+/** Стеля рівня події над музикою (cue + accent), дБ: hard-удар не вище +6. */
 export const MAX_CUE_DB = 6;
-
-/** Дакінг музики (HPF, див. `duckMusic`): impact/slam — на долю від кадру, riser — до кадру. */
-const BEAT_DUCK_CUES: ReadonlySet<SoundCue> = new Set(["impact", "slam"]);
 
 /** Вікно чутності події (100 мс навколо моменту, коли її видно) і ширше вікно для опори гучності. */
 const WINDOW_SEC = 0.1;
@@ -86,7 +75,7 @@ export interface PlacedSound {
   cue: SoundCue;
   accent: SoundAccent;
   frame: number;
-  /** Ступінь пентатоніки для pop/ding (у сцені йдуть угору), інакше null. */
+  /** Ступінь пентатоніки для stepped-cue (pop/ding у сцені йдуть угору), інакше null. */
   degree: number | null;
   /** Варіант семпла з бібліотеки (1, 2, 3…) і його хеш. */
   variant: number;
@@ -130,11 +119,15 @@ export interface Soundtrack {
   silent: EventPlacement[];
 }
 
-/** Вікно чутності: riser — 100 мс до кадру, whoosh/swoosh — ±50 мс, решта — 100 мс від кадру. */
+/**
+ * Вікно чутності за якорем cue (`SOUND_CUE_TRAITS.anchor`): end (riser) — 100 мс до кадру,
+ * peak (whoosh/swoosh/swipe) — ±50 мс, onset — 100 мс від кадру.
+ */
 export function audibilityWindow(cue: SoundCue, at: number, sampleRate = SAMPLE_RATE): [number, number] {
   const w = secToSamples(WINDOW_SEC, sampleRate);
-  if (cue === "riser") return [at - w, at];
-  if (cue === "whoosh" || cue === "swoosh") return [at - Math.floor(w / 2), at + Math.ceil(w / 2)];
+  const anchor = SOUND_CUE_TRAITS[cue].anchor;
+  if (anchor === "end") return [at - w, at];
+  if (anchor === "peak") return [at - Math.floor(w / 2), at + Math.ceil(w / 2)];
   return [at, at + w];
 }
 
@@ -144,12 +137,12 @@ function peakIn(buf: Float32Array, from: number, to: number): number {
   return p;
 }
 
-/** Ступені pop/ding: послідовні в одній сцені йдуть угору по пентатоніці. */
+/** Ступені cue з `pitch: "stepped"` (pop/ding): послідовні в одній сцені йдуть угору по пентатоніці. */
 function scaleDegrees(placements: readonly EventPlacement[]): Map<EventPlacement, number> {
   const counters = new Map<string, number>();
   const out = new Map<EventPlacement, number>();
   for (const p of placements) {
-    if (p.cue !== "pop" && p.cue !== "ding") continue;
+    if (p.cue === null || SOUND_CUE_TRAITS[p.cue].pitch !== "stepped") continue;
     const n = counters.get(p.sceneId) ?? 0;
     out.set(p, n);
     counters.set(p.sceneId, n + 1);
@@ -294,11 +287,12 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
     });
   }
 
-  // 3. Музичний дакінг: HPF на музиці — на долю після impact/slam і відкриття до кадру riser.
+  // 3. Музичний дакінг: HPF на музиці — на долю після важкого удару і відкриття до кадру riser.
   const ducks: MusicDuck[] = [];
   for (const s of sounds) {
-    if (BEAT_DUCK_CUES.has(s.cue)) ducks.push({ kind: "beat", at: s.at });
-    else if (s.cue === "riser") ducks.push({ kind: "riser", from: Math.max(0, s.start), at: s.at });
+    const traits = SOUND_CUE_TRAITS[s.cue];
+    if (traits.hit) ducks.push({ kind: "beat", at: s.at });
+    else if (traits.anchor === "end") ducks.push({ kind: "riser", from: Math.max(0, s.start), at: s.at });
   }
   if (musicRms > 0) {
     music = duckMusic(music, ducks, { beatSamples: frameToSample(beatFrames(bpm, fps), fps, sr) });

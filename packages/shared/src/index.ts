@@ -10,6 +10,7 @@ export * from "./queue.ts";
 export * from "./render/RenderEngine.ts";
 export * from "./schemas/index.ts";
 export * from "./screen-texts.ts";
+export * from "./soundCues.ts";
 export * from "./stage.ts";
 export * from "./storage/index.ts";
 export * from "./timeline.ts";

@@ -1,4 +1,4 @@
-import type { SoundCue } from "@adc/shared";
+import { PITCHED_SOUND_CUES, SOUND_CUE_TRAITS, SoundCue, type SoundCueTraits } from "@adc/shared";
 import { hzToMidi, type MusicalKey, nearestScaleNote, pentatonic, scaleStep } from "./key.ts";
 import { dbToGain, type StereoPcm, secToSamples } from "./pcm.ts";
 import { correlation, monoFold } from "./stereo.ts";
@@ -32,8 +32,6 @@ const TAIL_THRESHOLD_DB = -60;
 export const RISER_TAIL_SEC = 0.03;
 /** Довжина звуку події від початку; riser — до якоря. */
 export const MAX_SAMPLE_SEC = 2;
-/** Скільки звуку може бути до якоря: riser — ціле наростання, whoosh/swoosh — підліт. */
-const MAX_PRE_ANCHOR_SEC: Partial<Record<SoundCue, number>> = { riser: 2, whoosh: 1, swoosh: 1 };
 /** Антиклік на початку (з onset) і коли початок обрізано всередині звуку; fade-out у кінці. */
 const FADE_IN_SEC = 0.0005;
 const CUT_FADE_IN_SEC = 0.02;
@@ -51,31 +49,34 @@ export const PITCH_CONFIDENCE = 0.85;
 export const MAX_SNAP_SEMITONES = 6;
 export const MAX_SHIFT_SEMITONES = 12;
 
-/** Тональні cue (висота підтягується до тональності); pop/ding ще й ідуть угору в сцені. */
-export const PITCHED_CUES: ReadonlySet<SoundCue> = new Set(["pop", "ding", "shimmer"]);
-export const STEPPED_CUES: ReadonlySet<SoundCue> = new Set(["pop", "ding"]);
+const cuesWhere = (pred: (t: SoundCueTraits) => boolean): ReadonlySet<SoundCue> =>
+  new Set(SoundCue.options.filter((c) => pred(SOUND_CUE_TRAITS[c])));
+
+/** Тональні cue (висота підтягується до тональності); stepped (pop/ding) ще й ідуть угору в сцені. */
+export const PITCHED_CUES: ReadonlySet<SoundCue> = PITCHED_SOUND_CUES;
+export const STEPPED_CUES: ReadonlySet<SoundCue> = cuesWhere((t) => t.pitch === "stepped");
 
 /**
  * Моно-сумісність (телефон грає моно): удари — повністю в моно (протифаза в `impact` гасить удар
  * у сумі); решта — моно лише нижче `MONO_BELOW_HZ`, верх лишає стерео.
  */
-export const MONO_CUES: ReadonlySet<SoundCue> = new Set(["impact", "slam"]);
+export const MONO_CUES: ReadonlySet<SoundCue> = cuesWhere((t) => t.stereo === "mono");
 export const MONO_BELOW_HZ = 150;
 /** Кореляція L/R фрагмента нижче — семпл повністю в моно, хоч би який cue. */
 export const MONO_MIN_CORRELATION = 0.3;
 /**
- * Прольоти (whoosh/swoosh/riser) широкі за природою: декорельований шум (кореляція ≈ 0) лишає
- * верх стерео, у моно згортається лише явна протифаза — поріг як у QC семплів (A2).
+ * Прольоти (whoosh/swoosh/riser) та інші cue з `stereo: "wide"` широкі за природою: декорельований шум
+ * (кореляція ≈ 0) лишає верх стерео, у моно згортається лише явна протифаза — поріг як у QC семплів (A2).
  */
-export const WIDE_CUES: ReadonlySet<SoundCue> = new Set(["whoosh", "swoosh", "riser"]);
+export const WIDE_CUES: ReadonlySet<SoundCue> = cuesWhere((t) => t.stereo === "wide");
 export const WIDE_MIN_CORRELATION = -0.2;
 
 /**
- * Якір звуку: riser і whoosh/swoosh — пік огинаючої (riser — кінець найгучнішого вікна, тобто
- * точка обриву; whoosh/swoosh — центр), решта — onset.
+ * Якір звуку (`SOUND_CUE_TRAITS.anchor`): end і peak — пік огинаючої (end/riser — кінець найгучнішого
+ * вікна, тобто точка обриву; peak/whoosh — центр), решта — onset.
  */
 export const anchorKind = (cue: SoundCue): "peak" | "onset" =>
-  cue === "riser" || cue === "whoosh" || cue === "swoosh" ? "peak" : "onset";
+  SOUND_CUE_TRAITS[cue].anchor === "onset" ? "onset" : "peak";
 
 /**
  * Огинаюча: RMS обох каналів у вікні `window` семплів, що закінчується на i (ковзна сума).
@@ -201,15 +202,17 @@ export function analyzeSample(cue: SoundCue, pcm: StereoPcm): SampleAnalysis | n
   let end = n;
   while (end > onset + 1 && (env[end - 1] as number) < tailThr) end--;
 
+  const traits = SOUND_CUE_TRAITS[cue];
   const kind = anchorKind(cue);
-  // riser обривається на піку: найгучніше вікно закінчується саме там, тож якір — кінець вікна;
-  // у whoosh/swoosh пік посередині прольоту — центр вікна.
-  const anchor = kind === "onset" ? onset : Math.max(onset, cue === "riser" ? peakIdx : peak);
-  const maxPre = secToSamples(MAX_PRE_ANCHOR_SEC[cue] ?? 0, sr);
+  // riser (anchor end) обривається на піку: найгучніше вікно закінчується саме там, тож якір — кінець вікна;
+  // у whoosh/swoosh (anchor peak) пік посередині прольоту — центр вікна.
+  const anchor = kind === "onset" ? onset : Math.max(onset, traits.anchor === "end" ? peakIdx : peak);
+  // Скільки звуку може бути до якоря: riser — ціле наростання, whoosh/swoosh — підліт.
+  const maxPre = secToSamples(traits.maxPreAnchorSec, sr);
   const from = Math.max(onset, anchor - maxPre);
   const maxLen = secToSamples(MAX_SAMPLE_SEC, sr);
   const to =
-    cue === "riser"
+    traits.anchor === "end"
       ? Math.min(n, anchor + secToSamples(RISER_TAIL_SEC, sr))
       : Math.max(Math.min(end, from + maxLen), Math.min(n, anchor + 1));
 
@@ -316,9 +319,10 @@ export interface PitchedPlacement {
 
 /**
  * Зсуви висоти (півтони) для подій у порядку розміщень.
- * pop/ding: перша впевнена нота сцени підтягується до найближчої ноти пентатоніки `key` (≤ ±6),
+ * stepped (pop/ding): перша впевнена нота сцени підтягується до найближчої ноти пентатоніки `key` (≤ ±6),
  * послідовні pop/ding сцени йдуть від неї вгору по ступенях; без впевненої висоти — лише відносні
- * кроки по інтервалах пентатоніки від власної висоти семпла. shimmer — лише підтягування, без кроків.
+ * кроки по інтервалах пентатоніки від власної висоти семпла.
+ * tuned (shimmer тощо) — лише підтягування, без кроків.
  * Решта cue — без зсуву. Загальний зсув — у межах ±12 півтонів.
  */
 export function pitchShifts(placements: readonly PitchedPlacement[], key: MusicalKey): number[] {

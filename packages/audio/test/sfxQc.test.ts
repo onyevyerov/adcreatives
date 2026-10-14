@@ -124,6 +124,19 @@ describe("checkSfxPcm", () => {
     expect(checkSfxPcm("swoosh.2", whoosh("anti")).reasons).toEqual(["кореляція L/R -1 < -0.2"]);
   });
 
+  it("пороги з SOUND_CUE_TRAITS: scan — onset ≤ 150 мс, typing — ≤ 50; glitch широкий (≥ −0.2)", () => {
+    const late = noiseHit("mono", { leadSec: 0.12 });
+    expect(checkSfxPcm("scan.1", late).reasons).toEqual([]);
+    expect(checkSfxPcm("typing.1", late).reasons).toEqual([
+      expect.stringMatching(/^onset \d+(\.\d)? мс > 50$/),
+    ]);
+
+    const decor = checkSfxPcm("glitch.4", noiseHit("decor"));
+    expect(Math.abs(decor.correlation as number)).toBeLessThan(0.1);
+    expect(decor.reasons).toEqual([]);
+    expect(checkSfxPcm("error.1", noiseHit("decor")).ok).toBe(false);
+  });
+
   it("pop/ding/shimmer без впевненого тону не проходять; tick/click тону не потребують", () => {
     const noisyPop = checkSfxPcm("pop.2", noiseHit("mono"));
     expect(noisyPop.pitchHz).toBeNull();
