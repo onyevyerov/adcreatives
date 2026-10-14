@@ -33,7 +33,12 @@ const SUBSTANCE_FIXTURE = JSON.parse(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "storyboard-substance.json"),
     "utf8",
   ),
-) as { siteText: string; substance: ProductSubstance; scene: Storyboard["scenes"][number] };
+) as {
+  siteText: string;
+  substance: ProductSubstance;
+  scene: Storyboard["scenes"][number];
+  throughline: NonNullable<Storyboard["throughline"]>;
+};
 
 /**
  * Розкадровка нового формату (як після normalize): темп із сітки, склейки на тактах (80 кадрів при
@@ -167,6 +172,7 @@ describe("storyboardStage: речовина продукту, семантичн
     // Відповідь моделі: сцена «приклад результату» перед фінальною і breakdown-частина на ній.
     const sb = structuredClone(fixtureStoryboard);
     sb.scenes.splice(2, 0, structuredClone(SUBSTANCE_FIXTURE.scene));
+    sb.throughline = structuredClone(SUBSTANCE_FIXTURE.throughline);
     sb.musicBrief.structure = [
       { label: "intro", sceneIds: ["s1"], energy: 0.5, mix: "full" },
       { label: "drop", sceneIds: ["s2"], energy: 0.7, mix: "full" },
@@ -199,6 +205,9 @@ describe("storyboardStage: речовина продукту, семантичн
       "Every film has one `breakdown` part right before the final scene",
       "a whole number of bars (4 beats)",
       "tint towards `danger`",
+      "`throughline` is the one object that never cuts",
+      "Every storyboard you write has a `throughline`; it is never null.",
+      "As the object: is it in every scene and does every join transform it",
     ]) {
       expect(system).toContain(rule);
     }
@@ -220,6 +229,13 @@ describe("storyboardStage: речовина продукту, семантичн
     ]);
     expect(s4.items.map((i) => i.text)).toEqual(SUBSTANCE_FIXTURE.scene.items.map((i) => i.text));
     expect(s4.motionIntent).toContain("tints towards danger");
+    // Наскрізний об'єкт: стани в порядку сцен (s4 перед фінальною s3), стан неіснуючої s9 викинуто.
+    expect(out.throughline?.object).toBe("the teal dot");
+    expect(out.throughline?.states.map((st) => st.sceneId)).toEqual(["s1", "s2", "s4", "s3"]);
+    expect(out.throughline?.states[2]?.state).toBe(
+      SUBSTANCE_FIXTURE.throughline.states.find((st) => st.sceneId === "s4")?.state,
+    );
+    expect(s4.motionIntent).toContain("teal dot");
 
     // Числа з речовини продукту підтверджує текст сайту, з якого її процитовано.
     const claims = await storage.readJson(revPaths(PROJECT_ID, 1).claims, (v) => ClaimsReport.parse(v));
@@ -231,10 +247,11 @@ describe("storyboardStage: речовина продукту, семантичн
       expect.objectContaining({ sceneId: "s4", itemId: "t11", text: "3", matchedSite: true }),
     );
     expect(res.outputs.unverifiedClaims).toBe(0);
-    const meta = await storage.readJson<{ textIssues: unknown[] }>(
+    const meta = await storage.readJson<{ textIssues: unknown[]; changes: string[] }>(
       directorPaths(PROJECT_ID, 1).storyboardMeta,
     );
     expect(meta.textIssues).toEqual([]);
+    expect(meta.changes).toContain("throughline: стан невідомої сцени «s9» викинуто");
   });
 
   it("старий бренд-кіт: речовина порожня → заглушка; семантичні кольори null → їх виведе код", () => {
@@ -393,5 +410,115 @@ describe("reviseStage: items і events", () => {
     const fewer = structuredClone(scene);
     fewer.events.pop();
     expect(momentsInstruction(scene, fewer)).toContain("events");
+  });
+});
+
+describe("reviseStage: наскрізний об'єкт", () => {
+  /** Основа з throughline: по стану на кожну сцену. */
+  function throughlineStoryboard(): Storyboard {
+    const sb = gridStoryboard();
+    sb.throughline = {
+      object: "the teal dot",
+      states: [
+        { sceneId: "s1", state: "The dot is a coffee bean; at the join it rolls into the price tag." },
+        {
+          sceneId: "s2",
+          state: "The dot is the price tag's hole; at the join it becomes the logo's full stop.",
+        },
+        { sceneId: "s3", state: "The dot is the full stop of the logo." },
+      ],
+    };
+    return sb;
+  }
+
+  it("правка об'єкта: стани оновлюються тим самим патчем, сцени зміненого стику — у scenesToRegenerate", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage, { storyboard: throughlineStoryboard() });
+    await seedProject(storage, { rev: 2, storyboard: null });
+    const plan = {
+      summary: "Замість крапки через ролик проходить лінія пари над чашкою.",
+      storyboardPatch: [
+        {
+          op: "replace",
+          path: "/throughline/object",
+          valueJson: JSON.stringify("the steam line"),
+          from: null,
+        },
+        {
+          op: "replace",
+          path: "/throughline/states/0/state",
+          valueJson: JSON.stringify(
+            "The steam line rises from the cup; at the join it bends into the price tag.",
+          ),
+          from: null,
+        },
+        {
+          op: "replace",
+          path: "/throughline/states/1/state",
+          valueJson: JSON.stringify("The steam line outlines the price tag; at the join it draws the logo."),
+          from: null,
+        },
+      ],
+      scenesToRegenerate: [
+        { sceneId: "s1", instruction: "Замість зерна — лінія пари, що переходить у цінник" },
+        { sceneId: "s2", instruction: "Цінник обведено лінією пари, яка малює лого на стику" },
+      ],
+      musicChanged: false,
+      durationChanged: false,
+    };
+    const ctx = makeCtx(
+      storage,
+      "revise",
+      { text: "Хочу, щоб через ролик ішла пара від кави, а не крапка", at: "script" },
+      [{ json: plan }],
+      { rev: 2 },
+    );
+    const res = await reviseStage(ctx);
+    const params = ctx.anthropic.calls[0]?.params;
+    // Розкадровка з throughline іде в запит; промпт правки містить правило R5 і вимогу оновлювати стани патчем.
+    expect(block(params, "storyboard")).toContain('"throughline"');
+    const system = systemText(params);
+    expect(system).toContain("`throughline` is the one object that never cuts");
+    expect(system).toContain("оновлює `throughline` **тим самим JSON Patch**");
+    expect(system).toContain("кожну сцену, чий стан у `throughline.states` змінився");
+    expect(res.outputs.scenesToRegenerate).toEqual(["s1", "s2"]);
+
+    const sb = await storage.readJson<Storyboard>(revPaths(PROJECT_ID, 2).storyboard);
+    expect(sb.throughline?.object).toBe("the steam line");
+    expect(sb.throughline?.states.map((st) => [st.sceneId, st.state.split(";")[0]])).toEqual([
+      ["s1", "The steam line rises from the cup"],
+      ["s2", "The steam line outlines the price tag"],
+      ["s3", "The dot is the full stop of the logo."],
+    ]);
+  });
+
+  it("нова сцена без стану: стани в порядку сцен, нова — «carried over unchanged»", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage, { storyboard: throughlineStoryboard() });
+    await seedProject(storage, { rev: 2, storyboard: null });
+    const newScene = {
+      ...structuredClone(fixtureStoryboard.scenes[1]),
+      id: "s4",
+      text: { headline: "Сніданки щодня", sub: null, emphasis: [] },
+    };
+    const plan = {
+      summary: "Додаю сцену про сніданки перед фіналом.",
+      storyboardPatch: [{ op: "add", path: "/scenes/2", valueJson: JSON.stringify(newScene), from: null }],
+      scenesToRegenerate: [],
+      musicChanged: false,
+      durationChanged: false,
+    };
+    const ctx = makeCtx(storage, "revise", { text: "Додайте сніданки", at: "script" }, [{ json: plan }], {
+      rev: 2,
+    });
+    await reviseStage(ctx);
+    const sb = await storage.readJson<Storyboard>(revPaths(PROJECT_ID, 2).storyboard);
+    expect(sb.scenes.map((s) => s.id)).toEqual(["s1", "s2", "s4", "s3"]);
+    expect(sb.throughline?.states.map((st) => [st.sceneId, st.state])).toEqual([
+      ["s1", "The dot is a coffee bean; at the join it rolls into the price tag."],
+      ["s2", "The dot is the price tag's hole; at the join it becomes the logo's full stop."],
+      ["s4", "carried over unchanged"],
+      ["s3", "The dot is the full stop of the logo."],
+    ]);
   });
 });

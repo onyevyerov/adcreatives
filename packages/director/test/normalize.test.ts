@@ -1,7 +1,7 @@
 import { computeEventPlacements, computeTimeline, Storyboard } from "@adc/shared";
 import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
-import { checkCopy, maxHits, normalizeStoryboard } from "../src/normalize.ts";
+import { checkCopy, maxHits, normalizeStoryboard, THROUGHLINE_CARRIED_OVER } from "../src/normalize.ts";
 
 const ASSETS = ["a01", "a02"];
 
@@ -586,5 +586,83 @@ describe("normalizeStoryboard", () => {
       ]);
     }
     expect(res.changes.some((c) => c.includes("→ pop"))).toBe(false);
+  });
+
+  describe("throughline", () => {
+    const states = (res: { storyboard: Storyboard }) =>
+      res.storyboard.throughline?.states.map((st) => [st.sceneId, st.state]);
+
+    it("невідомі sceneId викидаються, відсутні сцени дописуються «carried over unchanged», порядок — за сценами", () => {
+      const input: Storyboard = {
+        ...structuredClone(fixtureStoryboard),
+        throughline: {
+          object: "  the teal dot ",
+          states: [
+            { sceneId: "s3", state: "The dot becomes the logo's full stop." },
+            { sceneId: "s9", state: "A scene that does not exist." },
+            { sceneId: "s1", state: "The dot lands on the cup and slides right." },
+            { sceneId: "s1", state: "A duplicate." },
+          ],
+        },
+      };
+      const res = normalizeStoryboard(input, { assetIds: ASSETS });
+      expect(res.storyboard.throughline?.object).toBe("the teal dot");
+      expect(states(res)).toEqual([
+        ["s1", "The dot lands on the cup and slides right."],
+        ["s2", THROUGHLINE_CARRIED_OVER],
+        ["s3", "The dot becomes the logo's full stop."],
+      ]);
+      expect(res.changes).toEqual(
+        expect.arrayContaining([
+          "throughline: стан невідомої сцени «s9» викинуто",
+          "throughline: дублікат стану сцени s1 викинуто",
+          `throughline: s2 без стану → «${THROUGHLINE_CARRIED_OVER}»`,
+        ]),
+      );
+    });
+
+    it("не впливає на таймінги: тривалості й кадри подій ті самі, що без throughline", () => {
+      const plain = normalizeStoryboard(fixtureStoryboard, { assetIds: ASSETS });
+      const withObject = normalizeStoryboard(
+        {
+          ...structuredClone(fixtureStoryboard),
+          throughline: {
+            object: "one line",
+            states: fixtureStoryboard.scenes.map((s) => ({ sceneId: s.id, state: "The line runs on." })),
+          },
+        },
+        { assetIds: ASSETS },
+      );
+      expect(withObject.totalFrames).toBe(plain.totalFrames);
+      expect(withObject.storyboard.scenes).toEqual(plain.storyboard.scenes);
+      expect(withObject.changes).toEqual(plain.changes);
+    });
+
+    it("null лишається null; стара розкадровка без поля парситься з null", () => {
+      const res = normalizeStoryboard({ ...fixtureStoryboard, throughline: null }, { assetIds: ASSETS });
+      expect(res.storyboard.throughline).toBeNull();
+      expect(res.changes.some((c) => c.startsWith("throughline"))).toBe(false);
+      const { throughline: _t, ...legacy } = fixtureStoryboard;
+      const old = normalizeStoryboard(legacy as Storyboard, { assetIds: ASSETS });
+      expect(old.storyboard.throughline).toBeNull();
+    });
+
+    it("перейменовані сцени: стан переходить за новим id; видалена сцена — стан викинуто", () => {
+      const input = sb([{ id: "intro" }, { id: "s2" }]);
+      input.throughline = {
+        object: "the caret of the search field",
+        states: [
+          { sceneId: "intro", state: "The caret blinks in an empty field." },
+          { sceneId: "s2", state: "The caret stretches into a scan line." },
+          { sceneId: "s5", state: "The scene was removed." },
+        ],
+      };
+      const res = normalizeStoryboard(input, { assetIds: ASSETS });
+      expect(res.storyboard.scenes.map((s) => s.id)).toEqual(["s1", "s2"]);
+      expect(states(res)).toEqual([
+        ["s1", "The caret blinks in an empty field."],
+        ["s2", "The caret stretches into a scan line."],
+      ]);
+    });
   });
 });
