@@ -140,8 +140,9 @@ export async function qaSceneImages(
 const round = (x: number, digits: number) => Math.round(x * 10 ** digits) / 10 ** digits;
 
 /**
- * Скорочений storyboard для арт-директора: концепт, а по сцені — задум (`motionIntent`), тексти
- * в кадрі (`items`) і моменти (`events`) з кадрами й секундами від початку сцени.
+ * Скорочений storyboard для арт-директора: концепт, наскрізний об'єкт (`throughline`, критерій `object`),
+ * а по сцені — задум (`motionIntent`), тексти в кадрі (`items`) і моменти (`events`) з кадрами й секундами
+ * від початку сцени.
  */
 export function qaStoryboard(storyboard: Storyboard, templates: ReadonlySet<string>) {
   const { fps } = storyboard;
@@ -149,6 +150,7 @@ export function qaStoryboard(storyboard: Storyboard, templates: ReadonlySet<stri
   return {
     concept: storyboard.concept,
     hook: storyboard.hook,
+    throughline: storyboard.throughline ?? null,
     fps,
     scenes: storyboard.scenes.map((s) => ({
       id: s.id,
@@ -176,34 +178,46 @@ export function qaStoryboard(storyboard: Storyboard, templates: ReadonlySet<stri
 }
 
 /**
- * Критерії рубрики «Showreel bar» (`prompts/qa.md`) → kind зауваження: макет, фон і колір — `off_brief`,
- * заповненість моків — `placeholder`. Оцінки живуть лише в `description` (`QaReport` не змінюється).
+ * Критерії рубрики «Showreel bar» (`prompts/qa.md`) → kind зауваження: макет, фон, колір і наскрізний
+ * об'єкт — `off_brief`, заповненість моків — `placeholder`. Оцінки живуть лише в `description`
+ * (`QaReport` не змінюється; старі звіти з чотирма критеріями читаються як є).
  */
 export const SHOWREEL_CRITERIA = {
   layout: "off_brief",
   background: "off_brief",
   mocks: "placeholder",
   colour: "off_brief",
+  object: "off_brief",
 } as const satisfies Record<string, QaIssue["kind"]>;
 export type ShowreelCriterion = keyof typeof SHOWREEL_CRITERIA;
 
 /** Оцінка ≤ цього порогу — зауваження `major`, вище — лише згадка (не тягне сцену на fix). */
 export const SHOWREEL_FIX_MAX_SCORE = 2;
 
-const SHOWREEL_RE = /^\s*showreel bar\s*[·:—–-]?\s*(layout|background|mocks|colou?r)\s+([1-5])\s*\/\s*5/i;
+/** `<criterion> <1–5>/5` або `<criterion> –` (критерій без оцінки; `/5` після прочерку необов'язкове). */
+const SHOWREEL_RE =
+  /^\s*showreel bar\s*[·:—–-]?\s*(layout|background|mocks|colou?r|object)\s+(?:([1-5])\s*\/\s*5|[–—-](?:\s*\/\s*5)?)/i;
 
-/** Оцінка з опису зауваження `Showreel bar · <criterion> <score>/5: …`; null — це не оцінка рубрики. */
-export function showreelScore(description: string): { criterion: ShowreelCriterion; score: number } | null {
+/**
+ * Оцінка з опису зауваження `Showreel bar · <criterion> <score>/5: …`; null — це не оцінка рубрики.
+ * `score: null` — критерій без оцінки (`–`: сцена без моку, розкадровка без `throughline`).
+ */
+export function showreelScore(
+  description: string,
+): { criterion: ShowreelCriterion; score: number | null } | null {
   const m = SHOWREEL_RE.exec(description);
-  if (!m?.[1] || !m[2]) return null;
+  if (!m?.[1]) return null;
   const name = m[1].toLowerCase();
-  return { criterion: (name === "color" ? "colour" : name) as ShowreelCriterion, score: Number(m[2]) };
+  return {
+    criterion: (name === "color" ? "colour" : name) as ShowreelCriterion,
+    score: m[2] ? Number(m[2]) : null,
+  };
 }
 
 /**
  * Рубрика «Showreel bar» кодом, щоб вердикт не залежав від того, як модель поставила severity:
- * оцінка ≤ 2 → `major` (critical лишається) і kind свого критерію; оцінка 3–5 → `minor`;
- * на сцену й критерій лишається одне зауваження — з найнижчою оцінкою (перше за рівності).
+ * оцінка ≤ 2 → `major` (critical лишається) і kind свого критерію; оцінка 3–5 або `–` → `minor`;
+ * на сцену й критерій лишається одне зауваження — з найнижчою оцінкою (перше за рівності; `–` поступається будь-якій оцінці).
  * Решта зауважень — без змін і в тому ж порядку.
  */
 export function applyShowreelRubric(issues: readonly QaIssue[]): QaIssue[] {
@@ -212,8 +226,9 @@ export function applyShowreelRubric(issues: readonly QaIssue[]): QaIssue[] {
     const s = showreelScore(issue.description);
     if (!s) return;
     const key = `${issue.sceneId}\0${s.criterion}`;
+    const score = s.score ?? Number.POSITIVE_INFINITY;
     const prev = best.get(key);
-    if (!prev || s.score < prev.score) best.set(key, { index, score: s.score });
+    if (!prev || score < prev.score) best.set(key, { index, score });
   });
   const out: QaIssue[] = [];
   issues.forEach((issue, index) => {
@@ -224,7 +239,7 @@ export function applyShowreelRubric(issues: readonly QaIssue[]): QaIssue[] {
     }
     if (best.get(`${issue.sceneId}\0${s.criterion}`)?.index !== index) return;
     out.push(
-      s.score <= SHOWREEL_FIX_MAX_SCORE
+      s.score !== null && s.score <= SHOWREEL_FIX_MAX_SCORE
         ? {
             ...issue,
             kind: SHOWREEL_CRITERIA[s.criterion],

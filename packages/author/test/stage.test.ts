@@ -1,5 +1,12 @@
 import { readLedger } from "@adc/director";
-import { projectPaths, QA_LOG_PREFIX, readCosts, revPaths, StageError } from "@adc/shared";
+import {
+  createPromptLoader,
+  projectPaths,
+  QA_LOG_PREFIX,
+  readCosts,
+  revPaths,
+  StageError,
+} from "@adc/shared";
 import { fixtureAudioManifest } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { createDeadline, stopReason } from "../src/budget.ts";
@@ -18,6 +25,17 @@ import {
   tmpStorage,
   twoScenes,
 } from "./helpers.ts";
+
+/** Правила R1–R4, R6 (ТЗ «прогалини якості» §2.7) — у промпті дослівно. */
+const FILM_RULES = [
+  "Nothing enters at rest and nothing leaves at rest. An element is already moving on its first visible frame (it arrives from off-frame, from a smaller scale, from behind a mask or a colour field) and it leaves accelerating (`easings.in`-like, never slowing down and fading out in place). A hit may land up to one frame before its event frame, never after it: the landing is seen on the beat, the sound is on the event frame.",
+  "In an interface mock nothing changes by itself. Every change of state (a field filling, a toggle, a row selected, a slider moved, a button pressed) is caused by the `Cursor`: it travels to the control (`path`), grows on arrival (`hoverAt`), squeezes on the click (`clickAt`), and the control reacts on that same frame. One cursor per scene, one action at a time; a mock that changes without the cursor is `off_brief`.",
+  "`Camera` is the scene's virtual camera. It pushes into the active zone of a mock (the field being typed, the row being ticked) and pulls back out. Never two camera moves at once and never a camera move during a cursor move: the push starts after the cursor arrives, the pull-back after the control has reacted. Text that must be read stays inside the camera's rectangle for its reading time.",
+  "`MotionBlur` wraps fast moves (a card flying in, a colour field pushing, kinetic text on an energetic brand) so they read as motion, not as a strobe. Use it on elements that travel more than about a quarter of the frame within six frames; never on text while it is being read; never on the whole scene; at most two `MotionBlur` wrappers active in one frame (each multiplies the render cost of its subtree by `samples`).",
+  "Build the throughline literally. In every scene the object named in `<storyboard>.throughline` is on screen in the state its entry gives, and at the join it transforms into its next state (`MorphShape`, `DrawPath`, `LogoPath`, your own `<svg>`): the same geometry, colour and position on the last frame of one scene and the first frame of the next. When `throughline` is null, keep the match cuts as before.",
+];
+const FILM_CHECKLIST =
+  "the throughline object is in the frame in its state and transforms at the join; every mock change is caused by the cursor; no two camera moves overlap";
 
 const qaLine = `${QA_LOG_PREFIX}${JSON.stringify({ kind: "text_overflow", component: "Headline", detail: "too long", value: 30, frame: 30 })}`;
 
@@ -119,6 +137,12 @@ describe("authorStage", () => {
       "audio_events",
       "finish",
     ]);
+
+    // Правила ритму, курсора, камери, blur і наскрізного об'єкта — у system; throughline — у <storyboard>.
+    const prompt = createPromptLoader().load("author", run?.vars ?? {});
+    for (const rule of FILM_RULES) expect(prompt.system).toContain(rule);
+    expect(prompt.system).toContain(FILM_CHECKLIST);
+    expect(prompt.user).toContain('"throughline": null');
   }, 120_000);
 
   it("зупинка за ітераціями без finish: сцена без коду — missing, реєстр лише з готових", async () => {
