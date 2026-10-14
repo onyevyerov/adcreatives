@@ -24,6 +24,7 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@adc/audio": "workspace:*",
     "@remotion/cli": "4.0.533",
     "@remotion/media-parser": "4.0.533"
   }

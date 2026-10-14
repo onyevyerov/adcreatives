@@ -1,7 +1,12 @@
 import { msToFrames } from "@adc/shared/timeline";
 import type { AudioManifest } from "@adc/shared/types/video";
-import { Audio } from "@remotion/media";
-import { interpolate, Sequence, staticFile, useVideoConfig } from "remotion";
+import { Html5Audio, interpolate, Sequence, staticFile, useVideoConfig } from "remotion";
+
+/**
+ * Звук — через `Html5Audio`: при рендері Remotion бере аудіо з файлу цілком (ffmpeg), без змін.
+ * `<Audio>` з `@remotion/media` витягує аудіо покадрово й склеює з округленням до семпла —
+ * розрив хвилі на кожному стику кадрів (30 разів на секунду), чутний як тріск.
+ */
 
 /** Гучність музики з fade-out наприкінці ролика (чиста функція від кадру). */
 export function musicVolumeAt(
@@ -31,7 +36,7 @@ export function MusicTrack(props: { audio: AudioManifest; totalFrames: number })
   if (mix) {
     return (
       <Sequence durationInFrames={props.totalFrames} name="soundtrack" layout="none">
-        <Audio src={staticFile(mix.src)} trimAfter={props.totalFrames} />
+        <Html5Audio src={staticFile(mix.src)} trimAfter={props.totalFrames} />
       </Sequence>
     );
   }
@@ -40,7 +45,7 @@ export function MusicTrack(props: { audio: AudioManifest; totalFrames: number })
   const fadeOutFrames = msToFrames(music.fadeOutMs, fps);
   return (
     <Sequence durationInFrames={props.totalFrames} name="music" layout="none">
-      <Audio
+      <Html5Audio
         src={staticFile(music.src)}
         trimAfter={props.totalFrames}
         volume={(f) => musicVolumeAt(f, props.totalFrames, fadeOutFrames, music.volume)}
@@ -61,7 +66,7 @@ export function Sfx(props: { cue: string; audio: AudioManifest; from: number }) 
   const duration = Math.max(1, msToFrames(sfx.durationMs, fps) + 1);
   return (
     <Sequence from={props.from} durationInFrames={duration} name={`sfx:${props.cue}`} layout="none">
-      <Audio src={staticFile(sfx.src)} volume={sfx.volume} />
+      <Html5Audio src={staticFile(sfx.src)} volume={sfx.volume} />
     </Sequence>
   );
 }
