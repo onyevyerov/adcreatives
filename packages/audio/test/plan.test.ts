@@ -67,12 +67,12 @@ describe("sfx-cues.md", () => {
     expect(() => parseSfxCues("- whoosh (0.6 s): air")).toThrow(/немає cue/);
   });
 
-  it("бібліотека подій: усі 10 SoundCue × 3 варіанти, тексти різні, ≥ 0.5 с", () => {
+  it("бібліотека подій: усі 30 SoundCue × 5 варіантів, тексти різні, ≥ 0.5 с", () => {
     const library = loadSfxLibrary(createPromptLoader());
     expect(Object.keys(library).sort()).toEqual([...SoundCue.options].sort());
     const texts = new Set<string>();
     for (const [cue, variants] of Object.entries(library)) {
-      expect(variants, cue).toHaveLength(3);
+      expect(variants, cue).toHaveLength(5);
       for (const def of variants) {
         expect(def.durationSeconds, cue).toBeGreaterThanOrEqual(0.5);
         expect(def.text, cue).toMatch(/no silence at the beginning/);
@@ -80,7 +80,7 @@ describe("sfx-cues.md", () => {
         texts.add(def.text);
       }
     }
-    expect(texts.size).toBe(30);
+    expect(texts.size).toBe(150);
     // Legacy-шлях sfxCue бере варіант 1 тих самих cue.
     for (const [cue, def] of Object.entries(standardCues)) {
       expect(def).toEqual(library[cue as keyof typeof library][0]);

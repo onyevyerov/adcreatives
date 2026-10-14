@@ -53,12 +53,14 @@ const MASTER_METRICS = {
   masterGainDb: expect.any(Number),
 };
 const variantTexts = (cues: readonly SoundCue[]) => cues.flatMap((c) => sfxLibrary[c].map((d) => d.text));
+/** Номери варіантів кожного cue бібліотеки. */
+const VARIANTS = [1, 2, 3, 4, 5] as const;
 
 /** Прогріває спільний кеш варіантами `variants` (номери) заданих cue. */
 async function warmCache(
   storage: ReturnType<typeof tmpStorage>,
   cues: readonly SoundCue[],
-  variants: readonly number[] = [1, 2, 3],
+  variants: readonly number[] = VARIANTS,
 ) {
   for (const cue of cues) {
     for (const n of variants) {
@@ -230,7 +232,7 @@ describe("audioStage", () => {
     expect(costs.find((c) => c.detail === "sfx:cup-clink")?.units).toEqual({ seconds: 0.8 });
     const shared = await readCosts(storage, null);
     expect(shared.map((c) => c.detail).sort()).toEqual(
-      ["whoosh", "impact", "shimmer"].flatMap((c) => [1, 2, 3].map((n) => `sfx:${c}.${n}`)).sort(),
+      ["whoosh", "impact", "shimmer"].flatMap((c) => VARIANTS.map((n) => `sfx:${c}.${n}`)).sort(),
     );
     expect(shared.every((c) => c.stage === "sfx-cache" && c.projectId === null)).toBe(true);
   });
@@ -251,7 +253,7 @@ describe("audioStage", () => {
     );
     // Зведення взяло всі 12 варіантів cue подій із кешу.
     expect(decode.sfxCalls().sort()).toEqual(
-      FIXTURE_EVENT_CUES.flatMap((c) => [1, 2, 3].map((n) => `${c}.${n}`)).sort(),
+      FIXTURE_EVENT_CUES.flatMap((c) => VARIANTS.map((n) => `${c}.${n}`)).sort(),
     );
     const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
     expect(manifest.mix).toEqual({ src: "soundtrack.wav", durationMs: 15_000, ...MASTER_METRICS });
@@ -463,17 +465,17 @@ describe("audioStage: бібліотека семплів подій", () => {
     await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
     const generated = client.calls.filter((c) => c.method === "convert").map((c) => c.request.text);
     expect(generated.sort()).toEqual(
-      FIXTURE_EVENT_CUES.flatMap((c) => [sfxLibrary[c][1]?.text, sfxLibrary[c][2]?.text]).sort(),
+      FIXTURE_EVENT_CUES.flatMap((c) => sfxLibrary[c].slice(1).map((d) => d.text)).sort(),
     );
     const shared = await readCosts(storage, null);
     expect(shared.map((c) => c.detail).sort()).toEqual(
-      FIXTURE_EVENT_CUES.flatMap((c) => [`sfx:${c}.2`, `sfx:${c}.3`]).sort(),
+      FIXTURE_EVENT_CUES.flatMap((c) => VARIANTS.slice(1).map((n) => `sfx:${c}.${n}`)).sort(),
     );
     expect(shared.every((c) => c.stage === "sfx-cache" && c.projectId === null)).toBe(true);
     expect(await readCosts(storage, PROJECT_ID)).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ kind: "sfx" })]),
     );
-    expect(decode.sfxCalls()).toHaveLength(12);
+    expect(decode.sfxCalls()).toHaveLength(FIXTURE_EVENT_CUES.length * VARIANTS.length);
   });
 
   it("варіант не згенерувався або не декодувався → пропуск; cue без жодного семпла → події без звуку, зведення є", async () => {
@@ -481,7 +483,7 @@ describe("audioStage: бібліотека семплів подій", () => {
     await seedProject(storage);
     await warmCache(storage, ["whoosh", "pop", "shimmer"]);
     await warmCache(storage, ["impact"], [1]);
-    // impact.2 і impact.3 не генеруються (400), а impact.1 з кешу не декодується.
+    // impact.2 і impact.3 не генеруються (400), а решта (impact.1 з кешу, .4, .5) не декодується.
     const client = mockElevenLabs({
       convert: [elError(400, { detail: "invalid" }), elError(400, { detail: "invalid" })],
     });
