@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { decodeAudio, pcmLength, rmsOf } from "@adc/audio";
 import { parseQaLog, TEMPLATE_VARIANTS, type TemplateVariant } from "@adc/motion-kit";
 import type { BrowserLog } from "@adc/shared/render/RenderEngine";
 import { FORMAT_SIZE, FORMATS, type Format } from "@adc/shared/schemas/common";
@@ -13,7 +14,13 @@ import { parseMedia } from "@remotion/media-parser";
 import { nodeReader } from "@remotion/media-parser/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { OUTPUT_SAMPLE_RATE, RemotionRenderEngine, RenderError } from "../src/engine.ts";
-import { createFixtureJob, type FixtureJob, fixtureMainProps, shortStoryboard } from "../src/testing.ts";
+import {
+  createFixtureJob,
+  type FixtureJob,
+  fixtureMainProps,
+  makeToneWav,
+  shortStoryboard,
+} from "../src/testing.ts";
 
 /**
  * Повільні тести (тег `slow`): справжній бандл (rspack) і рендер у Chrome Headless Shell.
@@ -204,6 +211,42 @@ describe("slow: RemotionRenderEngine", () => {
     const audio = meta.tracks.filter((t) => t.type === "audio");
     expect(audio.map((t) => t.sampleRate)).toEqual([44_100]);
     expect(OUTPUT_SAMPLE_RATE).toBe(44_100);
+  });
+
+  it("renderMedia: зведення звучить без розривів хвилі на стиках кадрів", async () => {
+    // Чистий тон як `soundtrack.wav`: друга різниця синуса 220 Гц × 0.3 ≈ 3·10⁻⁴; зсув хвилі
+    // хоч на семпл (покадрова склейка аудіо) дає стрибок ~10⁻², AAC 320k — на порядки менше.
+    const sb = shortStoryboard([
+      { id: "s1", purpose: "hook" },
+      { id: "s2", purpose: "cta", text: { headline: "Забронюйте столик", sub: null, emphasis: [] } },
+    ]);
+    const totalFrames = computeTimeline(sb).totalFrames;
+    await writeFile(path.join(job.jobDir, "bundle", "public", "soundtrack.wav"), makeToneWav(3));
+    const mix = {
+      src: "soundtrack.wav",
+      durationMs: 2000,
+      integratedLufs: null,
+      truePeakDbtp: null,
+      masterGainDb: null,
+    };
+    const out = path.join(tmp, "mix.mp4");
+    await engine.renderMedia({
+      serveUrl,
+      inputProps: fixtureMainProps({ ...job, audio: { ...job.audio, mix, totalFrames } }, sb, "vertical"),
+      format: "vertical",
+      out,
+    });
+    const pcm = await decodeAudio(await readFile(out));
+    // Тон справді звучить, а не тиша (моно тон у стерео — −3 дБ на канал: RMS ≈ 0.15).
+    expect(rmsOf(pcm, 8820, 83790)).toBeGreaterThan(0.1);
+    // Перші 0.2 с — атака тону і вступ кодека; далі тон стаціонарний.
+    const jumps: number[] = [];
+    for (let i = 8820; i < pcmLength(pcm) - 4410; i++) {
+      const x = pcm.left;
+      const d2 = (x[i + 1] as number) - 2 * (x[i] as number) + (x[i - 1] as number);
+      if (Math.abs(d2) > 0.003) jumps.push(i);
+    }
+    expect(jumps.slice(0, 20)).toEqual([]);
   });
 
   it("renderStill: Main у square, кадр за таймлайном", async () => {
