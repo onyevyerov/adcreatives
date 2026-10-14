@@ -1,4 +1,5 @@
-import type { FontChoice, Language, Typography } from "@adc/shared";
+import type { FontChoice, FontFile, Language, Logger, SiteFontFace, Storage, Typography } from "@adc/shared";
+import { create as openFont } from "fontkit";
 import { z } from "zod";
 import fontsData from "./fonts.json" with { type: "json" };
 
@@ -109,15 +110,102 @@ export interface FontResolution {
 
 const ROLE_UK: Record<Role, string> = { heading: "заголовків", body: "тексту", mono: "чисел і міток" };
 
+/** Завантажений краулером файл шрифту сайту (`design.fontFaces` з `path`) і чи є в ньому кирилиця. */
+export interface SiteFontFile {
+  /** Назва сімейства з `@font-face` дослівно. */
+  family: string;
+  weight: number;
+  format: FontFile["format"];
+  /** Ключ у сховищі: crawl/fonts/<fontKey>-<weight>.<ext>. */
+  path: string;
+  cyrillic: boolean;
+}
+
+/** Українські літери, які мають бути у файлі: ж, ї, є, ґ. */
+const CYRILLIC_PROBE = [0x436, 0x457, 0x454, 0x491];
+
+/** Чи має файл шрифту гліфи української абетки (fontkit; колекції й биті файли — ні). */
+export function fontHasCyrillic(data: Buffer): boolean {
+  const font = openFont(data);
+  if (!("hasGlyphForCodePoint" in font)) return false;
+  return CYRILLIC_PROBE.every((cp) => font.hasGlyphForCodePoint(cp));
+}
+
+/**
+ * Читає зі сховища файли шрифтів сайту, які завантажив краулер (лише `normal` з `path`), і
+ * перевіряє кирилицю. Файл, що не читається або не розбирається, пропускається.
+ */
+export async function loadSiteFonts(
+  storage: Pick<Storage, "read">,
+  faces: readonly SiteFontFace[],
+  logger?: Logger,
+): Promise<SiteFontFile[]> {
+  const out: SiteFontFile[] = [];
+  for (const face of faces) {
+    if (face.path === null || face.style !== "normal") continue;
+    if (face.weight < 100 || face.weight > 900) continue;
+    try {
+      const cyrillic = fontHasCyrillic(await storage.read(face.path));
+      out.push({ family: face.family, weight: face.weight, format: face.format, path: face.path, cyrillic });
+    } catch (err) {
+      logger?.warn("файл шрифту сайту не прочитано", { path: face.path, error: (err as Error).message });
+    }
+  }
+  return out;
+}
+
+export interface ResolveFontOptions {
+  cyrillic: boolean;
+  detected: readonly string[];
+  /**
+   * Файли шрифтів сайту (`loadSiteFonts`). Не передано — даних про файли немає (напр. правка
+   * бренд-кіта): тоді вже вибраний `origin: "local"` лишається як є.
+   */
+  local?: readonly SiteFontFile[];
+}
+
+/**
+ * Локальні файли сайту для сімейства: з кирилицею (якщо потрібна), найближчі до запитаних ваги.
+ * null — файлів немає або жоден не підходить.
+ */
+function localChoice(
+  choice: FontChoice,
+  requested: string,
+  role: Role,
+  opts: ResolveFontOptions,
+): FontChoice | null {
+  const key = fontKey(requested);
+  if (role === "mono") return null;
+  if (opts.local === undefined) {
+    const keep =
+      choice.origin === "local" &&
+      choice.files.length > 0 &&
+      choice.files.every((f) => f.path.includes("/crawl/fonts/")) &&
+      fontKey(choice.family) === key;
+    return keep ? choice : null;
+  }
+  const files = opts.local.filter((f) => fontKey(f.family) === key && (!opts.cyrillic || f.cyrillic));
+  if (files.length === 0) return null;
+  const weights = nearestWeights(
+    choice.weights,
+    files.map((f) => f.weight),
+    role,
+  );
+  const chosen = weights.map((w) => files.find((f) => f.weight === w) as SiteFontFile);
+  return {
+    family: (chosen[0] as SiteFontFile).family,
+    weights,
+    origin: "local",
+    files: chosen.map((f) => ({ weight: f.weight, style: "normal", format: f.format, path: f.path })),
+  };
+}
+
 /**
  * Перевіряє одну роль: шрифт є в списку і (за потреби) має кирилицю.
- * Інакше — заміна з `substitutes`, потім запасний шрифт тієї ж категорії.
+ * Інакше — файли шрифту з сайту (`origin: "local"`, якщо є і з кирилицею), далі заміна з
+ * `substitutes`, потім запасний шрифт тієї ж категорії.
  */
-export function resolveFont(
-  choice: FontChoice,
-  role: Role,
-  opts: { cyrillic: boolean; detected: readonly string[] },
-): FontResolution {
+export function resolveFont(choice: FontChoice, role: Role, opts: ResolveFontOptions): FontResolution {
   const ok = (f: GoogleFont | null | undefined): boolean => !!f && (!opts.cyrillic || hasCyrillic(f));
   const detectedKeys = new Set(opts.detected.map((d) => fontKey(primaryFamily(d) ?? d)));
   const requested = primaryFamily(choice.family) ?? choice.family;
@@ -132,6 +220,13 @@ export function resolveFont(
   });
 
   if (found && ok(found)) return { choice: build(found), fix: null };
+
+  const local = localChoice(choice, requested, role, opts);
+  if (local) {
+    // Повторна нормалізація вже локального вибору (правка бренд-кіта) — без нового повідомлення.
+    const fix = choice.origin === "local" ? null : `Шрифт ${roleUk} «${local.family}» узято з сайту.`;
+    return { choice: local, fix };
+  }
 
   const subName = DATA.substitutes[fontKey(requested)];
   const sub = subName ? findGoogleFont(subName) : null;
@@ -200,7 +295,13 @@ export interface TypographyFixResult {
 /** Нормалізує типографіку бренд-кіта: Google Fonts, кирилиця, наявні накреслення, `detected`. */
 export function fixTypography(
   input: Typography,
-  opts: { language: Language; brandName?: string; siteFonts?: readonly string[] },
+  opts: {
+    language: Language;
+    brandName?: string;
+    siteFonts?: readonly string[];
+    /** Файли шрифтів сайту (`loadSiteFonts`); лише для заголовків і тексту. */
+    localFonts?: readonly SiteFontFile[];
+  },
 ): TypographyFixResult {
   const detected: string[] = [];
   const seen = new Set<string>();
@@ -211,8 +312,9 @@ export function fixTypography(
     detected.push(name);
   }
   const cyrillic = needsCyrillic(opts.language, opts.brandName);
-  const heading = resolveFont(input.heading, "heading", { cyrillic, detected });
-  const body = resolveFont(input.body, "body", { cyrillic, detected });
+  const local = opts.localFonts;
+  const heading = resolveFont(input.heading, "heading", { cyrillic, detected, local });
+  const body = resolveFont(input.body, "body", { cyrillic, detected, local });
   const mono = resolveMono(
     input.mono,
     { heading: heading.choice, body: body.choice },

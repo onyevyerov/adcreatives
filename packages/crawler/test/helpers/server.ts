@@ -7,6 +7,8 @@ import type { Resolver } from "@adc/shared";
 import sharp from "sharp";
 
 export const FIXTURE_DIR = fileURLToPath(new URL("../fixtures/site", import.meta.url));
+/** Сайт зі шрифтами: `@font-face` у CSS-файлі й у `<style>`, woff2 з кирилицею і без. */
+export const FONT_FIXTURE_DIR = fileURLToPath(new URL("../fixtures/fontsite", import.meta.url));
 /** Фікстура інтеграційних тестів (лише читання): той самий сайт, який бачить увесь пайплайн. */
 export const INTEGRATION_FIXTURE_DIR = fileURLToPath(
   new URL("../../../../tests/integration/fixtures/site", import.meta.url),
@@ -45,6 +47,10 @@ const MIME: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".png": "image/png",
   ".pdf": "application/pdf",
+  ".css": "text/css; charset=utf-8",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
 };
 
 /** Картинки фікстур генеруються з SVG-сцен: різні сцени дають різний pHash. */
