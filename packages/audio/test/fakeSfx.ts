@@ -1,4 +1,4 @@
-import { SoundCue } from "@adc/shared";
+import { SOUND_CUE_TRAITS, SoundCue } from "@adc/shared";
 import { createStereo, SAMPLE_RATE, type StereoPcm } from "../src/pcm.ts";
 import type { SfxSample, SfxSampleLibrary } from "../src/samples.ts";
 import { mulberry32 } from "./signals.ts";
@@ -73,6 +73,33 @@ const pan = (x: number, p: number): [number, number] => {
   return [x * Math.cos(a), x * Math.sin(a)];
 };
 
+/** Cue з власним синтезом; решта синтезується архетипом за traits (`fakeArchetype`). */
+const FAKE_VOICES = [
+  "whoosh",
+  "swoosh",
+  "riser",
+  "impact",
+  "slam",
+  "pop",
+  "ding",
+  "shimmer",
+  "tick",
+  "click",
+] as const satisfies readonly SoundCue[];
+type FakeVoice = (typeof FAKE_VOICES)[number];
+/** Довгі звуки (серія натискань, прохід сканера, оплески): архетип `click` довжиною 1 с. */
+const FAKE_LONG_CUES: ReadonlySet<SoundCue> = new Set(["typing", "scan", "cheer"]);
+
+/** Архетип синтезу cue: удар → `impact`, тональний → `ding`, якір peak → `whoosh`, інше → `click`. */
+export function fakeArchetype(cue: SoundCue): FakeVoice {
+  if ((FAKE_VOICES as readonly SoundCue[]).includes(cue)) return cue as FakeVoice;
+  const t = SOUND_CUE_TRAITS[cue];
+  if (t.hit) return "impact";
+  if (t.pitch !== "none") return "ding";
+  if (t.anchor === "peak") return "whoosh";
+  return "click";
+}
+
 /** Фейковий варіант `variant` (1, 2, 3…) cue: різні тембри/висоти, однакова будова. */
 export function fakeSample(
   cue: SoundCue,
@@ -87,13 +114,14 @@ export function fakeSample(
   const sr = SAMPLE_RATE;
   const pitch = (c: "pop" | "ding" | "shimmer") =>
     opts.pitchHz ?? (FAKE_PITCH_HZ[c][v % FAKE_PITCH_HZ[c].length] as number);
-  switch (cue) {
+  const voice = fakeArchetype(cue);
+  switch (voice) {
     case "whoosh":
     case "swoosh": {
-      const peakAt = FAKE_PEAK_SEC[cue] as number;
+      const peakAt = FAKE_PEAK_SEC[voice] as number;
       const dur = peakAt * 1.7;
       const f = new Svf();
-      const base = (cue === "whoosh" ? 900 : 500) * (1 + 0.3 * v);
+      const base = (voice === "whoosh" ? 900 : 500) * (1 + 0.3 * v);
       return render(dur, lead, seed, (t) => {
         // Проліт: наростання й спад з гострим піком посередині.
         const x = t < peakAt ? t / peakAt : 1 - (t - peakAt) / (dur - peakAt);
@@ -120,7 +148,7 @@ export function fakeSample(
     case "slam": {
       const f = new Svf();
       let phase = 0;
-      const hard = cue === "slam";
+      const hard = voice === "slam";
       return render(hard ? 0.6 : 0.9, lead, seed, (t) => {
         phase += (2 * Math.PI * ((hard ? 55 : 45) + (hard ? 60 : 105) * Math.exp(-t / 0.04) + 5 * v)) / sr;
         const body = Math.sin(phase) * Math.exp(-t / (hard ? 0.18 : 0.3));
@@ -166,8 +194,8 @@ export function fakeSample(
     case "tick":
     case "click": {
       const f = new Svf();
-      const tone = (cue === "tick" ? 3200 : 1500) * (1 + 0.15 * v);
-      return render(0.06, lead, seed, (t) => {
+      const tone = (voice === "tick" ? 3200 : 1500) * (1 + 0.15 * v);
+      return render(FAKE_LONG_CUES.has(cue) ? 1 : 0.06, lead, seed, (t) => {
         f.process(noise(), 4000, 1, sr);
         const x =
           (Math.sin(2 * Math.PI * tone * t) * Math.exp(-t / 0.006) + 0.5 * f.band * Math.exp(-t / 0.003)) *

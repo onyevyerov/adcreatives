@@ -2,8 +2,9 @@ import {
   type MusicMix,
   type Scene,
   type SceneEvent,
+  SOUND_CUE_TRAITS,
   type SoundAccent,
-  type SoundCue,
+  SoundCue,
   type Storyboard,
   sha256,
 } from "@adc/shared";
@@ -177,7 +178,7 @@ describe("event layer", () => {
   });
 
   it("рівень події: пік у вікні 100 мс ≈ CUE_LEVEL_DB + ACCENT_DB над RMS музики, не вище +6 дБ", () => {
-    expect(CUE_LEVEL_DB).toEqual({
+    expect(CUE_LEVEL_DB).toMatchObject({
       impact: 5,
       slam: 5,
       riser: 2,
@@ -189,6 +190,7 @@ describe("event layer", () => {
       tick: -4,
       click: -4,
     });
+    for (const cue of SoundCue.options) expect(CUE_LEVEL_DB[cue], cue).toBe(SOUND_CUE_TRAITS[cue].levelDb);
     expect(ACCENT_DB).toEqual({ soft: -3, normal: 0, hard: 3 });
     expect(MAX_CUE_DB).toBe(6);
     for (const s of withEvents.sounds) {
@@ -275,6 +277,25 @@ describe("event layer", () => {
     // До riser і з кадру події — сухий трек.
     expect(sameMusic(withEvents, noEvents, rise.start - ms(100), rise.start)).toBe(true);
     expect(sameMusic(withEvents, noEvents, rise.at, rise.at + ms(200))).toBe(true);
+  });
+
+  it("дакінг drop (важкий удар, як impact/slam): HPF 150 Гц на музиці рівно на одну долю від кадру", () => {
+    const render = (events: Record<string, SceneEvent[]>) =>
+      renderSoundtrack({ music: music(), storyboard: only(events), key: "A minor", samples: LIB });
+    const dropped = render({ s2: [ev("drop", 90, "drop", "hard")] });
+    const plain = render({});
+    const drop = dropped.sounds.find((s) => s.eventId === "drop");
+    if (!drop) throw new Error("немає drop");
+    expect(drop.start).toBe(drop.at);
+    const beat = f2s(15);
+    const ms = (x: number) => secToSamples(x / 1000);
+    const hold: [number, number] = [drop.at + ms(10), drop.at + Math.round(beat * (1 - DUCK_RELEASE_BEATS))];
+    expect(
+      rmsOf(lowBand(dropped.stems.music), ...hold) / rmsOf(lowBand(plain.stems.music), ...hold),
+    ).toBeLessThan(0.3);
+    expect(sameMusic(dropped, plain, drop.at - ms(100), drop.at)).toBe(true);
+    expect(sameMusic(dropped, plain, drop.at + beat, drop.at + beat + ms(200))).toBe(true);
+    expect(sameMusic(dropped, plain, drop.at + beat - ms(20), drop.at + beat)).toBe(false);
   });
 
   it("шина подій: EQ (HPF 80 Гц / LPF 9 кГц) і спільний реверб — хвіст після сухого звуку", () => {
@@ -512,6 +533,15 @@ describe("семпли бібліотеки на кадрі події", () => {
         0,
       );
     }
+  });
+
+  it("swipe (anchor peak): пік огинаючої — на кадрі (±1 мс), вікно чутності ±50 мс", () => {
+    const out = one("swipe", 90);
+    const s = out.sounds[0];
+    if (!s) throw new Error("swipe");
+    expect(s.start).toBeLessThan(s.at);
+    expect(Math.abs(ms(envelopePeak(out.stems.events) - s.at))).toBeLessThanOrEqual(1);
+    expect(s.window).toEqual([s.at - secToSamples(0.05), s.at + secToSamples(0.05)]);
   });
 
   it("riser: наростає до кадру (найгучніше вікно закінчується на кадрі ±1 мс), після кадру ≤ 30 мс звуку", () => {

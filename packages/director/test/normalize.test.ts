@@ -453,6 +453,63 @@ describe("normalizeStoryboard", () => {
     expect(res.changes.some((c) => c.includes("понад ліміт"))).toBe(false);
   });
 
+  it("сітка за traits: typing/scan/scribble/slide лишаються на кадрі, нові cue на сітці — на восьму", () => {
+    const off: Cue[] = ["typing", "scan", "scribble", "slide"];
+    const on: Cue[] = ["cash", "notify", "swipe"];
+    const base = sb([
+      {
+        durationFrames: 300,
+        sfxCue: null,
+        events: [...off, ...on].map((cue, k) => ({
+          id: `e${k + 1}`,
+          at: 17 + 30 * k,
+          what: "Event.",
+          sound: { cue, accent: "normal" as const },
+          textIds: [],
+        })),
+      },
+      { durationFrames: 150, transitionFrames: 0, transitionIn: "cut", sfxCue: null },
+    ]);
+    base.musicBrief.bpm = 120; // восьма = 7.5 кадра: 17 + 30k ніколи не на сітці
+    const res = normalizeStoryboard(base, { assetIds: ASSETS });
+    const s1 = res.storyboard.scenes[0] as Storyboard["scenes"][number];
+    expect(s1.events.map((e) => [e.sound?.cue, e.at])).toEqual([
+      ["typing", 17],
+      ["scan", 47],
+      ["scribble", 77],
+      ["slide", 107],
+      ["cash", 135],
+      ["notify", 165],
+      ["swipe", 195],
+    ]);
+  });
+
+  it("drop — важкий удар: у вікні 3 с з impact/slam і в ліміті на ролик, зайвий → pop", () => {
+    const res = normalizeStoryboard(
+      hitsVideo([
+        [0, "impact", "hard"],
+        [1.5, "drop", "hard"],
+        [3, "drop", "soft"],
+        [6, "slam", "hard"],
+        [9, "impact", "hard"],
+        [12, "drop", "normal"],
+        [15, "impact", "hard"],
+      ]),
+      { assetIds: ASSETS },
+    );
+    expect(eventsById(res)).toEqual({
+      e1: ["impact", "hard", 0],
+      e2: ["pop", "normal", 45],
+      e3: ["pop", "normal", 90],
+      e4: ["slam", "hard", 180],
+      e5: ["impact", "hard", 270],
+      e6: ["drop", "normal", 360],
+      e7: ["impact", "hard", 450],
+    });
+    expect(res.changes).toContain("s1: подія «e2» drop (hard) → pop — ближче 3 с до попереднього удару");
+    expect(res.changes).toContain("s1: подія «e3» drop (soft) → pop — понад ліміт 5 ударів на ролик");
+  });
+
   it("riser далі ніж за 2 такти до наступної озвученої події — лише попередження", () => {
     const base = hitsVideo([]);
     const [s1, s2] = base.scenes as [Storyboard["scenes"][number], Storyboard["scenes"][number]];

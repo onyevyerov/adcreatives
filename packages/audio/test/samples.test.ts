@@ -195,8 +195,8 @@ function highpassed(x: Float32Array, hz: number): Float32Array {
 }
 
 describe("моно-сумісність звуків подій", () => {
-  it("політика ТЗ: impact/slam — повністю моно, решта — моно нижче 150 Гц; поріг кореляції 0.3", () => {
-    expect([...MONO_CUES]).toEqual(["impact", "slam"]);
+  it("політика ТЗ: impact/slam/drop — повністю моно, решта — моно нижче 150 Гц; поріг кореляції 0.3", () => {
+    expect([...MONO_CUES]).toEqual(["impact", "slam", "drop"]);
     expect(MONO_BELOW_HZ).toBe(150);
     expect(MONO_MIN_CORRELATION).toBe(0.3);
     expect(WIDE_MIN_CORRELATION).toBe(-0.2);
