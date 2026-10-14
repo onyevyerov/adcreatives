@@ -1,7 +1,7 @@
 import type { Asset, BrandKit, Fact, RankedAsset, SiteData } from "@adc/shared";
 import { contrastRatio, deriveSemanticPalette, fixPalette, normalizeHex } from "./color.ts";
 import { assignFactIds, dedupeFacts, verifySiteFacts } from "./facts.ts";
-import { fixTypography, primaryFamily } from "./fonts.ts";
+import { fixTypography, primaryFamily, type SiteFontFile } from "./fonts.ts";
 import { verifySubstance } from "./substance.ts";
 
 /**
@@ -27,6 +27,8 @@ export interface FinalizeInput {
   assets: readonly Asset[];
   /** id фактів попередньої версії, які мають лишитися стабільними (для патча). */
   keepFactIds?: ReadonlySet<string>;
+  /** Файли шрифтів сайту з перевіркою кирилиці (`loadSiteFonts`); не передано — без локальних шрифтів. */
+  localFonts?: readonly SiteFontFile[];
   /**
    * Текст сайту, який бачив бренд-кіт (`brandkit/site-text.txt`): за ним перевіряється `substance`.
    * null чи порожній — перевірити нема з чим, уся речовина продукту прибирається.
@@ -150,6 +152,7 @@ export function finalizeBrandKit(
     language: kit.identity.language,
     brandName: kit.identity.name,
     siteFonts,
+    localFonts: ctx.localFonts,
   });
   kit.typography = typo.typography;
   fixes.push(...typo.fixes);
