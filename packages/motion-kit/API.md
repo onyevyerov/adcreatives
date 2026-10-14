@@ -152,7 +152,22 @@ Checks: `DrawPath` and `MorphShape` log `outside_safe_area` unless `bleed` is se
 
 ## Motion blur: `MotionBlur`, `Trail`
 
-Filled in by B1.
+A fast move rendered as sharp frames reads as a strobe: the card is here, then there. `MotionBlur` renders its `children` several times at sub-frame moments and blends them, the way a film camera's open shutter smears a moving object (it is `CameraMotionBlur` from `@remotion/motion-blur`). Example: `examples/motion-blur.tsx`.
+
+When to use it:
+
+- **On fast moves only**: a card flying in, a colour field pushing, kinetic text on an energetic brand. An element that travels more than about a quarter of the frame within six frames needs it; a spring settling, a slow drift or a fade does not.
+- **Never on text while it is being read.** Blur the move of a block that carries text, not the text standing still: once it has landed, it must be sharp.
+- **Never on the whole scene**: wrap the moving element, not the `AbsoluteFill` of the scene, and leave the `Backdrop` outside.
+- **At most two `MotionBlur` wrappers active in one frame.** Mount it only for the frames of the move and render the element bare before and after: `{frame >= at && frame < at + 6 ? <MotionBlur>{card}</MotionBlur> : card}`. Before the move and after the landing every sample is the same picture, so the wrapper costs as much and shows nothing.
+
+`samples` (default 3) is how many copies are blended: 2–6, larger values are clamped to 6, `1` renders `children` as they are. `shutterAngle` (default 180, 0–360) is how much of one frame the shutter stays open: 180 smears the element over half a frame of its move, 360 over a whole frame, `0` renders `children` as they are. The samples fall within the frame ahead of the current one (from frame + 1 − shutterAngle/360 to frame + 1); near frame 0 there are fewer of them. Give a large flat move (a colour field) `samples={4}`; keep the default for a card.
+
+Cost: every sample renders the whole wrapped subtree again, so a `MotionBlur` multiplies the render time of what it wraps by `samples`. Wrap a small subtree, for a few frames.
+
+`Trail` leaves a trail behind its `children`: `layers` (default 3, at most 6) copies that lag `lagInFrames` (default 1) frames each, the oldest faintest, the newest at `trailOpacity` (default 0.4) less one step; the element itself is drawn on top at full opacity. It is a visible echo, a style choice, not a blur: use it for a cursor, a dot or a logo mark swinging into place, not on text. `layers` 0 or `lagInFrames` 0 renders `children` as they are. It costs `layers + 1` renders of its subtree.
+
+Checks: the components inside run their checks once, in one copy. In `MotionBlur` it is the earliest sample, which in QA mode is pinned to the current frame, so an issue is reported for the frame being checked; in `Trail` it is the element itself. The other copies run with QA off. Both are pure functions of the frame.
 
 ## Camera: `Camera`, `useCamera`
 
