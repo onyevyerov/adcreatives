@@ -14,6 +14,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { publicSfxFile, SFX_OUTPUT_FORMAT } from "../src/constants.ts";
 import {
+  dropFailedQc,
   ensureCustomSfx,
   ensureStandardSfx,
   loadSfxLibrary,
@@ -206,12 +207,40 @@ describe("QC семплів SFX", () => {
     expect(client.calls).toHaveLength(3);
     expect((await storage.read(file.key)).toString()).toBe("bad:1");
     expect((await metaOf(storage)).qc).toMatchObject({ ok: false, reasons: ["r0"], attempts: 3 });
+    expect(file.qcOk).toBe(false);
+    // Повтор — з кешу, результат QC читається з метаданих.
+    const cached = await ensureStandardSfx(deps(storage, client), sharedCost(storage), "ding.1", def);
+    expect(cached).toMatchObject({ generated: false, qcOk: false });
 
     const plain = tmpStorage();
     const once = mockElevenLabs({ convert: [audioStream("bad:2")] });
-    await ensureStandardSfx(deps(plain, once), sharedCost(plain), "ding.1", def);
+    const unchecked = await ensureStandardSfx(deps(plain, once), sharedCost(plain), "ding.1", def);
     expect(once.calls).toHaveLength(1);
     expect((await metaOf(plain)).qc).toBeNull();
+    expect(unchecked.qcOk).toBeNull();
+  });
+
+  it("dropFailedQc: семпли без QC поза ротацією, якщо в cue лишається інший варіант", () => {
+    const v = (cue: string, variant: number, qcOk: boolean | null) => ({ cue, variant, file: { qcOk } });
+    const { kept, dropped } = dropFailedQc([
+      v("click", 1, false),
+      v("click", 2, false),
+      v("click", 3, true),
+      v("ding", 1, true),
+      v("ding", 2, false),
+      v("ding", 3, null),
+      // Жоден варіант не пройшов — cue лишає всі (краще поганий звук, ніж подія без звуку).
+      v("pop", 1, false),
+      v("pop", 2, false),
+    ]);
+    expect(kept.map((f) => `${f.cue}.${f.variant}`)).toEqual([
+      "click.3",
+      "ding.1",
+      "ding.3",
+      "pop.1",
+      "pop.2",
+    ]);
+    expect(dropped.map((f) => `${f.cue}.${f.variant}`)).toEqual(["click.1", "click.2", "ding.2"]);
   });
 
   it("старі метадані кешу без qc і outputFormat парсяться з дефолтами", () => {

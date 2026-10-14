@@ -43,6 +43,7 @@ import type { SfxSample } from "./samples.ts";
 import { brandTerms, createSanitizer } from "./sanitize.ts";
 import {
   type CueDefinition,
+  dropFailedQc,
   ensureCustomSfx,
   ensureStandardSfx,
   loadSfxLibrary,
@@ -362,10 +363,17 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       if (r.status === "fulfilled") sfxFiles.push(r.value);
       else logger.warn("SFX не згенерувався — сцена буде без нього", { err: String(r.reason) });
     }
-    const variantFiles: Array<{ cue: SoundCue; variant: number; file: SfxFile }> = [];
+    const generatedVariants: Array<{ cue: SoundCue; variant: number; file: SfxFile }> = [];
     for (const r of variantResults) {
-      if (r.status === "fulfilled") variantFiles.push(r.value);
+      if (r.status === "fulfilled") generatedVariants.push(r.value);
       else logger.warn("варіант SFX не згенерувався — пропускаємо", { err: String(r.reason) });
+    }
+    // Семпли, що не пройшли QC, — поза ротацією, якщо в cue є інший варіант.
+    const { kept: variantFiles, dropped: failedQc } = dropFailedQc(generatedVariants);
+    if (failedQc.length > 0) {
+      logger.warn("варіанти SFX не пройшли QC — поза ротацією", {
+        variants: failedQc.map((v) => variantLabel(v.cue, v.variant)),
+      });
     }
 
     // Файли для staticFile() хоста.

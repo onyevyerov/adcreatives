@@ -168,6 +168,35 @@ export interface SfxFile {
   durationMs: number;
   /** true — щойно згенеровано (був платний виклик). */
   generated: boolean;
+  /** Чи пройшов семпл QC (`<hash>.json`); null — без QC (старий кеш, хук не спрацював, немає meta). */
+  qcOk: boolean | null;
+}
+
+/**
+ * Варіанти для зведення без семплів, що не пройшли QC (`qcOk === false`: тиша, пізній onset, без
+ * висоти тону): після пікової нормалізації такий семпл звучить як підсилений шум. Відкидаються,
+ * лише коли в cue лишається хоч один варіант (пройшов QC або без QC); інакше cue зберігає всі —
+ * краще поганий звук, ніж подія без звуку. Порядок зберігається.
+ */
+export function dropFailedQc<T extends { cue: string; file: Pick<SfxFile, "qcOk"> }>(
+  files: readonly T[],
+): { kept: T[]; dropped: T[] } {
+  const usable = new Set(files.filter((f) => f.file.qcOk !== false).map((f) => f.cue));
+  const kept: T[] = [];
+  const dropped: T[] = [];
+  for (const f of files) (f.file.qcOk === false && usable.has(f.cue) ? dropped : kept).push(f);
+  return { kept, dropped };
+}
+
+/** QC семпла з meta кешу (`metaKey`): немає файлу чи він битий — null. */
+async function readQcOk(storage: Storage, metaKey: string): Promise<boolean | null> {
+  try {
+    if (!(await storage.exists(metaKey))) return null;
+    const meta = await storage.readJson(metaKey, (v) => SfxCacheMeta.parse(v));
+    return meta.qc ? meta.qc.ok : null;
+  } catch {
+    return null;
+  }
 }
 
 interface ReceivedSfx {
@@ -312,7 +341,9 @@ async function ensureCached(
   const exts: SfxFileExt[] = isPcmFormat(SFX_OUTPUT_FORMAT) ? ["wav", "mp3"] : ["mp3", "wav"];
   for (const ext of exts) {
     const key = keyFor(ext);
-    if (await deps.storage.exists(key)) return { cue, key, hash, durationMs, generated: false };
+    if (await deps.storage.exists(key)) {
+      return { cue, key, hash, durationMs, generated: false, qcOk: await readQcOk(deps.storage, metaKey) };
+    }
   }
   const { audio, qc, outputFormat } = await generateChecked(deps, resolveCost(cost), cue, def);
   const key = keyFor(audioExt(audio));
@@ -327,7 +358,7 @@ async function ensureCached(
     outputFormat,
   };
   await deps.storage.writeJson(metaKey, meta);
-  return { cue, key, hash, durationMs, generated: true };
+  return { cue, key, hash, durationMs, generated: true, qcOk: qc ? qc.ok : null };
 }
 
 /**
