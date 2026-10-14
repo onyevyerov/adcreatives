@@ -134,7 +134,7 @@ Here is the shape of a product-at-work scene with a filled mock, at 120 BPM (a b
     { "id": "row-1", "at": 75, "what": "The first row slides in with its Critical status.", "sound": { "cue": "pop", "accent": "normal" }, "textIds": ["t4", "t5"] },
     { "id": "row-2", "at": 90, "what": "The second row slides in with its Moderate status.", "sound": { "cue": "pop", "accent": "normal" }, "textIds": ["t6", "t7"] },
     { "id": "row-3", "at": 105, "what": "The third row slides in with its Minor status.", "sound": { "cue": "pop", "accent": "normal" }, "textIds": ["t8", "t9"] },
-    { "id": "fix-note", "at": 135, "what": "The fix line types itself under the first row.", "sound": { "cue": "tick", "accent": "soft" }, "textIds": ["t10"] }
+    { "id": "fix-note", "at": 135, "what": "The fix line types itself under the first row.", "sound": { "cue": "typing", "accent": "soft" }, "textIds": ["t10"] }
   ],
   "factIds": [],
   "assetIds": [],
