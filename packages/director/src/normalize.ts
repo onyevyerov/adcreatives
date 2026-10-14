@@ -22,8 +22,11 @@ import {
  * - сцена ≥ 45 кадрів; перехід ≤ третини коротшої сусідньої сцени;
  * - загальна тривалість за `computeTimeline` у межах 450–900 кадрів (або рівно бажана тривалість
  *   клієнта) — пропорційним масштабуванням тривалостей сцен;
- * - `musicBrief.bpm` → найближчий з `BPM_GRID`; тривалості сцен — цілі долі (`beatFrames`),
- *   загальна тривалість та сама (остачу забирає остання сцена);
+ * - `musicBrief.bpm` → найближчий з `BPM_GRID`; початки сцен (`from` на таймлайні, тобто склейки й
+ *   межі частин зведення) — на тактах (`quantizeScenes`), якщо жодна сцена не змінюється більше ніж
+ *   на пів такту, інакше — на долях; загальна тривалість та сама (остачу забирає остання сцена);
+ * - `musicBrief.structure`: перша (хук) і остання (фінал) сцени — у частині з `mix: "full"`
+ *   (`enforceMusicEnds`): ролик відкривається повним треком і не закінчується провалом;
  * - `items`: trim, унікальні id, відомі factIds; `events`: унікальні id, `at` у межах сцени
  *   (пропорційно до зміни тривалості; riser — до першого кадру наступної сцени), звукові удари — на найближчу
  *   восьму, riser ближче пів долі до наступної озвученої події — рівно на неї; legacy `sfxCue` → подія "arrive";
@@ -185,7 +188,85 @@ function longestWord(text: string, skipUnbreakable = false): number {
   return words.length ? Math.max(...words.map(graphemeLength)) : 0;
 }
 
-/** Тривалості сцен — цілі долі; сума кадрів ролика = `total`, остачу забирає остання сцена. */
+/** Долей у такті (4/4): трек генерується фразами по 4 такти, межі частин мають лягати на такти. */
+const BEATS_PER_BAR = 4;
+/**
+ * Вага скорочення сцени проти подовження: коротша сцена стискає свої події й час на читання текстів.
+ * Сцена breakdown (затримка подиху перед фіналом) і так коротка й тиха — її скорочення важить 1.
+ */
+const SHRINK_WEIGHT = 2;
+
+/**
+ * Початки сцен на сітці `grid` кадрів (динамічне програмування): склейка сцени i — `from` на таймлайні
+ * (`computeTimeline`), кратний `grid`; остання сцена тягнеться до `total`. Мінімізує сумарну відносну
+ * зміну довжин сцен (а не положень склейок — так довга сцена лишається довгою, коротка — короткою),
+ * скорочення сцени i важить `shrinkWeight[i]`; кожна сцена ≥ свого мінімуму і змінюється не більше
+ * ніж на `maxDelta` кадрів.
+ * Повертає `durationFrames` сцен або null, якщо таких меж немає.
+ */
+function quantizeScenes(
+  d: readonly number[],
+  t: readonly number[],
+  grid: number,
+  total: number,
+  maxDelta: number,
+  shrinkWeight: readonly number[],
+): number[] | null {
+  const n = d.length;
+  const tIn = (i: number) => (i === 0 || i >= n ? 0 : (t[i] as number));
+  // Довжина сцени на таймлайні — від її `from` до `from` наступної (перехід наступної перекриває кінець).
+  const raw = d.map((v, i) => v - tIn(i + 1));
+  const minLen = d.map((_, i) => floorFor(i, t as number[]) - tIn(i + 1));
+  const cost = (i: number, len: number): number => {
+    const r = raw[i] as number;
+    if (len < (minLen[i] as number) || Math.abs(len - r) > maxDelta) return Number.POSITIVE_INFINITY;
+    return ((len - r) / Math.max(1, r)) ** 2 * (len < r ? (shrinkWeight[i] as number) : 1);
+  };
+  const kMax = Math.ceil(total / grid) - 1; // склейка строго до кінця ролика
+  // best[k] — найменша вартість сцен 0..i, коли наступна сцена починається на k × grid.
+  let best: number[] = [0];
+  const choice: number[][] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const next = new Array<number>(kMax + 1).fill(Number.POSITIVE_INFINITY);
+    const from = new Array<number>(kMax + 1).fill(-1);
+    for (let k0 = 0; k0 < best.length; k0++) {
+      const c0 = best[k0] as number;
+      if (!Number.isFinite(c0)) continue;
+      for (let k = k0 + 1; k <= kMax; k++) {
+        const c = c0 + cost(i, (k - k0) * grid);
+        if (c < (next[k] as number)) {
+          next[k] = c;
+          from[k] = k0;
+        }
+      }
+    }
+    best = next;
+    choice.push(from);
+  }
+  let end = -1;
+  let endCost = Number.POSITIVE_INFINITY;
+  for (let k = 0; k < best.length; k++) {
+    const c = (best[k] as number) + cost(n - 1, total - k * grid);
+    if (c < endCost) {
+      endCost = c;
+      end = k;
+    }
+  }
+  if (end < 0) return null;
+  const starts: number[] = [end];
+  for (let i = n - 2; i >= 0; i--) starts.unshift((choice[i] as number[])[starts[0] as number] as number);
+  // starts[i] — початок сцени i у кроках сітки (starts[0] = 0).
+  return d.map((_, i) =>
+    i === n - 1
+      ? total - (starts[i] as number) * grid
+      : ((starts[i + 1] as number) - (starts[i] as number)) * grid + tIn(i + 1),
+  );
+}
+
+/**
+ * Запасний шлях, коли мінімуми сцен не вміщаються в `total`: тривалості — цілі долі, остача — останній
+ * сцені (вона не коротша за свій мінімум, навіть якщо ролик стає довшим).
+ */
 function quantizeToBeats(d: number[], t: number[], beat: number, total: number): void {
   const n = d.length;
   const need = total + t.reduce((a, b, i) => a + (i === 0 ? 0 : b), 0); // сума durationFrames
@@ -453,6 +534,39 @@ export function limitHits(sb: Storyboard, changes: string[]): void {
   });
 }
 
+/**
+ * Хук і фінал — на повному треку: частина структури, що першою містить першу чи останню сцену
+ * (саме її бере зведення), отримує `mix: "full"`. Якщо в ній є й інші сцени, крайня сцена виноситься
+ * в окрему частину (`hook` / `finale`) з тією ж енергією, а решта частини лишається як була.
+ * Сцена без частини і так звучить `full`.
+ */
+export function enforceMusicEnds(sb: Storyboard, changes: string[]): void {
+  const structure = sb.musicBrief.structure;
+  const first = sb.scenes[0]?.id;
+  const last = sb.scenes.at(-1)?.id;
+  for (const [id, label] of [
+    [first, "hook"],
+    [last, "finale"],
+  ] as const) {
+    if (id === undefined) continue;
+    const idx = structure.findIndex((p) => p.sceneIds.includes(id));
+    const part = structure[idx];
+    if (!part || part.mix === "full") continue;
+    if (part.sceneIds.length === 1) {
+      changes.push(`musicBrief: частина «${part.label}» (${id}) ${part.mix} → full`);
+      part.mix = "full";
+      continue;
+    }
+    part.sceneIds = part.sceneIds.filter((s) => s !== id);
+    const own = { label, sceneIds: [id], energy: part.energy, mix: "full" as const };
+    // Перед частиною для першої сцени, після — для останньої: порядок частин іде за сценами.
+    structure.splice(id === first ? idx : idx + 1, 0, own);
+    changes.push(
+      `musicBrief: ${id} винесено з частини «${part.label}» (${part.mix}) в окрему «${label}» (full)`,
+    );
+  }
+}
+
 export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): NormalizeResult {
   const sb: Storyboard = structuredClone(input);
   const changes: string[] = [];
@@ -506,6 +620,8 @@ export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): 
     normalizeEventList(scene, changes);
   }
 
+  enforceMusicEnds(sb, changes);
+
   // ---------- темп ----------
   const bpm = snapBpm(sb.musicBrief.bpm);
   if (bpm !== sb.musicBrief.bpm) changes.push(`musicBrief.bpm ${sb.musicBrief.bpm} → ${bpm}`);
@@ -557,7 +673,19 @@ export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): 
     else if (total > MAX_TOTAL_FRAMES) target = MAX_TOTAL_FRAMES;
   }
   if (target !== null) scaleTo(d, t, target);
-  quantizeToBeats(d, t, beat, target ?? totalOf(d, t));
+  const totalFrames = target ?? totalOf(d, t);
+  const bar = beat * BEATS_PER_BAR;
+  const breakdown = new Set(
+    sb.musicBrief.structure.filter((p) => p.mix === "breakdown").flatMap((p) => p.sceneIds),
+  );
+  const shrink = sb.scenes.map((s) => (breakdown.has(s.id) ? 1 : SHRINK_WEIGHT));
+  let onGrid = quantizeScenes(d, t, bar, totalFrames, bar / 2, shrink);
+  if (!onGrid) {
+    onGrid = quantizeScenes(d, t, beat, totalFrames, Number.POSITIVE_INFINITY, shrink);
+    if (d.length > 1) changes.push("склейки — на долях: на такти лише зі зміною сцени понад пів такту");
+  }
+  if (onGrid) d.splice(0, d.length, ...onGrid);
+  else quantizeToBeats(d, t, beat, totalFrames);
 
   sb.scenes.forEach((scene, i) => {
     const nd = d[i] as number;

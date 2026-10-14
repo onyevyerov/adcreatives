@@ -35,11 +35,15 @@ const SUBSTANCE_FIXTURE = JSON.parse(
   ),
 ) as { siteText: string; substance: ProductSubstance; scene: Storyboard["scenes"][number] };
 
-/** Розкадровка нового формату: темп із сітки, сцени — цілі долі (як після normalize). */
+/**
+ * Розкадровка нового формату (як після normalize): темп із сітки, склейки на тактах (80 кадрів при
+ * 90 BPM; переходи по 15 кадрів → сцени починаються з 0, 160, 320), остання сцена — до кінця ролика.
+ */
 function gridStoryboard(): Storyboard {
   const sb = structuredClone(fixtureStoryboard);
   sb.musicBrief.bpm = 90;
-  sb.scenes = sb.scenes.map((s) => ({ ...s, durationFrames: 160 }));
+  const durations = [175, 175, 130];
+  sb.scenes = sb.scenes.map((s, i) => ({ ...s, durationFrames: durations[i] as number }));
   return sb;
 }
 
@@ -370,8 +374,8 @@ describe("reviseStage: items і events", () => {
       ["arrive", 0],
       ["hours-in", 40], // восьма при 90 BPM — 10 кадрів
     ]);
-    // s2 починається з 145-го кадру (перехід 15): удар 145 + 40 = 185 → найближча восьма — 190.
-    expect(sb.scenes[1]?.events.find((e) => e.id === "price-hit")?.at).toBe(45);
+    // s2 починається зі 160-го кадру (такт): удар 160 + 40 = 200 — уже на восьмій.
+    expect(sb.scenes[1]?.events.find((e) => e.id === "price-hit")?.at).toBe(40);
     const record = await storage.readJson<{
       scenesToRegenerate: Array<{ sceneId: string; instruction: string }>;
     }>(directorPaths(PROJECT_ID, 2).revision);

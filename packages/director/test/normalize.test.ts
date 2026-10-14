@@ -53,12 +53,94 @@ function sb(scenes: Array<Partial<Storyboard["scenes"][number]>>): Storyboard {
 }
 
 describe("normalizeStoryboard", () => {
-  it("фікстура: темп 85 → 90 BPM, сцени — цілі долі (20 кадрів), загальна довжина та сама", () => {
+  it("фікстура: темп 85 → 90 BPM, сцени починаються на тактах (80 кадрів), загальна довжина та сама", () => {
     const res = normalizeStoryboard(fixtureStoryboard, { assetIds: ASSETS });
     expect(res.storyboard.musicBrief.bpm).toBe(90);
     expect(res.totalFrames).toBe(computeTimeline(fixtureStoryboard).totalFrames);
-    expect(res.storyboard.scenes.map((s) => s.durationFrames)).toEqual([160, 160, 160]);
+    // Переходи по 15 кадрів: склейка (`from`) — на такті, тож тривалість = такти + перехід наступної.
+    expect(res.storyboard.scenes.map((s) => s.durationFrames)).toEqual([175, 175, 130]);
+    expect(computeTimeline(res.storyboard).scenes.map((s) => s.from)).toEqual([0, 160, 320]);
     expect(res.changes).toContain("musicBrief.bpm 85 → 90");
+  });
+
+  it("склейки на тактах: сцени змінюються якомога менше, скорочується насамперед breakdown", () => {
+    // Ролик webreportio (rev 2): 1.5-тактові сцени при 120 BPM (такт 60 кадрів), breakdown — s5.
+    const base = sb(
+      [90, 120, 120, 165, 90, 105, 120].map((durationFrames) => ({
+        durationFrames,
+        transitionFrames: 0,
+        transitionIn: "cut" as const,
+      })),
+    );
+    base.musicBrief.bpm = 120;
+    base.musicBrief.structure = [
+      { label: "hook", sceneIds: ["s1"], energy: 0.6, mix: "full" },
+      { label: "build", sceneIds: ["s2", "s3", "s4"], energy: 0.8, mix: "full" },
+      { label: "breakdown", sceneIds: ["s5"], energy: 0.3, mix: "breakdown" },
+      { label: "finale", sceneIds: ["s6", "s7"], energy: 0.9, mix: "full" },
+    ];
+    const res = normalizeStoryboard(base, { assetIds: ASSETS });
+    expect(res.totalFrames).toBe(810);
+    for (const ts of computeTimeline(res.storyboard).scenes) expect(ts.from % 60).toBe(0);
+    // Хук не стискається до 2 с (скорочення важить удвічі), найдовша сцена лишається найдовшою,
+    // breakdown — один такт; остача — остання сцена.
+    expect(res.storyboard.scenes.map((s) => s.durationFrames)).toEqual([120, 120, 120, 180, 60, 120, 90]);
+    // Повторна нормалізація нічого не змінює.
+    expect(normalizeStoryboard(res.storyboard, { assetIds: ASSETS }).storyboard).toEqual(res.storyboard);
+  });
+
+  it("на такти не лягає без зміни сцени понад пів такту → склейки на долях", () => {
+    // 60 BPM: такт 120 кадрів; п'ять сцен по 90 кадрів (3 долі) у 450 кадрів тактами не вкладуться.
+    const base = sb(
+      Array.from({ length: 5 }, () => ({
+        durationFrames: 90,
+        transitionFrames: 0,
+        transitionIn: "cut" as const,
+      })),
+    );
+    base.musicBrief.bpm = 60;
+    const res = normalizeStoryboard(base, { assetIds: ASSETS });
+    expect(res.totalFrames).toBe(450);
+    expect(res.storyboard.scenes.map((s) => s.durationFrames)).toEqual([90, 90, 90, 90, 90]);
+    expect(res.changes).toContain("склейки — на долях: на такти лише зі зміною сцени понад пів такту");
+  });
+
+  it("структура музики: хук і фінал — у частинах full; спільна частина розділяється", () => {
+    const base = sb(
+      [120, 120, 120, 120].map((durationFrames) => ({
+        durationFrames,
+        transitionFrames: 0,
+        transitionIn: "cut" as const,
+      })),
+    );
+    base.musicBrief.bpm = 120;
+    base.musicBrief.structure = [
+      { label: "intro", sceneIds: ["s1"], energy: 0.6, mix: "filtered" },
+      { label: "drop", sceneIds: ["s2"], energy: 0.9, mix: "full" },
+      { label: "breakdown", sceneIds: ["s3", "s4"], energy: 0.3, mix: "breakdown" },
+    ];
+    const res = normalizeStoryboard(base, { assetIds: ASSETS });
+    expect(res.storyboard.musicBrief.structure.map((p) => [p.label, p.sceneIds, p.mix])).toEqual([
+      ["intro", ["s1"], "full"],
+      ["drop", ["s2"], "full"],
+      ["breakdown", ["s3"], "breakdown"],
+      ["finale", ["s4"], "full"],
+    ]);
+    expect(res.changes).toContain("musicBrief: частина «intro» (s1) filtered → full");
+    expect(res.changes).toContain(
+      "musicBrief: s4 винесено з частини «breakdown» (breakdown) в окрему «finale» (full)",
+    );
+
+    // Одна частина на весь ролик, filtered: хук і фінал виносяться, середина лишається.
+    base.musicBrief.structure = [
+      { label: "all", sceneIds: ["s1", "s2", "s3", "s4"], energy: 0.5, mix: "filtered" },
+    ];
+    const one = normalizeStoryboard(base, { assetIds: ASSETS });
+    expect(one.storyboard.musicBrief.structure.map((p) => [p.label, p.sceneIds, p.mix])).toEqual([
+      ["hook", ["s1"], "full"],
+      ["all", ["s2", "s3"], "filtered"],
+      ["finale", ["s4"], "full"],
+    ]);
   });
 
   it("bpm 120: тривалості сцен кратні 15 кадрам, загальна довжина точна (остача — остання сцена)", () => {
@@ -132,8 +214,9 @@ describe("normalizeStoryboard", () => {
       ]),
       { assetIds: ASSETS, durationSeconds: 20 },
     );
-    expect(stretched.storyboard.scenes[0]?.durationFrames).toBe(300);
-    expect(stretched.storyboard.scenes[0]?.events[0]?.at).toBe(120);
+    // 300 кадрів = 3.75 такту при 90 BPM → найближча межа такту — 320 (4 такти).
+    expect(stretched.storyboard.scenes[0]?.durationFrames).toBe(320);
+    expect(stretched.storyboard.scenes[0]?.events[0]?.at).toBe(128);
   });
 
   it("items: trim, порожні викинуто, унікальні id, відомі factIds; legacy sfxCue → подія arrive", () => {

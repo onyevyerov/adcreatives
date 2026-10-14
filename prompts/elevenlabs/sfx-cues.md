@@ -27,6 +27,8 @@ shimmer — одна чітка нота (тон оцінюється й під�
 впевнена висота тону; не пройшов — до 2 повторних генерацій, у кеш — найкраща спроба.
 `pnpm sfx-cache --recheck` — QC наявного кешу безкоштовно; `LIVE=1 pnpm sfx-cache --regenerate-failed`
 — перегенерувати ті, що не проходять (платно).
+Зведення не бере в ротацію варіант, що не пройшов QC, якщо в cue є інший (пройшов QC або без QC);
+якщо не пройшов жоден — грає всі, щоб подія не лишилась без звуку.
 
 - whoosh.1 (0.8 s): A single fast clean air whoosh passing close from left to right, swelling to one sharp peak exactly in the middle and falling away quickly, starts immediately with no silence at the beginning, modern motion graphics transition, dry, no reverb tail, loud and clean, normalized, centered in the stereo image
 - whoosh.2 (0.8 s): A single deep cinematic whoosh of a heavy object flying past the camera, smooth rise to one clear peak in the middle and a fast fall-off, starts immediately with no silence at the beginning, tight and dry, no reverb tail, loud and clean, normalized, centered in the stereo image

@@ -165,8 +165,9 @@ export function createReviseStage(opts: { now?: () => Date } = {}): Stage<"revis
       sceneId,
       instruction,
     }));
+    // З нормалізованою основою: доведення структури кодом (хук і фінал — full) — не зміна музики.
     const musicChanged =
-      plan.musicChanged || stableStringify(current.musicBrief) !== stableStringify(next.musicBrief);
+      plan.musicChanged || stableStringify(baseline.musicBrief) !== stableStringify(next.musicBrief);
     const durationChanged =
       plan.durationChanged || computeTimeline(current).totalFrames !== computeTimeline(next).totalFrames;
 
