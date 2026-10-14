@@ -1,4 +1,5 @@
-import type { DesignStats } from "@adc/shared";
+import type { DesignStats, SiteFontFace } from "@adc/shared";
+import { fontKey } from "./fonts.ts";
 import type { RawDesign } from "./inpage.ts";
 
 const COLOR_ROLES = ["background", "heading", "text", "button", "buttonText", "link"] as const;
@@ -61,4 +62,22 @@ export function mergeDesign(designs: Array<RawDesign | null>, perRole = 6): Desi
   const buttonRadius = [...radii.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
   return { cssVars, colors, fonts, buttonRadius, fontFaces: [] };
+}
+
+/**
+ * Зводить `@font-face` з усіх таблиць стилів і сторінок: та сама грань (сімейство, вага, стиль,
+ * діапазон символів, адреса) — один раз; порядок — порядок появи.
+ */
+export function mergeFontFaces(lists: ReadonlyArray<readonly SiteFontFace[]>): SiteFontFace[] {
+  const seen = new Set<string>();
+  const out: SiteFontFace[] = [];
+  for (const list of lists) {
+    for (const f of list) {
+      const key = [fontKey(f.family), f.weight, f.style, f.unicodeRange ?? "", f.url].join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(f);
+    }
+  }
+  return out;
 }

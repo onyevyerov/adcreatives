@@ -13,9 +13,17 @@ import {
 import { type Browser, chromium, type LaunchOptions, type Page } from "playwright";
 import { type AssetCandidate, buildSiteAssets, type DownloadedCandidate, MAX_SITE_ASSETS } from "./assets.ts";
 import { mergeContacts } from "./contacts.ts";
-import { mergeDesign } from "./design.ts";
+import { mergeDesign, mergeFontFaces } from "./design.ts";
 import { detectLanguageVersions, type LinkCandidate, parseSitemap, selectPages } from "./discovery.ts";
 import { safeFetch } from "./fetch.ts";
+import {
+  allowedFontFaces,
+  type CssSource,
+  createStylesheetCollector,
+  downloadFontFiles,
+  inlineFontCss,
+  parseFontFaces,
+} from "./fonts.ts";
 import { type HostMap, UrlGuard } from "./guard.ts";
 import {
   autoScroll,
@@ -104,6 +112,8 @@ interface Visit {
   index: number;
   raw: RawPage;
   screenshots: SiteData["screenshots"];
+  /** `@font-face` із вбудованих стилів сторінки. */
+  fontCss: CssSource | null;
 }
 
 /** Блоки JSON-LD, які не описують бізнес. */
@@ -215,6 +225,9 @@ export async function crawlSite(inputUrl: string, opts: CrawlOptions): Promise<C
     });
     context.setDefaultTimeout(15_000);
     await guard.install(context, { blockMedia: true });
+    // CSS-відповіді всіх вкладок — джерело `@font-face` (зовнішні таблиці стилів і @import).
+    const stylesheets = createStylesheetCollector(logger);
+    context.on("response", stylesheets.onResponse);
 
     const visit = async (page: Page, url: string, index: number, until: number): Promise<Visit> => {
       const response = await page.goto(url, {
@@ -245,6 +258,7 @@ export async function crawlSite(inputUrl: string, opts: CrawlOptions): Promise<C
 
       const raw = await withTimeout(extractPage(page), step(20_000), "витягування даних");
       if (stopped) throw new PageError("краулінг зупинено");
+      const fontCss = await withTimeout(inlineFontCss(page), step(2_000)).catch(() => null);
 
       const screenshots: SiteData["screenshots"] = [];
       const shoot = async (viewport: "first" | "below-1" | "below-2", y: number) => {
@@ -264,7 +278,7 @@ export async function crawlSite(inputUrl: string, opts: CrawlOptions): Promise<C
           await shoot(k === 1 ? "below-1" : "below-2", k * h);
         }
       }
-      return { index, raw, screenshots };
+      return { index, raw, screenshots, fontCss };
     };
 
     // 1. Головна.
@@ -368,12 +382,31 @@ export async function crawlSite(inputUrl: string, opts: CrawlOptions): Promise<C
     stopped = true;
     if (next < selected.length) timedOut = true;
     checkAbort();
+    // Тексти CSS читаються, поки вкладки живі.
+    const sheetSources = await stylesheets.flush(Math.min(5_000, Math.max(0, remaining() - 1_000)));
+    context.off("response", stylesheets.onResponse);
     for (const tab of [homeTab, ...extraTabs]) await tab.close().catch(() => {});
 
-    // 4. Асети.
+    // 4. Асети і шрифти сайту (паралельно, у межах загального дедлайну).
     visits.sort((a, b) => a.index - b.index);
+    const design = mergeDesign(visits.map((v) => v.raw.design));
+    const cssSources = [...sheetSources, ...visits.flatMap((v) => (v.fontCss ? [v.fontCss] : []))];
+    const faces = await allowedFontFaces(
+      mergeFontFaces(cssSources.map((s) => parseFontFaces(s.css, s.baseUrl))),
+      guard,
+    );
     const assetCandidates = collectAssetCandidates(visits);
-    const downloaded = await downloadCandidates(guard, assetCandidates, deadline, progress, logger);
+    const [downloaded, fontFaces] = await Promise.all([
+      downloadCandidates(guard, assetCandidates, deadline, progress, logger),
+      downloadFontFiles(faces, design?.fonts ?? [], {
+        guard,
+        storage: opts.storage,
+        projectId: opts.projectId,
+        deadline,
+        referer: homeUrl,
+        logger,
+      }),
+    ]);
     const assets = await buildSiteAssets(downloaded, {
       storage: opts.storage,
       projectId: opts.projectId,
@@ -416,7 +449,7 @@ export async function crawlSite(inputUrl: string, opts: CrawlOptions): Promise<C
         visits.map((v) => v.raw.contacts),
         pages.flatMap((p) => p.jsonLd),
       ),
-      design: mergeDesign(visits.map((v) => v.raw.design)),
+      design: design ? { ...design, fontFaces } : null,
       screenshots: visits.flatMap((v) => v.screenshots),
       manualText: null,
       stats: { pagesVisited: visits.length, pagesFailed: failed, durationMs: Date.now() - started },
