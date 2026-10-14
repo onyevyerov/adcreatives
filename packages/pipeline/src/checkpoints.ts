@@ -141,7 +141,10 @@ export async function buildScriptCheckpoint(
     (Math.round((frames / storyboard.fps) * 10) / 10).toString().replace(".", ",");
   // ⚠ у рядку сцени — непідтверджене в headline/sub; у пунктах — біля самого пункту.
   const flagged = new Set(claims.unverified.filter((c) => c.field !== "item").map((c) => c.sceneId));
-  const lines = [t("scriptCheckpointIntro"), "", `**${storyboard.concept}**`, ""];
+  const lines = [t("scriptCheckpointIntro"), "", `**${storyboard.concept}**`];
+  // Наскрізний об'єкт — під концептом: власник бачить, що несе фільм через склейки (старі розкадровки — без рядка).
+  if (storyboard.throughline) lines.push(t("scriptThroughline", { object: storyboard.throughline.object }));
+  lines.push("");
   lines.push(t("scriptScenesHeader", { seconds: sec(timeline.totalFrames) }));
   storyboard.scenes.forEach((scene, i) => {
     const tl = timeline.scenes[i];

@@ -131,9 +131,25 @@
     "factIds": [],
     "assetIds": [],
     "layoutIntent": "custom",
-    "motionIntent": "A report card rises on the stage background with the eyebrow above it. The score counts up to 47 of 100 while the stage tints towards danger. Three rows arrive one per beat, each with its status pill: Critical in danger, Moderate in warning, Minor in a muted surface tone. The fix line types in with its estimate; the next scene turns the rows into a plan and the tint returns to the base colour.",
+    "motionIntent": "The teal dot that closed the previous scene stretches into the report card, which rises on the stage background with the eyebrow above it. The score counts up to 47 of 100 while the stage tints towards danger. Three rows arrive one per beat, each with its status pill: Critical in danger, Moderate in warning, Minor in a muted surface tone. The fix line types in with its estimate; the card folds back into the teal dot, which becomes the full stop of the next scene's call to action as the tint returns to the base colour.",
     "transitionIn": "cut",
     "sfxCue": null,
     "musicEnergy": 0.7
+  },
+  "throughline": {
+    "object": "the teal dot",
+    "states": [
+      {
+        "sceneId": "s1",
+        "state": "The dot is the cursor of the address field; it jumps right as the scan starts."
+      },
+      { "sceneId": "s2", "state": "The dot runs along the scan line and stops on the slowest page." },
+      { "sceneId": "s3", "state": "The dot is the full stop after the call to action." },
+      {
+        "sceneId": "s4",
+        "state": "The dot stretches into the report card and folds back into a dot at the join."
+      },
+      { "sceneId": "s9", "state": "A scene the storyboard does not have." }
+    ]
   }
 }
