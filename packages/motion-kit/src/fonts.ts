@@ -1,15 +1,21 @@
+import type { LocalFont } from "@adc/shared/types/video";
+import { loadFont } from "@remotion/fonts";
 import type { FontInfo } from "@remotion/google-fonts/base";
 import { loadFontFromInfo } from "@remotion/google-fonts/from-info";
+import { staticFile } from "remotion";
 
 /**
- * Шрифти бренду з Google Fonts.
+ * Шрифти бренду: з Google Fonts або локальні файли сайту.
  *
  * Метадані шрифту (`FontInfo`, лише URL-и файлів) резолвить рендер на боці Node і передає в
  * inputProps — так у бандл не потрапляють ~1800 модулів `@remotion/google-fonts`.
  * У браузері `loadFontFromInfo` реєструє `@font-face` і чекає файли (`delayRender` усередині).
+ *
+ * Сімейства з `origin: "local"` (шрифт сайту, якого немає в Google Fonts) приходять як `LocalFont[]`:
+ * файли лежать у `public/fonts/` задачі, `loadFont` з `@remotion/fonts` реєструє їх через `staticFile`.
  */
 
-export type { FontInfo };
+export type { FontInfo, LocalFont };
 
 /** Потрібні підмножини: українська й англійська. */
 export const FONT_SUBSETS = ["latin", "cyrillic"] as const;
@@ -60,21 +66,49 @@ export interface FontPlan {
   /** Фактичні ваги, які буде завантажено (≤ запитаних, дедуплікація). */
   weights: number[];
   subsets: string[];
-  /** null — шрифту немає серед переданих метаданих (рендеримо резервним стеком). */
+  /** null — шрифту немає серед переданих метаданих Google Fonts. */
   info: FontInfo | null;
+  /**
+   * Локальні файли сімейства (лише коли `info` null): по одному на фактичну вагу.
+   * Порожньо разом з `info: null` — рендеримо резервним стеком.
+   */
+  local: LocalFont[];
 }
 
-/** Ваги і підмножини, які реально є в шрифті. */
-export function planFont(family: string, wanted: readonly number[], infos: readonly FontInfo[]): FontPlan {
+/**
+ * Ваги і підмножини, які реально є в шрифті. Спершу шукає серед метаданих Google Fonts, далі —
+ * серед локальних файлів сайту (`localFonts`).
+ */
+export function planFont(
+  family: string,
+  wanted: readonly number[],
+  infos: readonly FontInfo[],
+  localFonts: readonly LocalFont[] = [],
+): FontPlan {
   const info = infos.find((i) => i.fontFamily === family) ?? null;
-  if (!info) return { family, weights: [...new Set(wanted)].sort((a, b) => a - b), subsets: [], info: null };
+  if (!info) {
+    const files = localFonts.filter((f) => f.family === family);
+    if (files.length === 0)
+      return {
+        family,
+        weights: [...new Set(wanted)].sort((a, b) => a - b),
+        subsets: [],
+        info: null,
+        local: [],
+      };
+    const available = files.map((f) => f.weight);
+    const weights = [...new Set(wanted.map((w) => nearestWeight(w, available)))].sort((a, b) => a - b);
+    // Одна вага — один файл (перший; формати рендер уже відібрав).
+    const local = weights.map((w) => files.find((f) => f.weight === w) as LocalFont);
+    return { family, weights, subsets: [], info: null, local };
+  }
   const normal = info.fonts.normal ?? {};
   const available = Object.keys(normal)
     .map(Number)
     .filter((n) => !Number.isNaN(n));
   const weights = [...new Set(wanted.map((w) => nearestWeight(w, available)))].sort((a, b) => a - b);
   const subsets = FONT_SUBSETS.filter((s) => info.subsets.includes(s));
-  return { family, weights, subsets, info };
+  return { family, weights, subsets, info, local: [] };
 }
 
 /**
@@ -102,6 +136,16 @@ export function pruneFontInfo(info: FontInfo, wanted: readonly number[]): FontIn
 
 /** Завантажує шрифт у документ; повертає промис готовності. */
 export async function loadPlannedFont(plan: FontPlan): Promise<void> {
+  if (plan.local.length > 0) {
+    // `loadFont` сам тримає `delayRender` на кожен файл; помилка завантаження скасовує рендер,
+    // тому до браузера доходять лише файли, які підготовка задачі справді поклала в public/.
+    await Promise.all(
+      plan.local.map((f) =>
+        loadFont({ family: plan.family, url: staticFile(f.src), weight: String(f.weight), format: f.format }),
+      ),
+    );
+    return;
+  }
   if (!plan.info || plan.subsets.length === 0) return;
   const loaded = loadFontFromInfo(plan.info, "normal", {
     weights: plan.weights.map(String),

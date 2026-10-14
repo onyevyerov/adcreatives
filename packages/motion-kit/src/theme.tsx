@@ -1,9 +1,10 @@
 import type { BrandKit, MotionPersonality, Palette } from "@adc/shared/schemas/brandkit";
-import type { AssetRef } from "@adc/shared/types/video";
+import type { AssetRef, LocalFont } from "@adc/shared/types/video";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { useDelayRender } from "remotion";
 import {
   type FontInfo,
+  type FontPlan,
   fontStack,
   loadPlannedFont,
   MONO_FALLBACK_STACK,
@@ -86,22 +87,34 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+/** Чи треба щось завантажувати за планом (Google Fonts або локальні файли сайту). */
+function hasFontToLoad(plan: FontPlan): boolean {
+  return plan.info !== null || plan.local.length > 0;
+}
+
 /**
- * Ставить хост. Завантажує шрифти бренду (`fonts` — метадані Google Fonts від рендера),
- * не малює дітей, доки шрифти не готові (інакше виміри тексту були б з резервного шрифту).
+ * Ставить хост. Завантажує шрифти бренду (`fonts` — метадані Google Fonts від рендера,
+ * `localFonts` — файли шрифтів сайту в `public/fonts/`), не малює дітей, доки шрифти не готові
+ * (інакше виміри тексту були б з резервного шрифту).
  */
-export function ThemeProvider(props: { brand: BrandKit; fonts?: FontInfo[]; children: ReactNode }) {
-  const { brand, fonts } = props;
+export function ThemeProvider(props: {
+  brand: BrandKit;
+  fonts?: FontInfo[];
+  localFonts?: LocalFont[];
+  children: ReactNode;
+}) {
+  const { brand, fonts, localFonts } = props;
   const plans = useMemo(() => {
     const infos = fonts ?? [];
+    const local = localFonts ?? [];
     const mono = monoChoice(brand.typography);
     return {
-      heading: planFont(brand.typography.heading.family, brand.typography.heading.weights, infos),
-      body: planFont(brand.typography.body.family, brand.typography.body.weights, infos),
-      mono: planFont(mono.family, mono.weights, infos),
+      heading: planFont(brand.typography.heading.family, brand.typography.heading.weights, infos, local),
+      body: planFont(brand.typography.body.family, brand.typography.body.weights, infos, local),
+      mono: planFont(mono.family, mono.weights, infos, local),
     };
-  }, [brand, fonts]);
-  const needsLoading = plans.heading.info !== null || plans.body.info !== null || plans.mono.info !== null;
+  }, [brand, fonts, localFonts]);
+  const needsLoading = hasFontToLoad(plans.heading) || hasFontToLoad(plans.body) || hasFontToLoad(plans.mono);
   const { delayRender, continueRender } = useDelayRender();
   const [handle] = useState(() => (needsLoading ? delayRender("motion-kit: шрифти бренду") : null));
   const [ready, setReady] = useState(!needsLoading);
@@ -109,9 +122,16 @@ export function ThemeProvider(props: { brand: BrandKit; fonts?: FontInfo[]; chil
   useEffect(() => {
     if (!needsLoading) return;
     let cancelled = false;
-    Promise.all([loadPlannedFont(plans.heading), loadPlannedFont(plans.body), loadPlannedFont(plans.mono)])
-      .catch((err: unknown) => {
-        console.warn(`motion-kit: шрифти не завантажились, резервний стек: ${String(err)}`);
+    // allSettled: збій однієї ролі не відпускає рендер, поки інші ще вантажаться.
+    Promise.allSettled([
+      loadPlannedFont(plans.heading),
+      loadPlannedFont(plans.body),
+      loadPlannedFont(plans.mono),
+    ])
+      .then((results) => {
+        for (const r of results)
+          if (r.status === "rejected")
+            console.warn(`motion-kit: шрифти не завантажились, резервний стек: ${String(r.reason)}`);
       })
       .finally(() => {
         if (!cancelled) setReady(true);
