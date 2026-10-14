@@ -128,6 +128,7 @@ export function resolveFont(
     family: font.family,
     weights: nearestWeights(choice.weights, font.weights, role),
     origin: detectedKeys.has(fontKey(font.family)) ? "site" : "substitute",
+    files: [],
   });
 
   if (found && ok(found)) return { choice: build(found), fix: null };
@@ -174,7 +175,7 @@ export function resolveMono(
 ): FontResolution {
   const fallback = (fix: string | null): FontResolution => ({
     ...resolveFont(
-      { family: DEFAULT_MONO, weights: choice?.weights ?? [], origin: "substitute" },
+      { family: DEFAULT_MONO, weights: choice?.weights ?? [], origin: "substitute", files: [] },
       "mono",
       opts,
     ),

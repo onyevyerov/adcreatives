@@ -1,8 +1,10 @@
 import type { SceneProps } from "@adc/motion-kit";
 import type { ComponentType } from "react";
+import CameraCursor from "./camera-cursor.tsx";
 import CtaLogo from "./cta-logo.tsx";
 import DeviceReveal from "./device-reveal.tsx";
 import HookPhoto from "./hook-photo.tsx";
+import MotionBlurExample from "./motion-blur.tsx";
 import OfferPrice from "./offer-price.tsx";
 import Proof from "./proof.tsx";
 import Typographic from "./typographic.tsx";
@@ -17,4 +19,6 @@ export const exampleScenes: Record<string, ComponentType<SceneProps>> = {
   "cta-logo": CtaLogo,
   "device-reveal": DeviceReveal,
   "ui-demo": UiDemo,
+  "motion-blur": MotionBlurExample,
+  "camera-cursor": CameraCursor,
 };

@@ -58,7 +58,7 @@ describe("тема", () => {
       palette: { ...fixtureBrandKit.palette, danger: "#D93636" },
       typography: {
         ...fixtureBrandKit.typography,
-        mono: { family: "JetBrains Mono", weights: [400], origin: "substitute" },
+        mono: { family: "JetBrains Mono", weights: [400], origin: "substitute", files: [] },
       },
     });
     expect(t.palette.danger).toBe("#D93636");

@@ -16,7 +16,8 @@ RUN apt-get update \
        libnss3 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 \
        libasound2 libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 \
        libpango-1.0-0 libcairo2 libexpat1 \
-       fonts-noto-core fonts-dejavu-core \
+       fonts-noto-core fonts-dejavu-core fonts-noto-color-emoji \
+  && fc-cache -f \
   && rm -rf /var/lib/apt/lists/*
 
 # pnpm — версія з поля packageManager кореневого package.json.

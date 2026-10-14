@@ -60,5 +60,5 @@ export function mergeDesign(designs: Array<RawDesign | null>, perRole = 6): Desi
   for (const d of list) for (const [r, n] of Object.entries(d.radii)) radii.set(r, (radii.get(r) ?? 0) + n);
   const buttonRadius = [...radii.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
-  return { cssVars, colors, fonts, buttonRadius };
+  return { cssVars, colors, fonts, buttonRadius, fontFaces: [] };
 }

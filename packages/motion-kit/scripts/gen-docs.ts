@@ -27,6 +27,8 @@ const SECTIONS: Array<[string, string]> = [
   ["devices/motion", "Девайси: useBeat, Breathe"],
   ["devices/reveal", "Девайси: ColorField, ClipReveal"],
   ["devices/shape", "Девайси: DrawPath, MorphShape"],
+  ["devices/blur", "Девайси: MotionBlur, Trail"],
+  ["devices/camera", "Девайси: Camera"],
   ["icons/Icon", "Іконки: Icon"],
   ["icons/names", "Іконки: назви (IconName)"],
   ["icons/paths", "Іконки: шляхи (дані lucide)"],

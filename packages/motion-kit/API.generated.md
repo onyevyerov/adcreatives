@@ -25,6 +25,8 @@ export type { Scene, ScenePurpose, Storyboard } from "@adc/shared/schemas/storyb
 export { eventFrame } from "@adc/shared/timeline";
 export type { AssetRef, AudioManifest, MainProps, ScenePreviewProps, SceneProps, } from "@adc/shared/types/video";
 export { averageColor, contrastRatio, isDark, minContrastFor, mix, parseColor, readableOn, relativeLuminance, withAlpha, } from "./color.ts";
+export { MotionBlur, Trail } from "./devices/blur.tsx";
+export { Camera, type CameraKey, useCamera } from "./devices/camera.tsx";
 export { Breathe, useBeat } from "./devices/motion.tsx";
 export { ClipReveal, ColorField, type Side } from "./devices/reveal.tsx";
 export { DrawPath, type MorphKey, MorphShape } from "./devices/shape.tsx";
@@ -672,6 +674,64 @@ export declare function MorphShape(props: {
 }): import("react").JSX.Element;
 ```
 
+## Девайси: MotionBlur, Trail
+
+`src/devices/blur`
+
+```ts
+import type { JSX, ReactNode } from "react";
+/** Субкадровий motion blur: `samples` проміжних кадрів у межах `shutterAngle` змішуються (@remotion/motion-blur CameraMotionBlur). */
+export declare function MotionBlur(props: {
+    /** 3 */
+    samples?: number;
+    /** 180 */
+    shutterAngle?: number;
+    children: ReactNode;
+}): JSX.Element;
+/** Шлейф: `layers` копій дітей із відставанням `lagInFrames`, прозорість спадає до `trailOpacity` (@remotion/motion-blur Trail). */
+export declare function Trail(props: {
+    /** 3 */
+    layers?: number;
+    /** 1 */
+    lagInFrames?: number;
+    /** 0.4 */
+    trailOpacity?: number;
+    children: ReactNode;
+}): JSX.Element;
+```
+
+## Девайси: Camera
+
+`src/devices/camera`
+
+```ts
+import type { JSX, ReactNode } from "react";
+import type { EasingFn } from "../motion.ts";
+/** Ключ камери: з кадру `at` камера наїжджає на прямокутник `x, y, width, height` (px кадру). */
+export interface CameraKey {
+    at: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+/** Віртуальна камера: шар на весь кадр, що наїжджає на прямокутник ключа (масштаб + зсув), один рух за раз. */
+export declare function Camera(props: {
+    keys: CameraKey[];
+    /** 18 */
+    duration?: number;
+    easing?: EasingFn;
+    children: ReactNode;
+}): JSX.Element;
+/** Поточна трансформація камери для перевірок QA; identity поза Camera. */
+export declare function useCamera(): {
+    active: boolean;
+    scale: number;
+    tx: number;
+    ty: number;
+};
+```
+
 ## Іконки: Icon
 
 `src/icons/Icon`
@@ -1022,11 +1082,16 @@ export declare function TemplateScene(props: SceneProps & {
 
 ```ts
 import type { AudioManifest } from "@adc/shared/types/video";
+/**
+ * Звук — через `Html5Audio`: при рендері Remotion бере аудіо з файлу цілком (ffmpeg), без змін.
+ * `<Audio>` з `@remotion/media` витягує аудіо покадрово й склеює з округленням до семпла —
+ * розрив хвилі на кожному стику кадрів (30 разів на секунду), чутний як тріск.
+ */
 /** Гучність музики з fade-out наприкінці ролика (чиста функція від кадру). */
 export declare function musicVolumeAt(frame: number, totalFrames: number, fadeOutFrames: number, volume: number): number;
 /**
  * Лише для хоста: звук ролика. Є готове зведення (`audio.mix`) — грає лише його, як є:
- * музика, події, дакінг, fade-out і мастер уже всередині. Інакше (старий `audio.json`) —
+ * музика, події, дакінг, антиклік у кінці (250 мс) і мастер уже всередині. Інакше (старий `audio.json`) —
  * музика з fade-out наприкінці; довший трек підрізається.
  */
 export declare function MusicTrack(props: {

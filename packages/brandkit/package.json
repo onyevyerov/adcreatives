@@ -13,10 +13,12 @@
   },
   "dependencies": {
     "@adc/shared": "workspace:*",
+    "fontkit": "^2.0.4",
     "sharp": "^0.35.5",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.131.0"
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@types/fontkit": "^2.0.9"
   }
 }

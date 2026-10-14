@@ -499,6 +499,80 @@ describe("Крок 0 «якість відео»: сумісність зі ст
   });
 });
 
+describe("Крок 0 «прогалини якості»: сумісність зі старими даними", () => {
+  /** Об'єкт без поля — як у JSON до цього кроку. */
+  const without = <T extends object>(value: T, ...keys: string[]): unknown => {
+    const copy = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+    for (const k of keys) delete copy[k];
+    return copy;
+  };
+
+  it("старий storyboard без throughline парситься з null; новий зберігає об'єкт", () => {
+    expect(Storyboard.parse(without(fixtureStoryboard, "throughline")).throughline).toBeNull();
+    const throughline = {
+      object: "the teal dot",
+      states: [
+        { sceneId: "s1", state: "a dot on the address bar; becomes the scan line" },
+        { sceneId: "s2", state: "the scan line; folds into the price tag" },
+      ],
+    };
+    roundTrip(Storyboard, { ...fixtureStoryboard, throughline });
+    expect(() =>
+      Storyboard.parse({ ...fixtureStoryboard, throughline: { object: "x", states: [] } }),
+    ).toThrow();
+  });
+
+  it("старий бренд-кіт без files парситься з []; local зберігає файли", () => {
+    const kit = JSON.parse(JSON.stringify(fixtureBrandKitFile));
+    delete kit.typography.heading.files;
+    delete kit.typography.body.files;
+    const parsed = BrandKitFile.parse(kit);
+    expect(parsed.typography.heading.files).toEqual([]);
+    expect(parsed.typography.body.files).toEqual([]);
+    const local = {
+      family: "Brand Grotesk",
+      weights: [400, 700],
+      origin: "local" as const,
+      files: [
+        {
+          weight: 400,
+          style: "normal" as const,
+          format: "woff2" as const,
+          path: "crawl/fonts/brandgrotesk-400.woff2",
+        },
+        {
+          weight: 700,
+          style: "normal" as const,
+          format: "woff2" as const,
+          path: "crawl/fonts/brandgrotesk-700.woff2",
+        },
+      ],
+    };
+    roundTrip(BrandKitFile, {
+      ...fixtureBrandKitFile,
+      typography: { ...fixtureBrandKitFile.typography, heading: local },
+    });
+  });
+
+  it("старий site.json без fontFaces парситься з []", () => {
+    const site = JSON.parse(JSON.stringify(fixtureSiteData));
+    delete site.design.fontFaces;
+    expect(SiteData.parse(site).design?.fontFaces).toEqual([]);
+    const face = {
+      family: "Brand Grotesk",
+      weight: 400,
+      style: "normal" as const,
+      format: "woff2" as const,
+      url: "https://zerno.example.com/fonts/brand.woff2",
+      unicodeRange: "U+0400-04FF",
+      path: null,
+    };
+    const design = fixtureSiteData.design;
+    if (!design) throw new Error("fixtureSiteData без design");
+    roundTrip(SiteData, { ...fixtureSiteData, design: { ...design, fontFaces: [face] } });
+  });
+});
+
 describe("toStrictJsonSchema", () => {
   // AudioPlan — збережений план; LLM-схема стадії — AudioPlanDraft у @adc/audio.
   const llmSchemas = { BrandKit, BrandKitPatch, Storyboard, QaReport, RevisionPlan, ChatIntent };

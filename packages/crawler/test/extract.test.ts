@@ -108,6 +108,7 @@ describe("дизайн", () => {
         { role: "body", family: "Inter", weight: 400 },
       ],
       buttonRadius: "999px",
+      fontFaces: [],
     });
     expect(mergeDesign([null])).toBeNull();
   });

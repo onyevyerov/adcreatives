@@ -38,10 +38,10 @@ export interface BrandSummary {
   };
   logoCandidates: MediaLink[];
   fonts: {
-    heading: { family: string; weights: number[]; origin: "site" | "substitute" };
-    body: { family: string; weights: number[]; origin: "site" | "substitute" };
+    heading: { family: string; weights: number[]; origin: "site" | "substitute" | "local" };
+    body: { family: string; weights: number[]; origin: "site" | "substitute" | "local" };
     /** Моношрифт для чисел і міток; null — старий бренд-кіт (тема візьме JetBrains Mono). */
-    mono: { family: string; weights: number[]; origin: "site" | "substitute" } | null;
+    mono: { family: string; weights: number[]; origin: "site" | "substitute" | "local" } | null;
   };
   tone: string[];
   formality: BrandKitFile["voice"]["formality"];

@@ -150,6 +150,14 @@ Ready-made moves; prefer one to building the same move by hand. Each is a pure f
 
 Checks: `DrawPath` and `MorphShape` log `outside_safe_area` unless `bleed` is set (for decoration meant to reach the frame edge). The other devices check nothing themselves; text and images inside them check themselves.
 
+## Motion blur: `MotionBlur`, `Trail`
+
+Filled in by B1.
+
+## Camera: `Camera`, `useCamera`
+
+Filled in by B2.
+
 ## Showing the product: icons, data, interface, effects
 
 Ready-made pieces for scenes that show the product at work: an address typed into a field, a page being scanned, checks ticking off, a number counting up, a ring or bars filling, a competitor's price struck out. Each is a pure function of the frame, like the devices: before its start it shows its start state, after its end its end state, and the same frame always gives the same picture. Colours default to palette roles; every `color` prop takes either a palette role (`"accent"`, `"primary"`, `"surface"`…) or a CSS colour. Example: `examples/ui-demo.tsx`.

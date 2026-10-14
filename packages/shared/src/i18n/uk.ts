@@ -53,6 +53,7 @@ export const I18N_KEYS = [
   "manualAccepted",
   "scriptScenesHeader",
   "photosPending",
+  "scriptThroughline",
 ] as const;
 export type I18nKey = (typeof I18N_KEYS)[number];
 
@@ -117,6 +118,7 @@ export const uk: Record<I18nKey, string> = {
   deliveredHint: "Якщо хочете щось змінити — просто напишіть правку.",
   manualAccepted: "Дякую! Роблю відео за вашим описом.",
   scriptScenesHeader: "Сцени ({seconds} с):",
+  scriptThroughline: "Наскрізний об'єкт: {object}",
   photosPending: "Фото отримав — додам їх, щойно закінчу сканувати сайт.",
 };
 

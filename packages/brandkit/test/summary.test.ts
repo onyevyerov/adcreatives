@@ -54,7 +54,7 @@ describe("brand summary", () => {
       palette: { ...fixtureBrandKitFile.palette, danger: "#E5484D", warning: null, success: "#30A46C" },
       typography: {
         ...fixtureBrandKitFile.typography,
-        mono: { family: "JetBrains Mono", weights: [400, 700], origin: "substitute" as const },
+        mono: { family: "JetBrains Mono", weights: [400, 700], origin: "substitute" as const, files: [] },
       },
       substance: {
         ...fixtureBrandKitFile.substance,

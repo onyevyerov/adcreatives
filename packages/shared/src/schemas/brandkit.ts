@@ -39,12 +39,28 @@ export type SemanticPaletteRole = (typeof SEMANTIC_PALETTE_ROLES)[number];
 /** Брендові ролі палітри — завжди задані. */
 export type BasePaletteRole = Exclude<keyof Palette, SemanticPaletteRole>;
 
+/** Файл шрифту сайту в сховищі (для `origin: "local"`). */
+export const FontFile = z.object({
+  weight: z.number().int().min(100).max(900),
+  /** Italic не підтримуємо. */
+  style: z.enum(["normal"]),
+  format: z.enum(["woff2", "woff", "truetype", "opentype"]),
+  /** Ключ у сховищі: crawl/fonts/<fontKey>-<weight>.<ext>. */
+  path: z.string(),
+});
+export type FontFile = z.infer<typeof FontFile>;
+
 export const FontChoice = z.object({
-  /** Назва в Google Fonts. */
+  /** Назва в Google Fonts; при `origin: "local"` — назва сімейства з `@font-face` сайту (дослівно). */
   family: z.string(),
   weights: z.array(z.number().int().min(100).max(900)).min(1),
-  /** Звідки шрифт: виявлений на сайті і знайдений у Google Fonts, або підібраний замінник. */
-  origin: z.enum(["site", "substitute"]),
+  /**
+   * Звідки шрифт: виявлений на сайті і знайдений у Google Fonts, підібраний замінник
+   * або файли самого сайту (не Google Fonts).
+   */
+  origin: z.enum(["site", "substitute", "local"]),
+  /** Файли шрифту сайту; непорожній лише при `origin: "local"`. */
+  files: z.array(FontFile).default([]),
 });
 export type FontChoice = z.infer<typeof FontChoice>;
 
