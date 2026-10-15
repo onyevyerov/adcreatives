@@ -21,12 +21,16 @@ import {
   createMockAnthropic,
   createPromptLoader,
   createTracer,
+  type FilmReview,
   LocalStorage,
   loadPrices,
   ProjectState,
   projectPaths,
+  type ReviewIssue,
   readTuning,
   type SoundCue,
+  type SoundSheet,
+  type SoundSheetEvent,
   type Stage,
   StageError,
   type Storyboard,
@@ -38,6 +42,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyGenerationMode,
   buildCaseReport,
+  buildSiteReport,
   type CaseReport,
   caseReportMarkdown,
   type EvalReport,
@@ -46,11 +51,14 @@ import {
   measureCaseAudio,
   parseEvalArgs,
   prepareRerun,
+  RERUN_STAGES,
   reportMarkdown,
+  reviewStats,
   runEvalCli,
   runName,
   type SiteReport,
   slugify,
+  soundSheetStats,
   summarize,
 } from "../src/eval.ts";
 
@@ -160,6 +168,25 @@ describe("parseEvalArgs", () => {
     expect(args.sites).toBe(path.join(tmp, "eval", "sites.json"));
   });
 
+  it("--from sfx / review: звукорежисер і рецензент — етапи перезапуску", () => {
+    expect(RERUN_STAGES).toEqual([
+      "brandkit",
+      "storyboard",
+      "codegen",
+      "check",
+      "qa",
+      "sfx",
+      "audio",
+      "review",
+      "render",
+    ]);
+    expect(parseEvalArgs(["--from", "sfx", "--run", "r"], tmp)).toMatchObject({ from: "sfx", run: "r" });
+    expect(parseEvalArgs(["--from=review", "--run", "r", "--only"], tmp)).toMatchObject({
+      from: "review",
+      only: true,
+    });
+  });
+
   it("--case, --mode, --case-out, --audio/--bpm; звіти кейсів поруч із прогонами", () => {
     const args = parseEvalArgs(["--", "--case", "webreportio-parity", "--mode", "agent"], tmp);
     expect(args).toMatchObject({ caseName: "webreportio-parity", mode: "agent", audio: null, bpm: null });
@@ -241,11 +268,16 @@ describe("prepareRerun", () => {
         attempts: { codegen: 1, check: 2, render: 0, "render:vertical": 1, "render:square": 1 },
         fixRounds: { s2: 1 },
         qaRounds: 1,
+        reviewRounds: 1,
         templateScenes: ["s3"],
         dirtyScenes: ["s1"],
       }),
     );
   }
+  const readPipe = (storage: LocalStorage) =>
+    storage.readJson(projectPaths("p1").rev(1).pipeline, (v) => PipeState.parse(v));
+  const readProject = (storage: LocalStorage) =>
+    storage.readJson(projectPaths("p1").project, (v) => ProjectState.parse(v));
 
   it("render: стан rendering, по job на формат з новими спробами", async () => {
     const storage = new LocalStorage(tmp);
@@ -262,12 +294,85 @@ describe("prepareRerun", () => {
   it("codegen: відео з нуля (лічильники фіксів скинуто), аудіо лишається готовим", async () => {
     const storage = new LocalStorage(tmp);
     await delivered(storage);
-    const [job] = await prepareRerun(storage, "p1", "codegen");
+    const [job] = await prepareRerun(storage, "p1", "codegen", new Date(), "storyboard");
     expect(job).toMatchObject({ stage: "codegen", attempt: 2, params: { sceneIds: null, instructions: [] } });
     const project = await storage.readJson(projectPaths("p1").project, (v) => ProjectState.parse(v));
     expect(project).toMatchObject({ status: "directing", branches: { video: "running", audio: "done" } });
     const pipe = await storage.readJson(projectPaths("p1").rev(1).pipeline, (v) => PipeState.parse(v));
     expect(pipe).toMatchObject({ fixRounds: {}, qaRounds: 0, templateScenes: [], videoPhase: "build" });
+    expect(pipe).toMatchObject({ sfxMode: "storyboard", reviewRounds: 0 });
+  });
+
+  it("qa у режимі designer: після відео — sfx і зведення (трек попереднього прогону готовий)", async () => {
+    const storage = new LocalStorage(tmp);
+    await delivered(storage);
+    const [job] = await prepareRerun(storage, "p1", "qa", new Date(), "designer");
+    expect(job).toMatchObject({ stage: "qa", params: { sceneIds: null } });
+    expect(await readProject(storage)).toMatchObject({
+      status: "directing",
+      branches: { video: "running", audio: "running" },
+    });
+    expect(await readPipe(storage)).toMatchObject({
+      sfxMode: "designer",
+      musicDone: true,
+      sfxDone: false,
+      reviewRounds: 0,
+      pendingSfx: null,
+    });
+    await prepareRerun(storage, "p1", "qa", new Date(), "storyboard");
+    expect((await readProject(storage)).branches).toEqual({ video: "running", audio: "done" });
+    expect((await readPipe(storage)).sfxMode).toBe("storyboard");
+  });
+
+  it("audio: фаза за режимом звуку — designer → music (план SFX уже є), storyboard → full", async () => {
+    const storage = new LocalStorage(tmp);
+    await delivered(storage);
+    const [music] = await prepareRerun(storage, "p1", "audio", new Date(), "designer");
+    expect(music).toMatchObject({ stage: "audio", attempt: 1, params: { phase: "music" } });
+    expect(await readProject(storage)).toMatchObject({ branches: { video: "done", audio: "running" } });
+    // music → (sfx готовий) → mix → review: зведення машина поставить сама після треку.
+    expect(await readPipe(storage)).toMatchObject({
+      sfxMode: "designer",
+      musicDone: false,
+      sfxDone: true,
+      reviewRounds: 0,
+    });
+    const [full] = await prepareRerun(storage, "p1", "audio", new Date(), "storyboard");
+    expect(full).toMatchObject({ stage: "audio", attempt: 2, params: { phase: "full" } });
+    expect((await readPipe(storage)).sfxMode).toBe("storyboard");
+  });
+
+  it("sfx і review: звукорежисер по всіх сценах, рецензія з кола 0; sfx — лише в режимі designer", async () => {
+    const storage = new LocalStorage(tmp);
+    await delivered(storage);
+    const [sfx] = await prepareRerun(storage, "p1", "sfx", new Date(), "designer");
+    expect(sfx).toMatchObject({ jobId: "p1.sfx.r1.a1", params: { sceneIds: null, instructions: [] } });
+    expect(await readProject(storage)).toMatchObject({
+      status: "directing",
+      branches: { video: "running", audio: "running" },
+    });
+    expect(await readPipe(storage)).toMatchObject({
+      sfxMode: "designer",
+      musicDone: true,
+      sfxDone: false,
+      reviewRounds: 0,
+      changedScenes: null,
+      outstanding: [expect.objectContaining({ stage: "sfx" })],
+    });
+
+    const [review] = await prepareRerun(storage, "p1", "review", new Date(), "designer");
+    expect(review).toMatchObject({ jobId: "p1.review.r1.a1", params: { round: 0 } });
+    expect(await readProject(storage)).toMatchObject({
+      status: "directing",
+      branches: { video: "done", audio: "done" },
+    });
+    expect(await readPipe(storage)).toMatchObject({ musicDone: true, sfxDone: true, reviewRounds: 0 });
+
+    await expect(prepareRerun(storage, "p1", "sfx", new Date(), "storyboard")).rejects.toThrow(
+      /ADC_SFX_MODE=designer/,
+    );
+    // Рецензію можна поставити й фільму режиму storyboard (з --only — лише оцінка).
+    await expect(prepareRerun(storage, "p1", "review", new Date(), "storyboard")).resolves.toHaveLength(1);
   });
 
   it("без потрібних артефактів — зрозуміла помилка", async () => {
@@ -275,6 +380,14 @@ describe("prepareRerun", () => {
     await storage.writeJson(projectPaths("p2").project, fixtureProject({ id: "p2", brandkitVersion: 1 }));
     await expect(prepareRerun(storage, "p2", "render")).rejects.toThrow(/розкадровки/);
     await expect(prepareRerun(storage, "p2", "brandkit")).resolves.toHaveLength(1);
+    // review — після зведення: без audio.json неможливий.
+    await storage.writeJson(projectPaths("p3").project, fixtureProject({ id: "p3", brandkitVersion: 1 }));
+    await storage.writeJson(projectPaths("p3").rev(1).storyboard, fixtureStoryboard);
+    await storage.write(projectPaths("p3").rev(1).scenesIndex, "export default {};\n");
+    await expect(prepareRerun(storage, "p3", "review", new Date(), "designer")).rejects.toThrow(
+      /audio\.json/,
+    );
+    await expect(prepareRerun(storage, "p3", "sfx", new Date(), "designer")).resolves.toHaveLength(1);
   });
 });
 
@@ -293,6 +406,8 @@ describe("звіт", () => {
     templateScenes: 0,
     qaFirstPass: true,
     qaWarnings: { critical: 0, major: 1, minor: 2 },
+    review: null,
+    sound: null,
     usd: 2,
     usdByStage: [
       { key: "codegen", usd: 1.2 },
@@ -338,6 +453,7 @@ describe("звіт", () => {
       startedAt: "2026-10-06T15:30:00.000Z",
       finishedAt: "2026-10-06T16:00:00.000Z",
       mode: "pipeline",
+      soundMode: { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1 },
       from: null,
       baseRun: null,
       only: false,
@@ -346,7 +462,7 @@ describe("звіт", () => {
     };
     const md = reportMarkdown(report);
     expect(md).toContain("# Eval 2026-10-06-1530");
-    expect(md).toContain("Режим генерації: pipeline.");
+    expect(md).toContain("Режим генерації: pipeline. Звук: designer, рецензія on (кіл ≤ 1).");
     expect(md).toContain("| Сайтів / готових / не дійшли | 2 / 1 / 1 |");
     expect(md).toContain("| 02-b | failed — crawl: сайт недоступний |");
     expect(md).toContain("Сцени, що скомпілювались з першої спроби | 80%");
@@ -462,6 +578,8 @@ const caseSite = (over: Partial<SiteReport> = {}): SiteReport => ({
   templateScenes: 0,
   qaFirstPass: true,
   qaWarnings: { critical: 0, major: 0, minor: 0 },
+  review: null,
+  sound: null,
   usd: 1.5,
   usdByStage: [{ key: "codegen", usd: 1.5 }],
   usdByProvider: [{ key: "anthropic", usd: 1.5 }],
@@ -729,6 +847,184 @@ describe("звіт кейсу", () => {
     });
     expect(none).toMatchObject({ storyboard: null, audio: { source: null }, music: { check: null } });
     expect(none.criteria.every((c) => c.ok === null)).toBe(true);
+    // Без review.json і sound-sheet.json (старі прогони) — null і прочерки в таблиці, а не падіння.
+    expect(r).toMatchObject({ review: null, sound: null });
+    expect(caseReportMarkdown(r)).toContain("| old | — | — | — | — | — | — | — | — | — |");
+  });
+});
+
+// ───────────────────────────── звук і рецензія ─────────────────────────────
+
+const sheetEvent = (over: Partial<SoundSheetEvent>): SoundSheetEvent => ({
+  sceneId: "s1",
+  eventId: "e",
+  cue: "whoosh",
+  accent: "normal",
+  frame: 0,
+  ms: 0,
+  beatIndex: 0,
+  beatOffsetMs: 0,
+  peakDb: -12,
+  ducked: false,
+  silent: "none",
+  ...over,
+});
+
+/** Відомість: 8 подій — 2 повз долю (не grid-cue), 1 важкий удар, 1 вимкнена, 1 без семпла; 1 старт поза тактом. */
+const fixtureSheet: SoundSheet = {
+  version: 1,
+  fps: 30,
+  bpm: 120,
+  totalFrames: 450,
+  beatShiftMs: 0,
+  beatConfidence: 0.9,
+  barOffsetMs: 0,
+  sceneStarts: [
+    { sceneId: "s1", frame: 0, beatOffsetMs: 0, onBar: true },
+    { sceneId: "s2", frame: 150, beatOffsetMs: 0, onBar: false },
+    { sceneId: "s3", frame: 300, beatOffsetMs: null, onBar: null },
+  ],
+  sections: [],
+  events: [
+    sheetEvent({ eventId: "e1", cue: "whoosh", beatOffsetMs: 120 }), // grid-cue: зсув не рахується
+    sheetEvent({ eventId: "e2", cue: "typing", beatOffsetMs: 25 }), // повз долю
+    sheetEvent({ eventId: "e3", cue: "tick", beatOffsetMs: -20 }), // повз долю (поріг включно, в обидва боки)
+    sheetEvent({ eventId: "e4", cue: "click", beatOffsetMs: 19.9 }),
+    sheetEvent({ eventId: "e5", cue: "scan", beatIndex: null, beatOffsetMs: null }), // доля не визначена
+    sheetEvent({ eventId: "e6", cue: "impact", beatOffsetMs: 0 }), // важкий удар
+    sheetEvent({ eventId: "e7", cue: "slide", beatOffsetMs: 300, peakDb: null, silent: "muted" }),
+    sheetEvent({ eventId: "e8", cue: "drop", peakDb: null, silent: "no_sample" }),
+  ],
+  rmsPerSecondDb: [-14, -14],
+  integratedLufs: -14,
+  truePeakDbtp: -1,
+};
+
+const reviewIssue = (kind: ReviewIssue["kind"], severity: ReviewIssue["severity"]): ReviewIssue => ({
+  scope: "scene",
+  sceneId: "s2",
+  nextSceneId: null,
+  eventId: null,
+  frame: null,
+  format: null,
+  severity,
+  kind,
+  description: "d",
+  fix: "f",
+});
+
+const fixtureReview: FilmReview = {
+  version: 1,
+  round: 1,
+  inputsHash: "h",
+  verdict: "fix",
+  score: 6,
+  summary: "Історія тримається; у s2 каша зі звуків.",
+  issues: [
+    reviewIssue("join_break", "major"),
+    reviewIssue("sfx_excess", "critical"),
+    reviewIssue("sfx_off_beat", "minor"),
+    reviewIssue("music_level", "minor"),
+  ],
+  routes: { fix: ["s2", "s3"], sfx: ["s2"], music: 1 },
+};
+
+describe("звук і рецензія у звітах", () => {
+  it("soundSheetStats: offBeat — лише події, що звучать, не grid-cue, |зсув| ≥ 20 мс; muted, удари, такти", () => {
+    expect(soundSheetStats(fixtureSheet)).toEqual({
+      events: 8,
+      muted: 1,
+      silent: 1,
+      offBeat: 2,
+      heavyHits: 1,
+      sceneStartsOffBar: 1,
+    });
+  });
+
+  it("reviewStats: оцінка, вердикт і лічильники за маршрутом (routeOf) і серйозністю", () => {
+    expect(reviewStats(fixtureReview)).toEqual({
+      score: 6,
+      verdict: "fix",
+      round: 1,
+      summary: "Історія тримається; у s2 каша зі звуків.",
+      issues: 4,
+      byRoute: { fix: 1, sfx: 2, music: 1, none: 0 },
+      bySeverity: { critical: 1, major: 1, minor: 2 },
+    });
+  });
+
+  it("звіт сайту й кейсу читають review.json і sound-sheet.json; файли не за схемою — null", async () => {
+    const storage = new LocalStorage(tmp);
+    await storage.writeJson(projectPaths("p1").project, fixtureProject({ id: "p1", status: "delivered" }));
+    const rev = projectPaths("p1").rev(1);
+    await storage.writeJson(rev.storyboard, fixtureStoryboard);
+    await storage.writeJson(rev.review, fixtureReview);
+    await storage.writeJson(rev.soundSheet, fixtureSheet);
+
+    const site = await buildSiteReport(storage, "p1", {
+      name: "01-parity",
+      since: new Date(0),
+      wallSeconds: 60,
+    });
+    expect(site.review).toMatchObject({ score: 6, verdict: "fix", byRoute: { fix: 1, sfx: 2, music: 1 } });
+    expect(site.sound).toMatchObject({ offBeat: 2, muted: 1, heavyHits: 1, sceneStartsOffBar: 1 });
+
+    const report = await buildCaseReport(storage, "p1", {
+      caseName: "parity",
+      run: "r",
+      since: new Date(0),
+      site,
+      mode: "pipeline",
+      soundMode: { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1 },
+      decode,
+    });
+    expect(report).toMatchObject({
+      soundMode: { sfxMode: "designer", filmReview: true },
+      review: { score: 6, issues: 4 },
+      sound: { events: 8, offBeat: 2, muted: 1 },
+    });
+    const md = caseReportMarkdown(report);
+    expect(md).toContain("| Режим звуку | designer, рецензія on (кіл ≤ 1) |");
+    expect(md).toContain("| Кейс | score | Вердикт | offBeat | muted |");
+    expect(md).toContain("| parity | 6 | fix | 2 | 1 | 8 | 1 | 1 | 1/2/1 | 1/1/2 |");
+    expect(md).toContain("Рецензент (коло 1): Історія тримається; у s2 каша зі звуків.");
+
+    // Файли не за схемою (формат до Кроку 0) — як відсутні, звіт не падає.
+    await storage.writeJson(rev.review, { verdict: "pass" });
+    await storage.writeJson(rev.soundSheet, { events: "?" });
+    const old = await buildSiteReport(storage, "p1", {
+      name: "01-parity",
+      since: new Date(0),
+      wallSeconds: 60,
+    });
+    expect(old).toMatchObject({ review: null, sound: null });
+  });
+
+  it("reportMarkdown: таблиця по кейсах зі score, offBeat, muted; середня оцінка в підсумку", () => {
+    const sites = [
+      caseSite({ review: reviewStats(fixtureReview), sound: soundSheetStats(fixtureSheet) }),
+      caseSite({ name: "02-old" }),
+    ];
+    const summary = summarize(sites);
+    expect(summary.reviewScoreMean).toBe(6);
+    expect(summarize([caseSite()]).reviewScoreMean).toBeNull();
+    const md = reportMarkdown({
+      run: "r",
+      startedAt: "2026-10-15T10:00:00.000Z",
+      finishedAt: "2026-10-15T11:00:00.000Z",
+      mode: "pipeline",
+      soundMode: { sfxMode: "storyboard", filmReview: false, reviewMaxRounds: 1 },
+      from: null,
+      baseRun: null,
+      only: false,
+      sites,
+      summary,
+    });
+    expect(md).toContain("Звук: storyboard, рецензія off.");
+    expect(md).toContain("| Оцінка рецензента, середня | 6 |");
+    expect(md).toContain("## Звук і рецензія");
+    expect(md).toContain("| 01-parity | 6 | fix | 2 | 1 | 8 | 1 | 1 | 1/2/1 | 1/1/2 |");
+    expect(md).toContain("| 02-old | — | — | — | — | — | — | — | — | — |");
   });
 });
 
@@ -799,5 +1095,68 @@ describe("pnpm eval --case --mode (стадії-заглушки, без мер�
       true,
     );
     expect(lines.join("\n")).toContain("режим генерації agent");
+  });
+
+  it("ADC_SFX_MODE і ADC_FILM_REVIEW з env — у воркері eval і в звітах; невалідне значення — код 2", async () => {
+    const sites = path.join(tmp, "sites.json");
+    await writeFile(sites, JSON.stringify([{ url: "https://parity.example.com/", name: "parity" }]));
+    const seen: Array<{ sfxMode: string; filmReview: boolean }> = [];
+    const crawl: Stage<"crawl"> = async () => {
+      const t = readTuning();
+      seen.push({ sfxMode: t.sfxMode, filmReview: t.filmReview });
+      throw new StageError("заглушка", "stub_crawl", "Сайт недоступний (тест).", false);
+    };
+    const saved = { sfx: process.env.ADC_SFX_MODE, review: process.env.ADC_FILM_REVIEW };
+    const restore = () => {
+      for (const [name, value] of [
+        ["ADC_SFX_MODE", saved.sfx],
+        ["ADC_FILM_REVIEW", saved.review],
+      ] as const) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    };
+    const runsDir = path.join(tmp, "runs");
+    const lines: string[] = [];
+    try {
+      process.env.ADC_SFX_MODE = "storyboard";
+      process.env.ADC_FILM_REVIEW = "off";
+      const code = await runEvalCli(["--sites", sites, "--out", runsDir, "--case", "parity"], {
+        anthropic: createMockAnthropic([]),
+        registry: createStageRegistry({ overrides: { crawl } }),
+        print: (l) => lines.push(l),
+      });
+      expect(code).toBe(0);
+      expect(seen).toEqual([{ sfxMode: "storyboard", filmReview: false }]);
+      const [run] = await readdir(runsDir);
+      const runReport = JSON.parse(
+        await readFile(path.join(runsDir, run as string, "report.json"), "utf8"),
+      ) as EvalReport;
+      expect(runReport.soundMode).toMatchObject({ sfxMode: "storyboard", filmReview: false });
+      expect(runReport.sites[0]).toMatchObject({ review: null, sound: null });
+      const md = await readFile(path.join(runsDir, run as string, "report.md"), "utf8");
+      expect(md).toContain("Звук: storyboard, рецензія off.");
+      expect(md).toContain("| 01-parity | — | — | — |");
+      const caseReport = JSON.parse(
+        await readFile(path.join(tmp, "out", "parity", "report.json"), "utf8"),
+      ) as CaseReport;
+      expect(caseReport).toMatchObject({
+        soundMode: { sfxMode: "storyboard", filmReview: false },
+        review: null,
+        sound: null,
+      });
+      expect(lines.join("\n")).toContain("звук storyboard, рецензія off");
+
+      process.env.ADC_SFX_MODE = "loud";
+      const bad: string[] = [];
+      const badCode = await runEvalCli(["--sites", sites, "--out", runsDir, "--case", "parity"], {
+        anthropic: createMockAnthropic([]),
+        print: (l) => bad.push(l),
+      });
+      expect(badCode).toBe(2);
+      expect(bad.join("\n")).toContain("ADC_SFX_MODE=loud");
+    } finally {
+      restore();
+    }
   });
 });
