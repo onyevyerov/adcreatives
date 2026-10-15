@@ -373,13 +373,17 @@ export class Harness {
           sfx: [],
           totalFrames: 450,
         });
-        return { planHash: "plan-1", reusedMusic: false };
+        return { planHash: "plan-1", reusedMusic: false, mixed: true };
       case "render": {
         const format = (job.params as { format: Format }).format;
         await s.write(rp.render(format), "mp4");
         await s.write(rp.poster, "png");
         return { format, out: rp.render(format), durationMs: 1000 };
       }
+      case "sfx":
+        return { sceneIds: [], changed: 0, muted: 0 };
+      case "review":
+        return { verdict: "pass", score: 8, routes: { fix: [], sfx: [], music: 0 } };
     }
   }
 }

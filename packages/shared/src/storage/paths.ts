@@ -44,6 +44,11 @@ export function revPaths(projectId: string, rev: number) {
     pipeline: join(root, "pipeline.json"),
     audioPlan: join(root, "audio-plan.json"),
     audio: join(root, "audio.json"),
+    sfxPlan: join(root, "sfx-plan.json"),
+    soundSheet: join(root, "sound-sheet.json"),
+    review: join(root, "review.json"),
+    /** Аркуш моментів сцени (кадри ±2 навколо подій і склейки), один формат. */
+    momentSheet: (format: Format, sceneId: string) => join(root, "moments", format, `${sceneId}.jpg`),
     render: (format: Format) => join(root, "renders", `${format}.mp4`),
     /** `RenderMeta` рендеру формату: хеш входів, за яким готовий mp4 перевикористовується. */
     renderMeta: (format: Format) => join(root, "renders", `${format}.meta.json`),

@@ -59,8 +59,12 @@ export const STAGE_NAMES = [
   "check",
   "fix",
   "qa",
+  /** Звукорежисер: дивиться готову картинку і розставляє SFX на події розкадровки. */
+  "sfx",
   "revise",
   "audio",
+  /** Рецензент фільму: дивиться весь ролик зі звуковою відомістю й маршрутизує зауваження. */
+  "review",
   "render",
 ] as const;
 export const StageName = z.enum(STAGE_NAMES);
@@ -187,6 +191,8 @@ export const PipelineCounters = z.object({
   fixRounds: z.record(z.string(), z.number().int()),
   /** Кола QA (максимум 1 коло фіксів після QA). */
   qaRounds: z.number().int(),
+  /** Кола рецензії фільму (максимум `Tuning.reviewMaxRounds`). */
+  reviewRounds: z.number().int().default(0),
   /** Сцени, замінені на TemplateScene. */
   templateScenes: z.array(z.string()),
   /** Сцени, змінені в поточному колі (для check/qa лише по них). */
@@ -195,7 +201,7 @@ export const PipelineCounters = z.object({
 export type PipelineCounters = z.infer<typeof PipelineCounters>;
 
 export function emptyCounters(): PipelineCounters {
-  return { attempts: {}, fixRounds: {}, qaRounds: 0, templateScenes: [], dirtyScenes: [] };
+  return { attempts: {}, fixRounds: {}, qaRounds: 0, reviewRounds: 0, templateScenes: [], dirtyScenes: [] };
 }
 
 /** `rev/<n>/inputs.json` — хеші входів артефактів ревізії, для пропуску стадій. */

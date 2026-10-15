@@ -161,7 +161,11 @@ describe("audioStage", () => {
     const rev = projectPaths(PROJECT_ID).rev(1);
     const plan = await storage.readJson(rev.audioPlan, (v) => AudioPlan.parse(v));
     expect(plan.compositionPlan.chunks.map((c) => c.durationMs)).toEqual([23_000]);
-    expect(res.outputs).toEqual({ planHash: expect.stringMatching(/^[0-9a-f]{16}$/), reusedMusic: false });
+    expect(res.outputs).toEqual({
+      planHash: expect.stringMatching(/^[0-9a-f]{16}$/),
+      reusedMusic: false,
+      mixed: true,
+    });
 
     // Один виклик LLM (модель з frontmatter), один — музики; SFX: усі варіанти cue подій
     // (whoosh, impact, shimmer; legacy whoosh/shimmer — їхні варіанти 1, без повторного виклику) і кастомний.
@@ -309,7 +313,7 @@ describe("audioStage", () => {
     });
     const ctx2 = makeCtx(storage, [], { rev: 2, phase: "revision" });
     const r2 = await run(ctx2);
-    expect(r2.outputs).toEqual({ planHash: r1.outputs.planHash, reusedMusic: true });
+    expect(r2.outputs).toEqual({ planHash: r1.outputs.planHash, reusedMusic: true, mixed: true });
     // План основи покриває всі cue → без LLM; музика — без виклику API.
     expect(ctx2.anthropic.calls).toHaveLength(0);
     expect(client.calls.filter((c) => c.method !== "convert")).toHaveLength(1);

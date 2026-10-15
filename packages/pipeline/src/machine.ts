@@ -625,6 +625,9 @@ function onStageEvent(d: Draft, ev: StageDoneEvent): void {
     check: (e) => onCheckDone(d, e),
     fix: (e) => onFixDone(d, e, job),
     qa: (e) => onQaDone(d, e),
+    // Крок 0: sfx і review ще не керують потоком — реальна логіка в блоці B4.
+    sfx: () => {},
+    review: () => {},
     audio: (e) => onAudioDone(d, e),
     render: () => onRenderDone(d),
   };

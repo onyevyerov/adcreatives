@@ -29,6 +29,12 @@ export const Tuning = z.object({
   authorTokenBudget: z.number().int().min(500_000).default(3_000_000),
   authorMaxIterations: z.number().int().min(5).max(80).default(40),
   authorMaxMinutes: z.number().int().min(5).max(60).default(25),
+  /** designer — звукорежисер ставить SFX по готовій картинці; storyboard — звук із розкадровки. */
+  sfxMode: z.enum(["storyboard", "designer"]).default("designer"),
+  /** Рецензент фільму після зведення. */
+  filmReview: z.boolean().default(true),
+  /** Кола рецензія → правки → рецензія. */
+  reviewMaxRounds: z.number().int().min(0).max(2).default(1),
 });
 export type Tuning = z.infer<typeof Tuning>;
 
@@ -48,6 +54,9 @@ export const TUNING_ENV: Record<keyof Tuning, string> = {
   authorTokenBudget: "ADC_AUTHOR_TOKEN_BUDGET",
   authorMaxIterations: "ADC_AUTHOR_MAX_ITERATIONS",
   authorMaxMinutes: "ADC_AUTHOR_MAX_MINUTES",
+  sfxMode: "ADC_SFX_MODE",
+  filmReview: "ADC_FILM_REVIEW",
+  reviewMaxRounds: "ADC_REVIEW_MAX_ROUNDS",
 };
 
 const NUMBER_FIELDS = new Set<keyof Tuning>([
@@ -58,8 +67,17 @@ const NUMBER_FIELDS = new Set<keyof Tuning>([
   "authorTokenBudget",
   "authorMaxIterations",
   "authorMaxMinutes",
+  "reviewMaxRounds",
 ]);
-const BOOLEAN_VALUES: Record<string, boolean> = { "1": true, true: true, "0": false, false: false };
+const BOOLEAN_FIELDS = new Set<keyof Tuning>(["speculativeRender", "filmReview"]);
+const BOOLEAN_VALUES: Record<string, boolean> = {
+  "1": true,
+  true: true,
+  on: true,
+  "0": false,
+  false: false,
+  off: false,
+};
 
 export class TuningError extends Error {
   override name = "TuningError";
@@ -77,9 +95,9 @@ export function readTuning(env: Record<string, string | undefined> = process.env
     if (!value) continue;
     if (NUMBER_FIELDS.has(field)) {
       raw[field] = /^\d+$/.test(value) ? Number(value) : value;
-    } else if (field === "speculativeRender") {
+    } else if (BOOLEAN_FIELDS.has(field)) {
       const b = BOOLEAN_VALUES[value.toLowerCase()];
-      if (b === undefined) problems.push(`${name}=${value}: очікується true/false/1/0`);
+      if (b === undefined) problems.push(`${name}=${value}: очікується true/false/on/off/1/0`);
       else raw[field] = b;
     } else {
       raw[field] = value;

@@ -499,7 +499,7 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
 
     return {
       artifacts,
-      outputs: { planHash: music.planHash, reusedMusic: music.reused },
+      outputs: { planHash: music.planHash, reusedMusic: music.reused, mixed: true },
     };
   };
 }

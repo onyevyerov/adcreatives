@@ -140,6 +140,7 @@ describe("schemas round-trip", () => {
       ],
       stills: [{ sceneId: "s1", format: "vertical", variant: "a", frame: 75, path: "x.png" }],
       sheets: [{ format: "vertical", path: "sheets/vertical.png" }],
+      moments: [{ sceneId: "s1", format: "vertical", path: "moments/vertical/s1.jpg" }],
       durationMs: 1000,
     });
     roundTrip(ClaimsReport, {
@@ -176,9 +177,31 @@ describe("schemas round-trip", () => {
       attempts: { codegen: 1 },
       fixRounds: { s1: 2 },
       qaRounds: 1,
+      reviewRounds: 1,
       templateScenes: ["s1"],
       dirtyScenes: [],
     });
+    // Старі файли без нових полів парсяться з дефолтами.
+    expect(
+      PipelineCounters.parse({
+        attempts: {},
+        fixRounds: {},
+        qaRounds: 0,
+        templateScenes: [],
+        dirtyScenes: [],
+      }).reviewRounds,
+    ).toBe(0);
+    expect(
+      CheckReport.parse({
+        compileErrors: [],
+        bundleError: null,
+        runtimeErrors: [],
+        autoIssues: [],
+        stills: [],
+        sheets: [],
+        durationMs: 0,
+      }).moments,
+    ).toEqual([]);
     const events: z.input<typeof ChatEvent>[] = [
       { type: "message", at: AT, role: "assistant", text: "Привіт", buttons: ["approve", "edit"] },
       { type: "progress", at: AT, stage: "crawl", label: "Сканую", done: 7, total: 25 },

@@ -45,7 +45,9 @@ describe("stage registry", () => {
       "author",
       "fix",
       "qa",
+      "sfx",
       "revise",
+      "review",
     ]);
     expect(stagesForQueue("cpu")).toEqual(["check"]);
     expect(stagesForQueue("audio")).toEqual(["audio"]);
