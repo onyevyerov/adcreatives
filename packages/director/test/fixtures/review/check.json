@@ -1,0 +1,54 @@
+{
+  "compileErrors": [],
+  "bundleError": null,
+  "runtimeErrors": [],
+  "autoIssues": [],
+  "stills": [
+    {
+      "sceneId": "s1",
+      "format": "vertical",
+      "variant": "a",
+      "frame": 75,
+      "path": "REV/stills/vertical/s1-a.png"
+    },
+    {
+      "sceneId": "s2",
+      "format": "vertical",
+      "variant": "a",
+      "frame": 82,
+      "path": "REV/stills/vertical/s2-a.png"
+    },
+    {
+      "sceneId": "s3",
+      "format": "vertical",
+      "variant": "a",
+      "frame": 82,
+      "path": "REV/stills/vertical/s3-a.png"
+    },
+    {
+      "sceneId": "s1",
+      "format": "square",
+      "variant": "a",
+      "frame": 75,
+      "path": "REV/stills/square/s1-a.png"
+    },
+    {
+      "sceneId": "s2",
+      "format": "square",
+      "variant": "a",
+      "frame": 82,
+      "path": "REV/stills/square/s2-a.png"
+    },
+    { "sceneId": "s3", "format": "square", "variant": "a", "frame": 82, "path": "REV/stills/square/s3-a.png" }
+  ],
+  "sheets": [
+    { "format": "vertical", "path": "REV/sheets/vertical.png" },
+    { "format": "square", "path": "REV/sheets/square.png" }
+  ],
+  "moments": [
+    { "sceneId": "s1", "format": "vertical", "path": "REV/moments/vertical/s1.jpg" },
+    { "sceneId": "s2", "format": "vertical", "path": "REV/moments/vertical/s2.jpg" },
+    { "sceneId": "s1", "format": "square", "path": "REV/moments/square/s1.jpg" }
+  ],
+  "durationMs": 1200
+}
