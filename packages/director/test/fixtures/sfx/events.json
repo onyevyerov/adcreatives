@@ -1,0 +1,71 @@
+{
+  "s1": [
+    {
+      "id": "logo-in",
+      "at": 15,
+      "what": "The logo pops in at the centre.",
+      "sound": { "cue": "pop", "accent": "normal" },
+      "textIds": []
+    },
+    {
+      "id": "title-type",
+      "at": 45,
+      "what": "The headline types in letter by letter.",
+      "sound": { "cue": "tick", "accent": "soft" },
+      "textIds": []
+    },
+    {
+      "id": "cup-land",
+      "at": 90,
+      "what": "The cup lands on the counter.",
+      "sound": { "cue": "impact", "accent": "hard" },
+      "textIds": []
+    }
+  ],
+  "s2": [
+    {
+      "id": "price-hit",
+      "at": 30,
+      "what": "The price lands with a bump.",
+      "sound": { "cue": "impact", "accent": "hard" },
+      "textIds": ["t2"]
+    },
+    {
+      "id": "badge-in",
+      "at": 60,
+      "what": "The discount badge fades in next to the price.",
+      "sound": null,
+      "textIds": ["t3"]
+    },
+    {
+      "id": "coins",
+      "at": 105,
+      "what": "Coins drop into the cup.",
+      "sound": { "cue": "cash", "accent": "normal" },
+      "textIds": []
+    }
+  ],
+  "s3": [
+    {
+      "id": "cta-in",
+      "at": 30,
+      "what": "The button slams into place.",
+      "sound": { "cue": "slam", "accent": "hard" },
+      "textIds": []
+    },
+    {
+      "id": "cta-cash",
+      "at": 60,
+      "what": "The price flashes on the button.",
+      "sound": { "cue": "cash", "accent": "normal" },
+      "textIds": []
+    },
+    {
+      "id": "logo-drop",
+      "at": 120,
+      "what": "The logo drops in for the finale.",
+      "sound": { "cue": "drop", "accent": "hard" },
+      "textIds": []
+    }
+  ]
+}
