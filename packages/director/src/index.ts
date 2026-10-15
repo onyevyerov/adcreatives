@@ -67,6 +67,8 @@ export {
 export { brandForCode, type CodegenStageDeps, codegenStage, createCodegenStage } from "./stages/codegen.ts";
 export { createFixStage, type FixStageDeps, fixStage } from "./stages/fix.ts";
 export { createQaStage, keepBestVersions, qaStage, stripLegend, toQaJpeg } from "./stages/qa.ts";
+export { createReviewStage, REVIEW_PROMPT, type ReviewStageDeps, reviewStage } from "./stages/review.ts";
 export { createReviseStage, type RevisionRecord, reviseStage } from "./stages/revise.ts";
+export { createSfxStage, SFX_PROMPT, type SfxStageDeps, sfxStage } from "./stages/sfx.ts";
 export { assetsForPrompt, createStoryboardStage, storyboardStage } from "./stages/storyboard.ts";
 export { type SceneTypeError, type TypecheckResult, typecheckScenes } from "./typecheck.ts";

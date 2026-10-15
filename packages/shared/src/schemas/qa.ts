@@ -76,6 +76,8 @@ export const CheckReport = z.object({
   autoIssues: z.array(AutoIssue),
   stills: z.array(StillRef),
   sheets: z.array(z.object({ format: Format, path: z.string() })),
+  /** Аркуші моментів сцен (кадри ±2 навколо подій і склейки), один на сцену й формат. */
+  moments: z.array(z.object({ sceneId: z.string(), format: Format, path: z.string() })).default([]),
   durationMs: z.number().int(),
 });
 export type CheckReport = z.infer<typeof CheckReport>;

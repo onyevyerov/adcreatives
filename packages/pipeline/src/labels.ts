@@ -12,6 +12,8 @@ export const STAGE_LABEL_UK: Record<StageName, string> = {
   check: "перевірка сцен",
   fix: "виправлення сцен",
   qa: "перевірка якості",
+  sfx: "звукові ефекти",
+  review: "рецензія ролика",
   revise: "правки",
   audio: "музика",
   render: "рендер відео",

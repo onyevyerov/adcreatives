@@ -8,5 +8,8 @@ export * from "./events.ts";
 export * from "./intent.ts";
 export * from "./project.ts";
 export * from "./qa.ts";
+export * from "./review.ts";
 export * from "./revision.ts";
+export * from "./sfxPlan.ts";
+export * from "./soundSheet.ts";
 export * from "./storyboard.ts";

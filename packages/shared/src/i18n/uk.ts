@@ -54,6 +54,14 @@ export const I18N_KEYS = [
   "scriptScenesHeader",
   "photosPending",
   "scriptThroughline",
+  // ── додано Кроком 0 ТЗ «звукорежисер і рецензент» ──
+  "sfxProgress",
+  "sfxFallback",
+  "reviewProgress",
+  "reviewFixProgress",
+  "reviewFailed",
+  "reviewScore",
+  "reviewWarnings",
 ] as const;
 export type I18nKey = (typeof I18N_KEYS)[number];
 
@@ -120,6 +128,13 @@ export const uk: Record<I18nKey, string> = {
   scriptScenesHeader: "Сцени ({seconds} с):",
   scriptThroughline: "Наскрізний об'єкт: {object}",
   photosPending: "Фото отримав — додам їх, щойно закінчу сканувати сайт.",
+  sfxProgress: "Звукорежисер розставляє звук…",
+  sfxFallback: "Звук розставлено за розкадровкою",
+  reviewProgress: "Рецензент дивиться ролик…",
+  reviewFixProgress: "Правлю за зауваженнями рецензента…",
+  reviewFailed: "Рецензію пропущено",
+  reviewScore: "Оцінка рецензента: {score}/10 — {summary}",
+  reviewWarnings: "Зауваження рецензента ({count}):",
 };
 
 /** Підставляє {name} у шаблон. */

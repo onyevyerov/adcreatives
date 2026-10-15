@@ -18,7 +18,18 @@ describe("readTuning", () => {
       authorTokenBudget: 3_000_000,
       authorMaxIterations: 40,
       authorMaxMinutes: 25,
+      sfxMode: "designer",
+      filmReview: true,
+      reviewMaxRounds: 1,
     } satisfies Tuning);
+  });
+
+  it("звукорежисер і рецензент — через env, відкат без деплою", () => {
+    expect(
+      readTuning({ ADC_SFX_MODE: "storyboard", ADC_FILM_REVIEW: "off", ADC_REVIEW_MAX_ROUNDS: "2" }),
+    ).toMatchObject({ sfxMode: "storyboard", filmReview: false, reviewMaxRounds: 2 });
+    expect(() => readTuning({ ADC_REVIEW_MAX_ROUNDS: "3" })).toThrow();
+    expect(() => readTuning({ ADC_FILM_REVIEW: "maybe" })).toThrow();
   });
 
   it("відкат до послідовної генерації — через env", () => {

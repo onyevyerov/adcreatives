@@ -483,7 +483,7 @@ describe("nextStep — directing: branches, fix and QA limits", () => {
     ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "pass", seriousScenes: [] })));
     expect(r.state.branches.video).toBe("done");
     expect(r.state.status).toBe("directing");
-    ({ r, s } = advance(s, running(s, "audio", {}, { planHash: "ph1", reusedMusic: false })));
+    ({ r, s } = advance(s, running(s, "audio", {}, { planHash: "ph1", reusedMusic: false, mixed: true })));
     expect(r.state.audioPlanHash).toBe("ph1");
     expect(r.state.status).toBe("awaiting_storyboard");
     expect(r.effects).toContainEqual({
@@ -497,7 +497,7 @@ describe("nextStep — directing: branches, fix and QA limits", () => {
   it("audio first, then video: join waits for both", () => {
     let s = directing();
     let r: StepResult;
-    ({ r, s } = advance(s, running(s, "audio", {}, { planHash: "ph2", reusedMusic: true })));
+    ({ r, s } = advance(s, running(s, "audio", {}, { planHash: "ph2", reusedMusic: true, mixed: true })));
     expect(r.state.status).toBe("directing");
     expect(r.state.audioPlanHash).toBe("ph2");
     ({ r, s } = advance(s, running(s, "qa", {}, { verdict: "pass", seriousScenes: [] })));
@@ -640,7 +640,7 @@ describe("nextStep — directing: branches, fix and QA limits", () => {
         durationMs: 1,
         type: "stage_done",
         artifacts: [],
-        outputs: { planHash: "ph", reusedMusic: false },
+        outputs: { planHash: "ph", reusedMusic: false, mixed: true },
         reused: false,
       },
     }));
@@ -1043,7 +1043,7 @@ describe("nextStep — агентний режим (стадія author)", () =>
         () => running(s, "fix", {}, { sceneIds: ["s1"] }),
         () => running(s, "check", {}, { failedScenes: [], issueScenes: [] }),
         () => running(s, "qa", {}, { verdict: "pass", seriousScenes: [] }),
-        () => running(s, "audio", {}, { planHash: "ph", reusedMusic: false }),
+        () => running(s, "audio", {}, { planHash: "ph", reusedMusic: false, mixed: true }),
       ]) {
         ({ r, s } = advance(s, input(), over));
         jobs.push(...stages(r));
@@ -1101,7 +1101,7 @@ describe("nextStep — агентний режим (стадія author)", () =>
     // Друге коло не ставиться: відео готове, чекаємо аудіо.
     expect(r.jobs).toEqual([]);
     expect(r.state.branches.video).toBe("done");
-    ({ r } = advance(s, running(s, "audio", {}, { planHash: "ph", reusedMusic: false }), AGENT));
+    ({ r } = advance(s, running(s, "audio", {}, { planHash: "ph", reusedMusic: false, mixed: true }), AGENT));
     expect(r.state.status).toBe("awaiting_storyboard");
   });
 

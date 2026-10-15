@@ -17,6 +17,8 @@ export const STAGE_QUEUE = {
   author: "llm",
   fix: "llm",
   qa: "llm",
+  sfx: "llm",
+  review: "llm",
   revise: "llm",
   check: "cpu",
   audio: "audio",

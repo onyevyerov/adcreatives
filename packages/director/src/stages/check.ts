@@ -286,6 +286,7 @@ function emptyReport(): CheckReport {
     autoIssues: [],
     stills: [],
     sheets: [],
+    moments: [],
     durationMs: 0,
   };
 }

@@ -8,7 +8,9 @@ import {
   fixStage,
   prepareRenderJob,
   qaStage,
+  reviewStage,
   reviseStage,
+  sfxStage,
   storyboardStage,
 } from "@adc/director";
 import { createRenderEngine } from "@adc/render";
@@ -26,7 +28,15 @@ import { createRenderStage, type PrepareRenderJob } from "./render.ts";
 export type StageRegistry = { [S in StageName]: Stage<S> };
 
 /** Стадії режисера (B4, `@adc/director`). */
-export type DirectorStageName = "storyboard" | "codegen" | "check" | "fix" | "qa" | "revise";
+export type DirectorStageName =
+  | "storyboard"
+  | "codegen"
+  | "check"
+  | "fix"
+  | "qa"
+  | "revise"
+  | "sfx"
+  | "review";
 export type DirectorStages = { [S in DirectorStageName]: Stage<S> };
 
 /** Стадії режисера з `@adc/director`; check отримує новий рушій рендеру на кожен запуск. */
@@ -37,6 +47,8 @@ export function defaultDirectorStages(createEngine: () => RenderEngine): Directo
     check: createCheckStage({ engine: createEngine }),
     fix: fixStage,
     qa: qaStage,
+    sfx: sfxStage,
+    review: reviewStage,
     revise: reviseStage,
   };
 }

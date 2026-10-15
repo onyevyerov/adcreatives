@@ -4,6 +4,7 @@ export * from "./events/index.ts";
 export * from "./i18n/uk.ts";
 export * from "./llm/index.ts";
 export * from "./logger.ts";
+export * from "./moments.ts";
 export * from "./net/index.ts";
 export * from "./pipeline.ts";
 export * from "./queue.ts";

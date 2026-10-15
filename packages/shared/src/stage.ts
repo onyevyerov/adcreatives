@@ -8,6 +8,7 @@ import type { FactKind } from "./schemas/brandkit.ts";
 import type { Format, RunSource } from "./schemas/common.ts";
 import type { CostPhase, StageName } from "./schemas/project.ts";
 import type { QaReport } from "./schemas/qa.ts";
+import type { FilmReview, ReviewIssue } from "./schemas/review.ts";
 import type { Storage } from "./storage/Storage.ts";
 import type { Tracer } from "./trace.ts";
 
@@ -31,7 +32,14 @@ export interface StageParamsMap {
   fix: { sceneIds: string[]; reason: "check" | "qa" };
   qa: { sceneIds: string[] | null };
   revise: { text: string; at: "script" | "storyboard" | "delivered" };
-  audio: Record<string, never>;
+  /** sceneIds = null — усі сцени; instructions — з review (маршрут sfx). */
+  sfx: { sceneIds: string[] | null; instructions: ReviewIssue[] };
+  review: { round: number };
+  /**
+   * music — план + трек + прогрів семплів, без зведення; mix — зведення за sfx-plan;
+   * full — як було (режим storyboard). Відсутнє поле = full.
+   */
+  audio: { phase?: "music" | "mix" | "full" };
   /** speculative — рендер до затвердження розкадровки: збій не міняє статус, успіх не робить видачу. */
   render: { format: Format; speculative?: boolean };
 }
@@ -55,7 +63,9 @@ export interface StageOutputsMap {
   fix: { sceneIds: string[] };
   qa: { verdict: QaReport["verdict"]; seriousScenes: string[] };
   revise: { scenesToRegenerate: string[]; musicChanged: boolean; durationChanged: boolean };
-  audio: { planHash: string; reusedMusic: boolean };
+  sfx: { sceneIds: string[]; changed: number; muted: number };
+  review: { verdict: "pass" | "fix"; score: number; routes: FilmReview["routes"] };
+  audio: { planHash: string; reusedMusic: boolean; mixed: boolean };
   render: { format: Format; out: string; durationMs: number };
 }
 
