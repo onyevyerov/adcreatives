@@ -2,6 +2,7 @@
  * Замір звуку — інструмент приймання ТЗ якості звуку (`docs/superpowers/specs/2026-10-13-audio-quality-tz.md`):
  *   pnpm audio-measure -- <файл.wav|mp3|mp4> [ще файли]
  *   pnpm audio-measure -- --project <id> [--rev n]     сирий трек, music.wav, soundtrack.wav, рендери ревізії
+ *                                                      і звукова відомість (`sound-sheet.json`), якщо вона є
  *   pnpm audio-measure -- --sfx-cache                  таблиця по всіх семплах кешу SFX
  * `--data-dir <шлях>` — інше сховище (наприклад, `.data` основного checkout; лише читання), інакше DATA_DIR.
  * Друкує LUFS (BS.1770-4), dBTP, RMS, crest, кореляцію L/R (усю і нижче 150 Гц), енергію смуг
@@ -31,6 +32,7 @@ import {
   ProjectState,
   projectPaths,
   SoundCue,
+  SoundSheet,
   sharedPaths,
 } from "../packages/shared/src/index.ts";
 
@@ -252,6 +254,51 @@ function projectFiles(
   return out;
 }
 
+/** Звукова відомість ревізії (`sound-sheet.json`), якщо зведення її записало: події, старти сцен, секунди. */
+function printSoundSheet(root: string, projectId: string, revArg: number | null): void {
+  const paths = projectPaths(projectId);
+  const abs = (key: string) => path.join(root, ...key.split("/"));
+  const rev = revArg ?? ProjectState.parse(readJson(abs(paths.project))).rev;
+  const file = abs(paths.rev(rev).soundSheet);
+  if (!existsSync(file)) {
+    console.log(`\nзвукової відомості в ревізії ${rev} немає`);
+    return;
+  }
+  const sheet = SoundSheet.parse(readJson(file));
+  console.log(
+    `\n== звукова відомість (rev ${rev}) — ${sheet.fps} fps · ${sheet.bpm} BPM · ${sheet.totalFrames} кадрів` +
+      ` · зсув треку ${fmt(sheet.beatShiftMs)} мс · впевненість долі ${fmt(sheet.beatConfidence, 2)}` +
+      ` · downbeat ${fmt(sheet.barOffsetMs)} мс · ${fmt(sheet.integratedLufs)} LUFS · ${fmt(sheet.truePeakDbtp)} dBTP`,
+  );
+  printTable(
+    ["сцена", "подія", "cue", "кадр", "мс", "доля", "зсув мс", "пік dBFS", "дакінг", "тиша"],
+    sheet.events.map((e) => [
+      e.sceneId,
+      e.eventId,
+      `${e.cue}/${e.accent}`,
+      String(e.frame),
+      fmt(e.ms, 0),
+      e.beatIndex === null ? "—" : String(e.beatIndex),
+      fmt(e.beatOffsetMs),
+      fmt(e.peakDb),
+      e.ducked ? "так" : "",
+      e.silent === "none" ? "" : e.silent,
+    ]),
+  );
+  const mixOf = new Map(sheet.sections.map((s) => [s.sceneId, s.mix]));
+  printTable(
+    ["сцена", "кадр", "зсув до долі мс", "на такті", "mix"],
+    sheet.sceneStarts.map((s) => [
+      s.sceneId,
+      String(s.frame),
+      fmt(s.beatOffsetMs),
+      s.onBar === null ? "—" : s.onBar ? "так" : "ні",
+      mixOf.get(s.sceneId) ?? "—",
+    ]),
+  );
+  console.log(`\n  RMS зведення по секундах, dBFS: ${sheet.rmsPerSecondDb.map((x) => fmt(x)).join(" ")}`);
+}
+
 /** Таблиця по семплах кешу SFX: тривалість, onset, якір, пік, висота, кореляція, QC. */
 async function sfxCacheTable(root: string): Promise<void> {
   const dir = path.join(root, ...sharedPaths.sfxCacheDir.split("/"));
@@ -337,6 +384,7 @@ async function main(argv: readonly string[]): Promise<number> {
     measured.push(m);
   }
   printSummary(measured);
+  if (projectId) printSoundSheet(root, projectId, rev);
   return 0;
 }
 

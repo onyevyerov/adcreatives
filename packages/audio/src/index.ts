@@ -21,6 +21,7 @@ export * from "./sanitize.ts";
 export * from "./sfx.ts";
 export * from "./sfxCache.ts";
 export * from "./sfxQc.ts";
+export * from "./soundSheet.ts";
 export * from "./stage.ts";
 export * from "./stereo.ts";
 export * from "./trackCheck.ts";
