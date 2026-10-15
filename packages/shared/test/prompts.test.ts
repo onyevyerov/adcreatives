@@ -217,6 +217,7 @@ ${extra}---
         brand: {},
         assets: [],
         concept: "-",
+        throughline: null,
         scene: {},
         readonlyScenes: "-",
         code: "-",

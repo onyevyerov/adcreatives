@@ -48,40 +48,49 @@ describe("resolveFont", () => {
 
   it("keeps a site font with cyrillic for uk and marks origin site", () => {
     const r = resolveFont(
-      { family: "montserrat", weights: [700, 800], origin: "substitute" },
+      { family: "montserrat", weights: [700, 800], origin: "substitute", files: [] },
       "heading",
       opts(true, ["Montserrat"]),
     );
     expect(r.fix).toBeNull();
-    expect(r.choice).toEqual({ family: "Montserrat", weights: [700, 800], origin: "site" });
+    expect(r.choice).toEqual({ family: "Montserrat", weights: [700, 800], origin: "site", files: [] });
   });
 
   it("replaces a latin-only font for uk via substitutes map", () => {
-    const r = resolveFont({ family: "Poppins", weights: [600], origin: "site" }, "heading", opts(true));
+    const r = resolveFont(
+      { family: "Poppins", weights: [600], origin: "site", files: [] },
+      "heading",
+      opts(true),
+    );
     expect(r.choice.family).toBe("Montserrat");
     expect(r.choice.origin).toBe("substitute");
     expect(r.fix).toMatch(/кирилиці/);
   });
 
   it("keeps a latin-only font for en", () => {
-    const r = resolveFont({ family: "Poppins", weights: [600], origin: "site" }, "heading", opts(false));
+    const r = resolveFont(
+      { family: "Poppins", weights: [600], origin: "site", files: [] },
+      "heading",
+      opts(false),
+    );
     expect(r.fix).toBeNull();
     expect(r.choice.family).toBe("Poppins");
   });
 
   it("maps commercial fonts and unknown fonts to cyrillic Google Fonts", () => {
     expect(
-      resolveFont({ family: "Gilroy", weights: [700], origin: "site" }, "heading", opts(true)).choice.family,
+      resolveFont({ family: "Gilroy", weights: [700], origin: "site", files: [] }, "heading", opts(true))
+        .choice.family,
     ).toBe("Manrope");
     const unknown = resolveFont(
-      { family: "Foo Grotesk", weights: [400], origin: "site" },
+      { family: "Foo Grotesk", weights: [400], origin: "site", files: [] },
       "body",
       opts(true),
     );
     expect(unknown.choice.family).toBe("Inter");
     expect(unknown.fix).toMatch(/немає в перевіреному списку/);
     const serif = resolveFont(
-      { family: "My Serif Antiqua", weights: [400], origin: "site" },
+      { family: "My Serif Antiqua", weights: [400], origin: "site", files: [] },
       "body",
       opts(true),
     );
@@ -89,7 +98,11 @@ describe("resolveFont", () => {
   });
 
   it("snaps weights to available ones", () => {
-    const r = resolveFont({ family: "PT Sans", weights: [500, 800], origin: "site" }, "body", opts(true));
+    const r = resolveFont(
+      { family: "PT Sans", weights: [500, 800], origin: "site", files: [] },
+      "body",
+      opts(true),
+    );
     expect(r.choice.weights).toEqual([400, 700]);
   });
 });
@@ -98,8 +111,8 @@ describe("fixTypography", () => {
   it("requires cyrillic for a cyrillic brand name even when language is en", () => {
     const res = fixTypography(
       {
-        heading: { family: "Bebas Neue", weights: [400], origin: "site" },
-        body: { family: "Inter", weights: [400], origin: "site" },
+        heading: { family: "Bebas Neue", weights: [400], origin: "site", files: [] },
+        body: { family: "Inter", weights: [400], origin: "site", files: [] },
         mono: null,
         detected: [],
       },
@@ -114,8 +127,8 @@ describe("fixTypography", () => {
 
 describe("resolveMono", () => {
   const brand = {
-    heading: { family: "Montserrat", weights: [700], origin: "site" as const },
-    body: { family: "Inter", weights: [400], origin: "site" as const },
+    heading: { family: "Montserrat", weights: [700], origin: "site" as const, files: [] },
+    body: { family: "Inter", weights: [400], origin: "site" as const, files: [] },
   };
 
   it("has JetBrains Mono with cyrillic in fonts.json", () => {
@@ -127,7 +140,7 @@ describe("resolveMono", () => {
 
   it("null → JetBrains Mono, origin site when the site uses it", () => {
     expect(resolveMono(null, brand, opts(true))).toEqual({
-      choice: { family: "JetBrains Mono", weights: [400, 700], origin: "substitute" },
+      choice: { family: "JetBrains Mono", weights: [400, 700], origin: "substitute", files: [] },
       fix: null,
     });
     expect(resolveMono(null, brand, opts(true, ["JetBrains Mono"])).choice.origin).toBe("site");
@@ -136,34 +149,47 @@ describe("resolveMono", () => {
   it("null and a monospace brand font → the brand font itself", () => {
     const r = resolveMono(
       null,
-      { ...brand, body: { family: "Roboto Mono", weights: [400], origin: "site" } },
+      { ...brand, body: { family: "Roboto Mono", weights: [400], origin: "site", files: [] } },
       opts(true, ["Roboto Mono"]),
     );
     expect(r.fix).toBeNull();
-    expect(r.choice).toEqual({ family: "Roboto Mono", weights: [400, 700], origin: "site" });
+    expect(r.choice).toEqual({ family: "Roboto Mono", weights: [400, 700], origin: "site", files: [] });
   });
 
   it("keeps a valid monospace choice, replaces a proportional or latin-only one", () => {
-    const fira = resolveMono({ family: "Fira Code", weights: [500], origin: "site" }, brand, opts(true));
+    const fira = resolveMono(
+      { family: "Fira Code", weights: [500], origin: "site", files: [] },
+      brand,
+      opts(true),
+    );
     expect(fira).toEqual({
-      choice: { family: "Fira Code", weights: [500], origin: "substitute" },
+      choice: { family: "Fira Code", weights: [500], origin: "substitute", files: [] },
       fix: null,
     });
 
-    const inter = resolveMono({ family: "Inter", weights: [500], origin: "site" }, brand, opts(true));
+    const inter = resolveMono(
+      { family: "Inter", weights: [500], origin: "site", files: [] },
+      brand,
+      opts(true),
+    );
     expect(inter.choice.family).toBe("JetBrains Mono");
     expect(inter.choice.weights).toEqual([500]);
     expect(inter.fix).toMatch(/не моноширинний/);
 
-    const space = resolveMono({ family: "Space Mono", weights: [700], origin: "site" }, brand, opts(true));
+    const space = resolveMono(
+      { family: "Space Mono", weights: [700], origin: "site", files: [] },
+      brand,
+      opts(true),
+    );
     expect(space.choice.family).toBe("JetBrains Mono");
     expect(space.fix).toMatch(/кирилиці/);
     expect(
-      resolveMono({ family: "Space Mono", weights: [700], origin: "site" }, brand, opts(false)).choice.family,
+      resolveMono({ family: "Space Mono", weights: [700], origin: "site", files: [] }, brand, opts(false))
+        .choice.family,
     ).toBe("Space Mono");
 
     const menlo = resolveMono(
-      { family: "Menlo, monospace", weights: [400], origin: "site" },
+      { family: "Menlo, monospace", weights: [400], origin: "site", files: [] },
       brand,
       opts(true),
     );

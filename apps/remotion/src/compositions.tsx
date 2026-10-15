@@ -56,7 +56,7 @@ export function Main(props: MainInput) {
   });
 
   return (
-    <ThemeProvider brand={props.brand} fonts={props.fonts}>
+    <ThemeProvider brand={props.brand} fonts={props.fonts} localFonts={props.localFonts}>
       <AssetsProvider assets={props.assets}>
         <QaProvider enabled={props.qa === true}>
           <AbsoluteFill style={{ background: props.brand.palette.background }}>
@@ -77,7 +77,7 @@ export function ScenePreview(props: ScenePreviewInput) {
   const scene = props.storyboard.scenes.find((s) => s.id === props.sceneId);
   if (!scene) throw new Error(`ScenePreview: сцени ${props.sceneId} немає в розкадровці`);
   return (
-    <ThemeProvider brand={props.brand} fonts={props.fonts}>
+    <ThemeProvider brand={props.brand} fonts={props.fonts} localFonts={props.localFonts}>
       <AssetsProvider assets={props.assets}>
         <QaProvider enabled={props.qa === true}>
           <AbsoluteFill style={{ background: props.brand.palette.background }}>

@@ -34,6 +34,7 @@ const {
   Checklist,
   CountUp,
   Cursor,
+  easings,
   Flash,
   Glow,
   Icon,
@@ -187,6 +188,18 @@ describe("детермінізм: кадр → та сама розмітка", 
         clickAt={[32, 50]}
       />,
     ],
+    [
+      "Cursor з hoverAt",
+      <Cursor
+        key="ch"
+        path={[
+          { x: 100, y: 100, frame: 0 },
+          { x: 500, y: 800, frame: 30 },
+        ]}
+        hoverAt={[30, 60]}
+        clickAt={36}
+      />,
+    ],
     ["ScanLine", <ScanLine key="s" startFrame={10} durationFrames={30} from={200} to={1600} />],
     ["Flash", <Flash key="f" at={20} />],
     [
@@ -229,6 +242,47 @@ describe("Checkbox", () => {
     expect(ticks(render(node, 50))).toBe(3);
     const exact = <Checklist items={["a", "b"]} startFrame={0} checkAt={[40, 12]} width={600} />;
     expect(ticks(render(exact, 20))).toBe(1);
+  });
+});
+
+describe("Cursor", () => {
+  const path = [
+    { x: 100, y: 100, frame: 0 },
+    { x: 500, y: 800, frame: 30 },
+  ];
+  const scale = (html: string) => Number(/transform:scale\(([\d.]+)\)/.exec(html)?.[1]);
+
+  it("hoverAt без clickAt — наведення: ×1.08 за 4 кадри (easings.out), тримається", () => {
+    const node = <Cursor path={path} hoverAt={30} />;
+    expect(scale(render(node, 29))).toBe(1);
+    expect(scale(render(node, 31))).toBeCloseTo(1 + 0.08 * easings.out(0.25), 4);
+    expect(scale(render(node, 34))).toBe(1.08);
+    expect(scale(render(node, 120))).toBe(1.08);
+  });
+
+  it("клік після наведення: стискання 15 % за 6 кадрів, приріст наведення сходить без стрибка", () => {
+    const node = <Cursor path={path} hoverAt={30} clickAt={40} />;
+    expect(scale(render(node, 39))).toBe(1.08);
+    expect(scale(render(node, 40))).toBe(1.08);
+    // Середина кліку: стискання на піку, наведення наполовину зійшло.
+    expect(scale(render(node, 43))).toBeCloseTo(1.04 * 0.85, 4);
+    expect(scale(render(node, 46))).toBe(1);
+    expect(scale(render(node, 90))).toBe(1);
+  });
+
+  it("лише clickAt — як і було: стискання 15 % на третьому кадрі кліку", () => {
+    const node = <Cursor path={path} clickAt={40} />;
+    expect(scale(render(node, 39))).toBe(1);
+    expect(scale(render(node, 43))).toBe(0.85);
+    expect(scale(render(node, 46))).toBe(1);
+  });
+
+  it("кілька наведень: кожне — до свого наступного кліку", () => {
+    const node = <Cursor path={path} hoverAt={[10, 50]} clickAt={[20, 60]} />;
+    expect(scale(render(node, 18))).toBe(1.08);
+    expect(scale(render(node, 30))).toBe(1);
+    expect(scale(render(node, 55))).toBe(1.08);
+    expect(scale(render(node, 70))).toBe(1);
   });
 });
 

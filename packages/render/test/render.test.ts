@@ -5,14 +5,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { decodeAudio, pcmLength, rmsOf } from "@adc/audio";
 import { parseQaLog, TEMPLATE_VARIANTS, type TemplateVariant } from "@adc/motion-kit";
+import type { MainInput } from "@adc/remotion/host-props";
+import { fixtureAudioManifest, fixtureBrandKit, fixtureStoryboard } from "@adc/shared/fixtures";
 import type { BrowserLog } from "@adc/shared/render/RenderEngine";
+import type { BrandKit } from "@adc/shared/schemas/brandkit";
 import { FORMAT_SIZE, FORMATS, type Format } from "@adc/shared/schemas/common";
 import type { ScenePurpose, Storyboard } from "@adc/shared/schemas/storyboard";
 import { computeTimeline, stillFrames } from "@adc/shared/timeline";
-import type { ScenePreviewProps } from "@adc/shared/types/video";
+import type { MainProps, ScenePreviewProps } from "@adc/shared/types/video";
 import { parseMedia } from "@remotion/media-parser";
 import { nodeReader } from "@remotion/media-parser/node";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { openBrowser, renderMedia, renderStill, selectComposition } from "@remotion/renderer";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { OUTPUT_SAMPLE_RATE, RemotionRenderEngine, RenderError } from "../src/engine.ts";
 import {
   createFixtureJob,
@@ -122,6 +126,91 @@ function pngSize(file: string): { width: number; height: number } {
 function qaEntries(logs: BrowserLog[]) {
   return logs.map((l) => parseQaLog(l.text)).filter((e) => e !== null);
 }
+
+// Обгортки над справжнім `@remotion/renderer`: повільні тести йдуть наскрізь, швидкий тест inputProps
+// підміняє браузер і рендер одноразовими моками.
+vi.mock("@remotion/renderer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@remotion/renderer")>();
+  return {
+    ...actual,
+    openBrowser: vi.fn(actual.openBrowser),
+    selectComposition: vi.fn(actual.selectComposition),
+    renderStill: vi.fn(actual.renderStill),
+    renderMedia: vi.fn(actual.renderMedia),
+  };
+});
+
+describe("RemotionRenderEngine: шрифти в inputProps", () => {
+  it("localFonts бренд-кіта з origin local — у renderStill і renderMedia, з одного кешу з fonts", async () => {
+    const brand: BrandKit = {
+      ...fixtureBrandKit,
+      typography: {
+        ...fixtureBrandKit.typography,
+        heading: {
+          family: "Zerno Display",
+          weights: [700],
+          origin: "local",
+          files: [
+            {
+              weight: 700,
+              style: "normal",
+              format: "woff2",
+              path: "projects/p1/crawl/fonts/zerno-display-700.woff2",
+            },
+          ],
+        },
+      },
+    };
+    const props: MainProps = {
+      brand,
+      storyboard: fixtureStoryboard,
+      format: "vertical",
+      assets: {},
+      audio: fixtureAudioManifest,
+      templateScenes: [],
+    };
+    const close = vi.fn(async () => {});
+    vi.mocked(openBrowser).mockResolvedValueOnce({ close } as never);
+    vi.mocked(selectComposition)
+      .mockResolvedValueOnce({} as never)
+      .mockResolvedValueOnce({} as never);
+    vi.mocked(renderStill).mockResolvedValueOnce({} as never);
+    vi.mocked(renderMedia).mockResolvedValueOnce({} as never);
+    const engine = new RemotionRenderEngine();
+    try {
+      await engine.renderStill({
+        serveUrl: "bundle",
+        composition: "Main",
+        inputProps: props,
+        format: "vertical",
+        frame: 0,
+        out: "still.png",
+      });
+      await engine.renderMedia({
+        serveUrl: "bundle",
+        inputProps: props,
+        format: "vertical",
+        out: "main.mp4",
+      });
+    } finally {
+      await engine.close();
+    }
+    const still = vi.mocked(renderStill).mock.calls.at(-1)?.[0].inputProps as MainInput;
+    const media = vi.mocked(renderMedia).mock.calls.at(-1)?.[0].inputProps as MainInput;
+    expect(still.localFonts).toEqual([
+      { family: "Zerno Display", weight: 700, format: "woff2", src: "fonts/zerno-display-700.woff2" },
+    ]);
+    // Кеш рушія за бренд-кітом: той самий масив в обох викликах; fonts — без невідомого Google Fonts сімейства.
+    expect(media.localFonts).toBe(still.localFonts);
+    expect(media.fonts).toBe(still.fonts);
+    expect(still.fonts?.map((f) => f.fontFamily)).not.toContain("Zerno Display");
+    const selected = vi
+      .mocked(selectComposition)
+      .mock.calls.map((c) => (c[0].inputProps as MainInput).localFonts);
+    expect(selected).toEqual([still.localFonts, still.localFonts]);
+    expect(close).toHaveBeenCalled();
+  });
+});
 
 describe("slow: RemotionRenderEngine", () => {
   let tmp: string;

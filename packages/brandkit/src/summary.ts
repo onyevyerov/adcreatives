@@ -38,10 +38,10 @@ export interface BrandSummary {
   };
   logoCandidates: MediaLink[];
   fonts: {
-    heading: { family: string; weights: number[]; origin: "site" | "substitute" };
-    body: { family: string; weights: number[]; origin: "site" | "substitute" };
+    heading: { family: string; weights: number[]; origin: "site" | "substitute" | "local" };
+    body: { family: string; weights: number[]; origin: "site" | "substitute" | "local" };
     /** Моношрифт для чисел і міток; null — старий бренд-кіт (тема візьме JetBrains Mono). */
-    mono: { family: string; weights: number[]; origin: "site" | "substitute" } | null;
+    mono: { family: string; weights: number[]; origin: "site" | "substitute" | "local" } | null;
   };
   tone: string[];
   formality: BrandKitFile["voice"]["formality"];
@@ -179,6 +179,13 @@ export function summarizeBrandKit(
 
 const FORMALITY_UK = { formal: "офіційний", neutral: "нейтральний", casual: "невимушений" } as const;
 
+/** Позначка походження шрифту в підсумку для власника. */
+const FONT_ORIGIN_UK: Record<BrandSummary["fonts"]["heading"]["origin"], string> = {
+  site: "",
+  substitute: " (замінник)",
+  local: " (з сайту)",
+};
+
 /** Текст резюме для повідомлення в чаті (Markdown-подібний, українською). */
 export function formatBrandSummaryText(s: BrandSummary): string {
   const lines: string[] = [];
@@ -192,7 +199,7 @@ export function formatBrandSummaryText(s: BrandSummary): string {
   const others = s.logoCandidates.filter((c) => c.assetId !== s.logo.assetId).map((c) => c.assetId);
   lines.push(`**Лого:** ${logo}${others.length ? `; інші варіанти: ${others.join(", ")}` : ""}`);
   const font = (f: BrandSummary["fonts"]["heading"]) =>
-    `${f.family} ${f.weights.join("/")}${f.origin === "substitute" ? " (замінник)" : ""}`;
+    `${f.family} ${f.weights.join("/")}${FONT_ORIGIN_UK[f.origin]}`;
   const mono = s.fonts.mono ? `; цифри й мітки — ${font(s.fonts.mono)}` : "";
   lines.push(`**Шрифти:** заголовки — ${font(s.fonts.heading)}; текст — ${font(s.fonts.body)}${mono}`);
   lines.push(`**Тон:** ${s.tone.join(", ")} — ${FORMALITY_UK[s.formality]}`);

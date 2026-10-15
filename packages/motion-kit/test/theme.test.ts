@@ -1,10 +1,17 @@
 import { fixtureBrandKit, fixtureStoryboard } from "@adc/shared/fixtures";
+import type { BrandKit } from "@adc/shared/schemas/brandkit";
 import { ScenePurpose } from "@adc/shared/schemas/storyboard";
-import { describe, expect, it } from "vitest";
+import type { LocalFont } from "@adc/shared/types/video";
+import { loadFont } from "@remotion/fonts";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { staticFile } from "remotion";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FONT_SUBSETS,
   type FontInfo,
   fontStack,
+  loadPlannedFont,
   nearestWeight,
   planFont,
   pruneFontInfo,
@@ -19,7 +26,23 @@ import {
   headingWeight,
   MONO_FALLBACK_STACK,
   SEMANTIC_FALLBACK,
+  ThemeProvider,
 } from "../src/theme.tsx";
+
+// Локальні шрифти: `@remotion/fonts` у Node не працює (FontFace) — мокається; `delayRender` хоста рахується.
+vi.mock("@remotion/fonts", () => ({ loadFont: vi.fn(async () => {}) }));
+const delay = vi.hoisted(() => ({ labels: [] as string[] }));
+vi.mock("remotion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("remotion")>();
+  return {
+    ...actual,
+    useDelayRender: () => ({
+      delayRender: (label: string) => delay.labels.push(label),
+      continueRender: () => {},
+      cancelRender: () => {},
+    }),
+  };
+});
 
 const fakeInfo: FontInfo = {
   fontFamily: "Montserrat",
@@ -58,7 +81,7 @@ describe("тема", () => {
       palette: { ...fixtureBrandKit.palette, danger: "#D93636" },
       typography: {
         ...fixtureBrandKit.typography,
-        mono: { family: "JetBrains Mono", weights: [400], origin: "substitute" },
+        mono: { family: "JetBrains Mono", weights: [400], origin: "substitute", files: [] },
       },
     });
     expect(t.palette.danger).toBe("#D93636");
@@ -98,6 +121,71 @@ describe("шрифти", () => {
     });
     expect(Object.keys(pruned.unicodeRanges).sort()).toEqual(["cyrillic", "latin"]);
     expect(pruned.subsets.sort()).toEqual(["cyrillic", "latin"]);
+  });
+});
+
+describe("локальні шрифти сайту", () => {
+  const local: LocalFont[] = [
+    { family: "Zerno Display", weight: 400, format: "woff2", src: "fonts/zerno-display-400.woff2" },
+    { family: "Zerno Display", weight: 700, format: "woff2", src: "fonts/zerno-display-700.woff2" },
+    { family: "Other", weight: 400, format: "truetype", src: "fonts/other-400.ttf" },
+  ];
+
+  beforeEach(() => {
+    vi.mocked(loadFont).mockClear();
+    delay.labels.length = 0;
+  });
+
+  it("план: сімейства немає в FontInfo, але є локально — найближчі ваги і їхні файли", () => {
+    const plan = planFont("Zerno Display", [600, 800], [fakeInfo], local);
+    expect(plan.info).toBeNull();
+    expect(plan.weights).toEqual([700]);
+    expect(plan.local).toEqual([local[1]]);
+    // Google Fonts має пріоритет; невідоме сімейство — порожній план (резервний стек).
+    expect(planFont("Montserrat", [400], [fakeInfo], local).local).toEqual([]);
+    expect(planFont("Unknown", [400], [fakeInfo], local)).toMatchObject({ info: null, local: [] });
+  });
+
+  it("loadPlannedFont: loadFont з family, weight, url = staticFile(src) і format", async () => {
+    const plan = planFont("Zerno Display", [400, 700], [], local);
+    await loadPlannedFont(plan);
+    expect(loadFont).toHaveBeenCalledTimes(2);
+    expect(loadFont).toHaveBeenCalledWith({
+      family: "Zerno Display",
+      weight: "400",
+      url: staticFile("fonts/zerno-display-400.woff2"),
+      format: "woff2",
+    });
+    expect(loadFont).toHaveBeenCalledWith(
+      expect.objectContaining({
+        family: "Zerno Display",
+        weight: "700",
+        url: staticFile("fonts/zerno-display-700.woff2"),
+      }),
+    );
+    expect(vi.mocked(loadFont).mock.calls[0]?.[0].url).toMatch(/fonts\/zerno-display-400\.woff2$/);
+  });
+
+  it("ThemeProvider з localFonts тримає delayRender, поки шрифти не готові; fontStack незмінний", () => {
+    const brand: BrandKit = {
+      ...fixtureBrandKit,
+      typography: {
+        ...fixtureBrandKit.typography,
+        heading: { family: "Zerno Display", weights: [700], origin: "local", files: [] },
+      },
+    };
+    type Props = Parameters<typeof ThemeProvider>[0];
+    const render = (props: Omit<Props, "children">) =>
+      renderToStaticMarkup(createElement(ThemeProvider, props as Props, createElement("i", null, "дитина")));
+    const held = render({ brand, localFonts: local });
+    expect(delay.labels).toEqual(["motion-kit: шрифти бренду"]);
+    expect(held).not.toContain("дитина");
+
+    delay.labels.length = 0;
+    const free = render({ brand });
+    expect(delay.labels).toEqual([]);
+    expect(free).toContain("дитина");
+    expect(buildTheme(brand).fonts.heading).toBe(fontStack("Zerno Display"));
   });
 });
 

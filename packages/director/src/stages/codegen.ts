@@ -107,6 +107,8 @@ export function sceneCodegenHash(args: {
   return inputsHash({
     scene,
     concept: storyboard.concept,
+    // Стан наскрізного об'єкта в цій сцені і в сусідніх (стики): зміна об'єкта перегенеровує сцену.
+    throughline: throughlineFor(storyboard, scene.id),
     copyRules: storyboard.copyRules,
     fps: storyboard.fps,
     brand: brandForCode(args.brand),
@@ -116,6 +118,16 @@ export function sceneCodegenHash(args: {
     context: args.contextHash,
     instruction: args.instruction,
   });
+}
+
+/** Наскрізний об'єкт для хешу сцени: назва і стани цієї сцени та її сусідів; null — об'єкта немає. */
+function throughlineFor(storyboard: Storyboard, sceneId: string): unknown {
+  const t = storyboard.throughline;
+  if (!t) return null;
+  const order = storyboard.scenes.map((s) => s.id);
+  const i = order.indexOf(sceneId);
+  const near = new Set([order[i - 1], sceneId, order[i + 1]]);
+  return { object: t.object, states: t.states.filter((s) => near.has(s.sceneId)) };
 }
 
 function fileBlock(name: string, code: string): string {

@@ -36,7 +36,9 @@ import {
  * - щільність важких ударів (`limitHits`, `HIT_SOUND_CUES`): ≤ `1 + floor(totalSec / 6)` на ролик і ≤ 1
  *   у вікні 3 с, зайві → `pop`; riser далі ніж за 2 такти до події — попередження;
  * - довжина текстів звіряється з `copyRules` для обраних форматів → `textIssues` (текст не
- *   переписується: це робить стадія повторним викликом моделі або людина на чекпоінті 2).
+ *   переписується: це робить стадія повторним викликом моделі або людина на чекпоінті 2);
+ * - `throughline` (`normalizeThroughline`): стани невідомих сцен викидаються, відсутні сцени дописуються
+ *   станом "carried over unchanged", порядок — за сценами; null лишається null; на таймінги не впливає.
  */
 
 export const DEFAULT_TRANSITION_FRAMES = 12;
@@ -329,6 +331,48 @@ function normalizeItems(scene: Scene, factSet: Set<string> | null, changes: stri
   scene.items = out;
 }
 
+/** Стан наскрізного об'єкта для сцени, якої модель не описала: об'єкт переходить без змін. */
+export const THROUGHLINE_CARRIED_OVER = "carried over unchanged";
+
+/**
+ * `throughline`: стани лише наявних сцен (перейменовані id — за новими), по одному на сцену, у порядку
+ * сцен; сцена без стану отримує `THROUGHLINE_CARRIED_OVER`. null лишається null; порожній `object` → null.
+ * На таймінги не впливає. Після нормалізації id сцен.
+ */
+function normalizeThroughline(sb: Storyboard, rename: (id: string) => string, changes: string[]): void {
+  const tl = sb.throughline;
+  if (!tl) {
+    sb.throughline = null;
+    return;
+  }
+  const object = tl.object.trim();
+  if (!object) {
+    changes.push("throughline: порожній object — наскрізний об'єкт прибрано");
+    sb.throughline = null;
+    return;
+  }
+  const sceneIds = new Set(sb.scenes.map((s) => s.id));
+  const byScene = new Map<string, string>();
+  for (const st of tl.states ?? []) {
+    const id = rename(st.sceneId);
+    const state = st.state.trim();
+    if (!sceneIds.has(id)) {
+      changes.push(`throughline: стан невідомої сцени «${st.sceneId}» викинуто`);
+    } else if (byScene.has(id)) {
+      changes.push(`throughline: дублікат стану сцени ${id} викинуто`);
+    } else if (state) {
+      byScene.set(id, state);
+    }
+  }
+  const states = sb.scenes.map((scene) => {
+    const state = byScene.get(scene.id);
+    if (state) return { sceneId: scene.id, state };
+    changes.push(`throughline: ${scene.id} без стану → «${THROUGHLINE_CARRIED_OVER}»`);
+    return { sceneId: scene.id, state: THROUGHLINE_CARRIED_OVER };
+  });
+  sb.throughline = { object, states };
+}
+
 /** `events`: без дублікатів id, textIds — лише наявні пункти; legacy `sfxCue` → подія "arrive" на кадрі 0. */
 function normalizeEventList(scene: Scene, changes: string[]): void {
   const itemIds = new Set(scene.items.map((i) => i.id));
@@ -582,6 +626,8 @@ export function normalizeStoryboard(input: Storyboard, opts: NormalizeOptions): 
   for (const part of sb.musicBrief.structure) {
     part.sceneIds = part.sceneIds.map((id) => renamed.get(id) ?? id).filter((id) => used.has(id));
   }
+  // Дублікат id: стан лишається за першою сценою з цим id (вона id зберегла), перейменовується лише невідомий.
+  normalizeThroughline(sb, (id) => (used.has(id) ? id : (renamed.get(id) ?? id)), changes);
 
   // ---------- вміст сцен ----------
   for (const scene of sb.scenes) {

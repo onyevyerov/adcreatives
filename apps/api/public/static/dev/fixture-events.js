@@ -68,8 +68,8 @@ export const brandkitFile = {
     success: null,
   },
   typography: {
-    heading: { family: "Montserrat", weights: [700, 800], origin: "site" },
-    body: { family: "Inter", weights: [400, 600], origin: "site" },
+    heading: { family: "Montserrat", weights: [700, 800], origin: "site", files: [] },
+    body: { family: "Inter", weights: [400, 600], origin: "site", files: [] },
     mono: null,
     detected: ["Montserrat", "Inter"],
   },
@@ -240,6 +240,7 @@ export const storyboard = {
     maxCharsPerLine: { vertical: 18, square: 22, landscape: 32 },
     maxLines: { headline: 3, sub: 2 },
   },
+  throughline: null,
 };
 
 // ─────────────────────────── payload-и чекпоінтів ───────────────────────────

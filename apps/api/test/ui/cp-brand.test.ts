@@ -320,7 +320,7 @@ describe("cp-brand · варіанти payload", () => {
           palette: { ...brandPayload.brandkit.palette, primary: "red;background:url(x)" },
           typography: {
             ...brandPayload.brandkit.typography,
-            heading: { family: 'Evil"; } body { x', weights: [700], origin: "site" },
+            heading: { family: 'Evil"; } body { x', weights: [700], origin: "site", files: [] },
           },
           facts: [
             {
@@ -460,8 +460,8 @@ describe("cp-brand · Google Fonts", () => {
         {},
         {
           typography: {
-            heading: { family: "Playfair Display", weights: [700], origin: "substitute" },
-            body: { family: "Playfair Display", weights: [400, 700], origin: "substitute" },
+            heading: { family: "Playfair Display", weights: [700], origin: "substitute", files: [] },
+            body: { family: "Playfair Display", weights: [400, 700], origin: "substitute", files: [] },
             mono: null,
             detected: [],
           },

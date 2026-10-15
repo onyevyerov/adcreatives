@@ -64,7 +64,7 @@ function richSite(): SiteData {
 function llmBrandKit(): BrandKit {
   const kit = structuredClone(fixtureBrandKit);
   kit.palette.textOnLight = "#AAAAAA";
-  kit.typography.heading = { family: "Poppins", weights: [700], origin: "site" };
+  kit.typography.heading = { family: "Poppins", weights: [700], origin: "site", files: [] };
   kit.logoCandidates = ["a02", "a99"];
   kit.assets = [
     ...kit.assets,
@@ -148,7 +148,7 @@ describe("brandkitStage", () => {
     // Палітра: контраст виправлено.
     expect(contrastRatio(file.palette.textOnLight, file.palette.background)).toBeGreaterThanOrEqual(4.5);
     // Шрифти: Poppins без кирилиці → замінник.
-    expect(file.typography.heading).toMatchObject({ family: "Montserrat", origin: "site" });
+    expect(file.typography.heading).toMatchObject({ family: "Montserrat", origin: "site", files: [] });
     // Асети: невідомий id прибрано, «#3» перетворено на assetId з аркуша.
     expect(file.assets.map((a) => a.assetId)).toEqual(["a01", "a03"]);
     expect(file.logoCandidates).toEqual(["a02", "a04"]);
