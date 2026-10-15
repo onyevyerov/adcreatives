@@ -4,6 +4,7 @@ import { ClaimsReport } from "./claims.ts";
 import { Format, IsoDate } from "./common.ts";
 import { Checkpoint, CostStage, ProjectStatus } from "./project.ts";
 import { QaIssue } from "./qa.ts";
+import { ReviewIssue, ReviewRoute } from "./review.ts";
 import { MusicBrief, Storyboard } from "./storyboard.ts";
 
 /**
@@ -72,6 +73,15 @@ export const StoryboardCheckpointPayload = z.object({
   music: MediaRef.nullable(),
   /** Лише змінені сцени (після правки). */
   changedScenes: z.array(z.string()).nullable(),
+  /** Рецензія фільму (major/critical з маршрутом); null — рецензії не було. Відсутнє поле — старі події. */
+  review: z
+    .object({
+      score: z.number().int(),
+      summary: z.string(),
+      issues: z.array(ReviewIssue.extend({ route: ReviewRoute })),
+    })
+    .nullable()
+    .optional(),
 });
 
 export const CheckpointPayload = z.discriminatedUnion("checkpoint", [
