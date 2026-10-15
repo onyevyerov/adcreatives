@@ -1,12 +1,15 @@
 import {
   allowedScreenTexts,
   CheckReport,
+  FilmReview,
   type Format,
   type ImageInput,
   type LlmCallOptions,
   QaReport,
+  type ReviewIssue,
   readTuning,
   revPaths,
+  routeOf,
   type Stage,
   type StageContext,
   StageError,
@@ -52,7 +55,7 @@ export interface FixStageDeps {
   tuning?: () => Tuning;
 }
 
-/** Кадри сцени для fix (`reason: "qa"`): зображення на формат і легенда до них. */
+/** Кадри сцени для fix (`reason: "qa"` або `"review"`): зображення на формат і легенда до них. */
 export interface FixSceneImages {
   images: ImageInput[];
   /** Рядок легенди на зображення, у порядку `images`. */
@@ -116,12 +119,44 @@ export async function readonlyScenesFor(args: {
   return blocks.join("\n\n") || "(немає)";
 }
 
-/** Опис проблем сцени для промпта: помилки check (guard, типи, runtime) або зауваження QA + autoIssues. */
+/**
+ * Зауваження рецензента фільму для сцени: маршрут `fix` (`routeOf`), сцена — `sceneId`, а для `join` —
+ * і `nextSceneId` (правити склейку може будь-яка зі сторін).
+ */
+export function reviewIssuesFor(review: Pick<FilmReview, "issues"> | null, sceneId: string): ReviewIssue[] {
+  return (review?.issues ?? []).filter(
+    (i) =>
+      routeOf(i.kind) === "fix" &&
+      (i.sceneId === sceneId || (i.scope === "join" && i.nextSceneId === sceneId)),
+  );
+}
+
+/** Рядок зауваження рецензента для `<problems>`: де, що, інструкція; для склейки — що з чим зшити. */
+function reviewLine(i: ReviewIssue, sceneId: string): string {
+  const own = i.sceneId === sceneId;
+  const where = [
+    i.format,
+    i.eventId ? `event ${i.eventId}` : null,
+    i.frame !== null ? (own ? `frame ${i.frame}` : `frame ${i.frame} of ${i.sceneId}`) : null,
+  ].filter(Boolean);
+  const head = `- [${[i.severity, ...where, i.kind].join(", ")}] ${i.description} → fix: ${i.fix}`;
+  if (i.scope !== "join") return head;
+  if (own) {
+    return i.nextSceneId
+      ? `${head} At the join with ${i.nextSceneId}: last state of this scene must become first state of the next.`
+      : head;
+  }
+  return `${head} At the join with ${i.sceneId} (it comes before this scene): first state of this scene must continue the last state of ${i.sceneId}.`;
+}
+
+/** Опис проблем сцени для промпта: помилки check (guard, типи, runtime), зауваження QA або рецензента + autoIssues. */
 export function describeProblems(args: {
   sceneId: string;
-  reason: "check" | "qa";
+  reason: "check" | "qa" | "review";
   check: CheckReport | null;
   qa: QaReport | null;
+  /** `review.json` ревізії (лише для `reason: "review"`). */
+  review?: Pick<FilmReview, "issues"> | null;
   guardViolations: readonly string[];
 }): string {
   const { sceneId, reason, check, qa } = args;
@@ -150,6 +185,15 @@ export function describeProblems(args: {
         lines.push(`- [${i.severity}, ${i.format}, ${i.kind}] ${i.description} → fix: ${i.fix}`);
     }
   }
+  if (reason === "review") {
+    const issues = reviewIssuesFor(args.review ?? null, sceneId);
+    if (issues.length) {
+      lines.push(
+        "Film reviewer's remarks (from watching the whole film, frames are local to the scene named):",
+      );
+      for (const i of issues) lines.push(reviewLine(i, sceneId));
+    }
+  }
   const auto = check?.autoIssues.filter((i) => i.sceneId === sceneId) ?? [];
   if (auto.length) {
     lines.push("Automatic checks (motion-kit QA logs, the frame strip, the scene code):");
@@ -172,10 +216,11 @@ export function describeProblems(args: {
  * - Guard з `allowedTexts: allowedScreenTexts(scene, brand)` — тексти в кадрі лише з розкадровки.
  * - `reason: "qa"` — модель бачить і аркуш стрічки сцени в кожному обраному форматі, що є в `check.json`
  *   (запасний варіант — кадри 25/50/90%): зображення перед текстом, легенда — в `<problems>`.
- *   `reason: "check"` — без зображень.
+ *   `reason: "review"` — те саме, а зауваження — з `review.json` (маршрут fix, зокрема склейки, де сцена —
+ *   будь-яка сторона). `reason: "check"` — без зображень.
  * - Від двох викликів спершу один `llm.warm()` тими самими model / effort, потім паралельно: виклики
  *   читають кеш (prefix, system, а без зображень — і спільну частину user), а не пишуть його кожен.
- * - Effort: `check` — `Tuning.fixCheckEffort` (null → frontmatter), `qa` — frontmatter.
+ * - Effort: `check` — `Tuning.fixCheckEffort` (null → frontmatter), `qa` і `review` — frontmatter.
  * `outputs.sceneIds` — сцени, що отримали нову версію (зокрема відхилену guard'ом: її помилки
  * покаже наступний `check` як compileErrors).
  */
@@ -199,6 +244,12 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
     const check = await readOptional(storage, rp.check, (v) => CheckReport.parse(v), logger);
     const qa =
       params.reason === "qa" ? await readOptional(storage, rp.qa, (v) => QaReport.parse(v), logger) : null;
+    const review =
+      params.reason === "review"
+        ? await readOptional(storage, rp.review, (v) => FilmReview.parse(v), logger)
+        : null;
+    if (params.reason === "review" && !review)
+      logger.warn("fix: немає review.json — фікс без зауважень рецензента");
     const targets = [...new Set(params.sceneIds)].filter((id) => storyboard.scenes.some((s) => s.id === id));
     if (targets.length === 0) return { artifacts: [], outputs: { sceneIds: [] } };
 
@@ -209,7 +260,7 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
     const effort = params.reason === "check" ? tuning.fixCheckEffort : null;
     const modelOpts: Pick<LlmCallOptions, "effort"> = effort !== null ? { effort } : {};
 
-    /** Вхід виклику сцени: змінні промпта і (для `qa`) кадри. */
+    /** Вхід виклику сцени: змінні промпта і (для `qa`/`review`) кадри. */
     const prepare = async (sceneId: string) => {
       const scene = storyboard.scenes.find((s) => s.id === sceneId);
       const code = await readCurrentCode(storage, projectId, rev, ledger, sceneId);
@@ -219,10 +270,11 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
         reason: params.reason,
         check,
         qa,
+        review,
         guardViolations: ver && !ver.guardOk ? ver.violations : [],
       });
       let shots: FixSceneImages = { images: [], legend: [] };
-      if (params.reason === "qa" && check) {
+      if (params.reason !== "check" && check) {
         try {
           shots = await fixSceneImages(storage, check, sceneId, formats, storyboard, rp);
         } catch (err) {

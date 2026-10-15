@@ -2,6 +2,7 @@ import {
   type PipelineCommand,
   type ProjectState,
   type ProjectStatus,
+  type ReviewIssue,
   type StageDoneEvent,
   type StageName,
   type StageOutputsMap,
@@ -16,11 +17,15 @@ import {
   type StepInput,
   type StepResult,
 } from "../src/machine.ts";
-import { emptyPipe, type JobRecord, type PipeState } from "../src/pipe.ts";
-import { intent } from "./helpers.ts";
+import { emptyPipe, type JobRecord, PipeState } from "../src/pipe.ts";
+import { Harness, intent } from "./helpers.ts";
 
 const NOW = "2026-10-06T12:00:00.000Z";
-const ctx = (over: Partial<StepContext> = {}): StepContext => ({ now: NOW, ...over });
+/**
+ * Базові сценарії — у режимі звуку `storyboard` (як до звукорежисера): таблиці переходів не залежать
+ * від `ADC_SFX_MODE`. Режим `designer` (звукорежисер і рецензент) — окремий блок наприкінці.
+ */
+const ctx = (over: Partial<StepContext> = {}): StepContext => ({ now: NOW, sfxMode: "storyboard", ...over });
 
 function state(status: ProjectStatus, over: Partial<ProjectState> = {}, pipe: Partial<PipeState> = {}) {
   return {
@@ -1168,5 +1173,451 @@ describe("nextStep — агентний режим (стадія author)", () =>
     ({ r, s } = advance(s, cmd({ type: "retry" }), AGENT));
     expect(r.jobs).toEqual([expect.objectContaining({ stage: "author", attempt: 2 })]);
     expect(r.state.branches.video).toBe("running");
+  });
+});
+
+describe("nextStep — звукорежисер і рецензент (sfxMode: designer)", () => {
+  const D = { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1 } as const;
+  const advance = (s: MachineState, input: StepInput, over: Partial<StepContext> = {}) => {
+    const r = nextStep(s, input, ctx({ ...D, ...over }));
+    return { r, s: { project: r.state, pipe: r.pipe } as MachineState };
+  };
+  /** Подія завершення вже поставленого job стадії (першого з outstanding). */
+  function done<S extends StageName>(s: MachineState, stage: S, outputs: Partial<StageOutputsMap[S]> = {}) {
+    const job = s.pipe.outstanding.find((j) => j.stage === stage);
+    if (!job) throw new Error(`немає job ${stage}`);
+    return running(s, stage, job.params, outputs);
+  }
+  function failed(s: MachineState, stage: StageName, retryable = false) {
+    const job = s.pipe.outstanding.find((j) => j.stage === stage);
+    if (!job) throw new Error(`немає job ${stage}`);
+    return running(s, stage, job.params, {}, { fail: true, retryable });
+  }
+  const PASS = { verdict: "pass" as const, seriousScenes: [] as string[] };
+  const MUSIC = { planHash: "ph", reusedMusic: false, mixed: false } as const;
+  const MIXED = { planHash: "ph", reusedMusic: true, mixed: true } as const;
+  const SFX = { sceneIds: ["s1", "s2", "s3"], changed: 2, muted: 1 };
+  const OK = { failedScenes: [], issueScenes: [] };
+  const review = (
+    verdict: "pass" | "fix",
+    routes: Partial<StageOutputsMap["review"]["routes"]> = {},
+  ): Partial<StageOutputsMap["review"]> => ({
+    verdict,
+    score: verdict === "pass" ? 8 : 5,
+    routes: { fix: [], sfx: [], music: 0, ...routes },
+  });
+  function issue(over: Partial<ReviewIssue>): ReviewIssue {
+    return {
+      scope: "scene",
+      sceneId: "s1",
+      nextSceneId: null,
+      eventId: null,
+      frame: null,
+      format: null,
+      severity: "major",
+      kind: "low_contrast",
+      description: "d",
+      fix: "f",
+      ...over,
+    };
+  }
+  /** Затвердження сценарію → codegen + audio{music}. */
+  const approve = (over: Partial<StepContext> = {}) =>
+    advance(state("awaiting_script"), cmd({ type: "approve", rev: null }), { unverifiedClaims: [], ...over });
+
+  /** Відеогілка: codegen → check → qa(pass). */
+  function video(s0: MachineState, over: Partial<StepContext> = {}) {
+    let s = s0;
+    let r: StepResult;
+    const results: StepResult[] = [];
+    ({ r, s } = advance(s, done(s, "codegen", { sceneIds: ["s1", "s2", "s3"], guardRejected: [] }), over));
+    results.push(r);
+    ({ r, s } = advance(s, done(s, "check", OK), over));
+    results.push(r);
+    ({ r, s } = advance(s, done(s, "qa", PASS), over));
+    results.push(r);
+    return { s, results, last: r };
+  }
+
+  /** Від затвердження до запущеної рецензії (music раніше за sfx). */
+  function toReview(): MachineState {
+    let { s } = approve();
+    ({ s } = advance(s, done(s, "audio", MUSIC)));
+    ({ s } = video(s));
+    ({ s } = advance(s, done(s, "sfx", SFX)));
+    ({ s } = advance(s, done(s, "audio", MIXED)));
+    return s;
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("перша генерація: codegen → check → qa → sfx → mix → review → чекпоінт 3", () => {
+    let { r, s } = approve();
+    const jobs = r.jobs.map((j) => [j.stage, j.params]);
+    expect(r.pipe.sfxMode).toBe("designer");
+    const results: StepResult[] = [];
+    for (const input of [
+      () => done(s, "codegen", { sceneIds: ["s1", "s2", "s3"], guardRejected: [] }),
+      () => done(s, "check", OK),
+      () => done(s, "qa", PASS),
+      () => done(s, "audio", MUSIC),
+      () => done(s, "sfx", SFX),
+      () => done(s, "audio", MIXED),
+      () => done(s, "review", review("pass")),
+    ]) {
+      ({ r, s } = advance(s, input()));
+      jobs.push(...r.jobs.map((j) => [j.stage, j.params]));
+      results.push(r);
+    }
+    expect(jobs).toEqual([
+      ["codegen", { sceneIds: null, instructions: [] }],
+      ["audio", { phase: "music" }],
+      ["check", { sceneIds: null }],
+      ["qa", { sceneIds: null }],
+      ["sfx", { sceneIds: null, instructions: [] }],
+      ["audio", { phase: "mix" }],
+      ["review", { round: 0 }],
+    ]);
+    // Після QA відеогілка ще не done: її закриває зведення.
+    expect(results[2]?.state.branches).toEqual({ video: "running", audio: "running" });
+    expect(results[2]?.events).toContainEqual(
+      expect.objectContaining({ type: "progress", stage: "sfx", label: t("sfxProgress") }),
+    );
+    // Зведення: обидві гілки done, але чекпоінт — лише після рецензії.
+    expect(results[5]?.state.branches).toEqual({ video: "done", audio: "done" });
+    expect(results[5]?.state.status).toBe("directing");
+    expect(results[5]?.events).toContainEqual(
+      expect.objectContaining({ type: "progress", stage: "review", label: t("reviewProgress") }),
+    );
+    expect(r.state.status).toBe("awaiting_storyboard");
+    expect(r.effects).toContainEqual({
+      type: "checkpoint",
+      checkpoint: "storyboard",
+      rev: 1,
+      changedScenes: null,
+    });
+    expect(r.pipe.reviewRounds).toBe(0);
+  });
+
+  it("music раніше за sfx і навпаки — рівно один mix, після другої з подій", () => {
+    const mixes = (results: StepResult[]) =>
+      results
+        .flatMap((x) => x.jobs)
+        .filter((j) => j.stage === "audio" && (j.params as { phase?: string }).phase === "mix");
+
+    // music → (відео) → sfx
+    let { s } = approve();
+    let r: StepResult;
+    const a: StepResult[] = [];
+    ({ r, s } = advance(s, done(s, "audio", MUSIC)));
+    a.push(r);
+    expect(r.pipe.musicDone).toBe(true);
+    expect(stages(r)).toEqual([]);
+    const v1 = video(s);
+    a.push(...v1.results);
+    ({ r, s } = advance(v1.s, done(v1.s, "sfx", SFX)));
+    a.push(r);
+    expect(stages(r)).toEqual(["audio"]);
+    expect(mixes(a)).toHaveLength(1);
+
+    // (відео) → sfx → music
+    ({ s } = approve());
+    const b: StepResult[] = [];
+    const v2 = video(s);
+    b.push(...v2.results);
+    ({ r, s } = advance(v2.s, done(v2.s, "sfx", SFX)));
+    b.push(r);
+    expect(r.pipe.sfxDone).toBe(true);
+    expect(stages(r)).toEqual([]);
+    ({ r, s } = advance(s, done(s, "audio", MUSIC)));
+    b.push(r);
+    expect(stages(r)).toEqual(["audio"]);
+    expect(mixes(b)).toHaveLength(1);
+    expect(mixes(b)[0]?.jobId).toBe("p1.audio.r1.a2");
+  });
+
+  it("коло fix+sfx: fix(review) → check без QA → sfx(сцени + звукові зауваження) → mix → review{1}", () => {
+    let s = toReview();
+    let r: StepResult;
+    const sound = issue({ sceneId: "s3", kind: "sfx_missing", description: "удар без звуку" });
+    const visual = issue({ sceneId: "s1", kind: "low_contrast" });
+    const music = issue({ scope: "film", sceneId: null, kind: "music_mismatch" });
+    ({ r, s } = advance(s, done(s, "review", review("fix", { fix: ["s1"], sfx: ["s3"], music: 1 })), {
+      reviewIssues: [visual, sound, music],
+    }));
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "fix", params: { sceneIds: ["s1"], reason: "review" } }),
+    ]);
+    expect(r.events).toContainEqual(
+      expect.objectContaining({ type: "progress", stage: "fix", label: t("reviewFixProgress") }),
+    );
+    expect(r.pipe.reviewRounds).toBe(1);
+    expect(r.pipe.videoPhase).toBe("review_fix");
+    expect(r.pipe.dirtyScenes).toEqual(["s1", "s3"]);
+    expect(r.state.status).toBe("directing");
+    ({ r, s } = advance(s, done(s, "fix", { sceneIds: ["s1"] })));
+    expect(r.jobs).toEqual([expect.objectContaining({ stage: "check", params: { sceneIds: ["s1"] } })]);
+    // Сцена не зібралась — як завжди: fix(check) ↔ check, потім sfx.
+    ({ r, s } = advance(s, done(s, "check", { failedScenes: ["s1"], issueScenes: [] })));
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "fix", params: { sceneIds: ["s1"], reason: "check" } }),
+    ]);
+    ({ r, s } = advance(s, done(s, "fix", { sceneIds: ["s1"] })));
+    ({ r, s } = advance(s, done(s, "check", OK)));
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "sfx", params: { sceneIds: ["s1", "s3"], instructions: [sound] } }),
+    ]);
+    expect(r.pipe.pendingSfx).toBeNull();
+    ({ r, s } = advance(s, done(s, "sfx", SFX)));
+    expect(r.jobs).toEqual([expect.objectContaining({ stage: "audio", params: { phase: "mix" } })]);
+    ({ r, s } = advance(s, done(s, "audio", MIXED)));
+    expect(r.jobs).toEqual([expect.objectContaining({ stage: "review", params: { round: 1 } })]);
+    // Кола вичерпано (reviewMaxRounds: 1): навіть fix → чекпоінт 3.
+    ({ r, s } = advance(s, done(s, "review", review("fix", { fix: ["s1"] }))));
+    expect(stages(r)).toEqual([]);
+    expect(r.state.status).toBe("awaiting_storyboard");
+    expect(r.pipe.failedJobs).toEqual([]);
+    expect(s.pipe.reviewRounds).toBe(1);
+  });
+
+  it("коло лише зі звуком: одразу sfx → mix → review{1}", () => {
+    let s = toReview();
+    let r: StepResult;
+    const sound = issue({ sceneId: "s2", kind: "sfx_off_beat" });
+    const other = issue({ sceneId: "s1", kind: "sfx_level" });
+    ({ r, s } = advance(s, done(s, "review", review("fix", { sfx: ["s2"] })), {
+      reviewIssues: [sound, other],
+    }));
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "sfx", params: { sceneIds: ["s2"], instructions: [sound] } }),
+    ]);
+    expect(r.pipe.reviewRounds).toBe(1);
+    ({ r, s } = advance(s, done(s, "sfx", SFX)));
+    expect(stages(r)).toEqual(["audio"]);
+    ({ r, s } = advance(s, done(s, "audio", MIXED)));
+    expect(r.jobs).toEqual([expect.objectContaining({ stage: "review", params: { round: 1 } })]);
+    ({ r } = advance(s, done(s, "review", review("pass"))));
+    expect(r.state.status).toBe("awaiting_storyboard");
+  });
+
+  it("pass, вичерпані кола, лише музика чи template-сцени — одразу чекпоінт 3", () => {
+    const cases: Array<[Partial<StageOutputsMap["review"]>, Partial<StepContext>, Partial<PipeState>]> = [
+      [review("pass"), {}, {}],
+      [review("fix", { fix: ["s1"] }), { reviewMaxRounds: 0 }, {}],
+      [review("fix", { music: 2 }), {}, {}],
+      [review("fix", { fix: ["s2"], sfx: ["s2"] }), {}, { templateScenes: ["s2"] }],
+    ];
+    for (const [out, over, pipe] of cases) {
+      const s0 = toReview();
+      const s: MachineState = { project: s0.project, pipe: { ...s0.pipe, ...pipe } };
+      const { r } = advance(s, done(s, "review", out), over);
+      expect(stages(r)).toEqual([]);
+      expect(r.state.status).toBe("awaiting_storyboard");
+      expect(r.pipe.reviewRounds).toBe(0);
+    }
+  });
+
+  it("збій sfx: «звук за розкадровкою», зведення без плану, ревізія йде далі; не у failedJobs", () => {
+    let { s } = approve();
+    let r: StepResult;
+    ({ s } = advance(s, done(s, "audio", MUSIC)));
+    ({ s } = video(s));
+    ({ r, s } = advance(s, failed(s, "sfx")));
+    expect(r.state.status).toBe("directing");
+    expect(r.state.failure).toBeNull();
+    expect(r.pipe.failedJobs).toEqual([]);
+    expect(r.events).toContainEqual(expect.objectContaining({ type: "message", text: t("sfxFallback") }));
+    expect(r.events.some((e) => e.type === "error")).toBe(false);
+    expect(r.jobs).toEqual([expect.objectContaining({ stage: "audio", params: { phase: "mix" } })]);
+    ({ r, s } = advance(s, done(s, "audio", MIXED)));
+    expect(stages(r)).toEqual(["review"]);
+
+    // Повторюваний збій — так само (спроби BullMQ уже відпрацьовано); трек ще не готовий — mix пізніше.
+    const early = video(approve().s).s;
+    const { r: r2 } = advance(early, failed(early, "sfx", true));
+    expect(r2.pipe.failedJobs).toEqual([]);
+    expect(r2.pipe.sfxDone).toBe(true);
+    expect(stages(r2)).toEqual([]);
+  });
+
+  it("збій review: попередження в чат і чекпоінт 3; не у failedJobs, без retry", () => {
+    const s = toReview();
+    const { r } = advance(s, failed(s, "review", true));
+    expect(r.state.status).toBe("awaiting_storyboard");
+    expect(r.state.failure).toBeNull();
+    expect(r.pipe.failedJobs).toEqual([]);
+    expect(r.events).toContainEqual({ type: "message", role: "assistant", text: t("reviewFailed") });
+    expect(r.events.some((e) => e.type === "error")).toBe(false);
+  });
+
+  it("збій audio{mix} — як збій audio: failed, retry ставить mix знову", () => {
+    let { s } = approve();
+    let r: StepResult;
+    ({ s } = advance(s, done(s, "audio", MUSIC)));
+    ({ s } = video(s));
+    ({ s } = advance(s, done(s, "sfx", SFX)));
+    ({ r, s } = advance(s, failed(s, "audio", true)));
+    expect(r.state.status).toBe("failed");
+    expect(r.pipe.failedJobs.map((j) => j.params)).toEqual([{ phase: "mix" }]);
+    ({ r, s } = advance(s, cmd({ type: "retry" })));
+    expect(r.jobs).toEqual([expect.objectContaining({ stage: "audio", params: { phase: "mix" } })]);
+    ({ r } = advance(s, done(s, "audio", MIXED)));
+    expect(stages(r)).toEqual(["review"]);
+  });
+
+  it("ревізія після ЧП3 зі scope: sfx лише по зачеплених сценах, review по всьому фільму з round 0", () => {
+    const s0 = state("awaiting_storyboard", {}, { reviewRounds: 1, sfxMode: "designer" });
+    let { r, s } = advance(s0, msg("у другій сцені інший заголовок", intent({ kind: "edit", edits: "s2" })));
+    expect(r.pipe.reviewRounds).toBe(0);
+    ({ r, s } = advance(
+      s,
+      done(s, "revise", { scenesToRegenerate: ["s2"], musicChanged: false, durationChanged: false }),
+    ));
+    expect(r.jobs.map((j) => [j.stage, j.params])).toEqual([
+      [
+        "codegen",
+        {
+          sceneIds: ["s2"],
+          instructions: [{ sceneId: "s2", instruction: "у другій сцені інший заголовок" }],
+        },
+      ],
+      ["audio", { phase: "music" }],
+    ]);
+    const jobs: unknown[] = [];
+    const steps: Array<() => StepInput> = [
+      () => done(s, "codegen", { sceneIds: ["s2"], guardRejected: [] }),
+      () => done(s, "check", OK),
+      () => done(s, "qa", PASS),
+      () => done(s, "audio", MUSIC),
+      () => done(s, "sfx", { sceneIds: ["s2"], changed: 1, muted: 0 }),
+      () => done(s, "audio", MIXED),
+    ];
+    for (const input of steps) {
+      ({ r, s } = advance(s, input()));
+      jobs.push(...r.jobs.map((j) => [j.stage, j.params]));
+    }
+    expect(jobs).toEqual([
+      ["check", { sceneIds: ["s2"] }],
+      ["qa", { sceneIds: ["s2"] }],
+      ["sfx", { sceneIds: ["s2"], instructions: [] }],
+      ["audio", { phase: "mix" }],
+      ["review", { round: 0 }],
+    ]);
+    expect(r.jobs[0]?.jobId).toBe("p1.review.r2.a1");
+    ({ r } = advance(s, done(s, "review", review("pass"))));
+    expect(r.effects).toContainEqual({
+      type: "checkpoint",
+      checkpoint: "storyboard",
+      rev: 2,
+      changedScenes: ["s2"],
+    });
+  });
+
+  it("filmReview: off — після зведення одразу чекпоінт 3", () => {
+    let { s } = approve();
+    ({ s } = advance(s, done(s, "audio", MUSIC)));
+    ({ s } = video(s));
+    ({ s } = advance(s, done(s, "sfx", SFX)));
+    const { r } = advance(s, done(s, "audio", MIXED), { filmReview: false });
+    expect(stages(r)).toEqual([]);
+    expect(r.state.status).toBe("awaiting_storyboard");
+  });
+
+  it("режим storyboard: audio{full}, без sfx і review навіть з filmReview", () => {
+    const SB = { sfxMode: "storyboard" } as const;
+    const { r, s } = approve(SB);
+    expect(r.jobs.map((j) => [j.stage, j.params])).toEqual([
+      ["codegen", { sceneIds: null, instructions: [] }],
+      ["audio", { phase: "full" }],
+    ]);
+    const v = video(s, SB);
+    expect(v.results.flatMap((x) => stages(x))).toEqual(["check", "qa"]);
+    expect(v.last.state.branches.video).toBe("done");
+    const end = advance(v.s, done(v.s, "audio", { planHash: "ph", reusedMusic: false, mixed: true }), SB);
+    expect(stages(end.r)).toEqual([]);
+    expect(end.r.state.status).toBe("awaiting_storyboard");
+  });
+
+  it("режим фіксується на старті ревізії; без ctx — з env (ADC_SFX_MODE, дефолт designer)", () => {
+    // Ревізія стартувала в designer — зміна перемикача посеред ревізії її не перемикає.
+    let { s } = approve();
+    ({ s } = advance(s, done(s, "audio", MUSIC)));
+    expect(stages(video(s, { sfxMode: "storyboard" }).last)).toEqual(["sfx"]);
+    // pipeline.json ревізій до B4 (без поля) — storyboard: їхній audio вже поставлено без фази.
+    expect(PipeState.parse({ ...emptyPipe(), sfxMode: undefined }).sfxMode).toBe("storyboard");
+
+    const bare = () =>
+      nextStep(state("awaiting_script"), cmd({ type: "approve", rev: null }), {
+        now: NOW,
+        unverifiedClaims: [],
+      });
+    vi.stubEnv("ADC_SFX_MODE", "");
+    expect(bare().jobs[1]?.params).toEqual({ phase: "music" });
+    vi.stubEnv("ADC_SFX_MODE", "storyboard");
+    expect(bare().jobs[1]?.params).toEqual({ phase: "full" });
+  });
+});
+
+describe("драйвер: звукорежисер і рецензент (Harness)", () => {
+  async function toCheckpoint3(h: Harness) {
+    await h.create();
+    await h.start();
+    await h.runUntilIdle();
+    await h.approve();
+    await h.runUntilIdle();
+    await h.approve();
+    await h.runUntilIdle();
+  }
+
+  it("звукові зауваження з review.json ідуть у sfx кола; перша генерація доходить до ЧП3", async () => {
+    const sound: ReviewIssue = {
+      scope: "scene",
+      sceneId: "s2",
+      nextSceneId: null,
+      eventId: "e1",
+      frame: 12,
+      format: null,
+      severity: "major",
+      kind: "sfx_wrong_cue",
+      description: "клік замість удару",
+      fix: "impact на e1",
+    };
+    const h = new Harness({
+      tuning: () => ({ speculativeRender: false, sfxMode: "designer", filmReview: true, reviewMaxRounds: 1 }),
+      reviewIssues: (n) => (n === 1 ? [sound] : []),
+      behaviors: {
+        review: (_job, n) =>
+          n === 1 ? { verdict: "fix", score: 6, routes: { fix: [], sfx: ["s2"], music: 0 } } : undefined,
+      },
+    });
+    await toCheckpoint3(h);
+    const s = await h.project();
+    expect(s.project.status).toBe("awaiting_storyboard");
+    expect(h.jobsOf("sfx").map((j) => j.params)).toEqual([
+      { sceneIds: null, instructions: [] },
+      { sceneIds: ["s2"], instructions: [sound] },
+    ]);
+    expect(h.jobsOf("audio").map((j) => j.params.phase)).toEqual(["music", "mix", "mix"]);
+    expect(h.jobsOf("review").map((j) => j.params.round)).toEqual([0, 1]);
+    expect(s.pipe.reviewRounds).toBe(1);
+    expect(h.checkpoints().map((c) => c.checkpoint)).toEqual(["brand", "script", "storyboard"]);
+  });
+
+  it("збої sfx і review не зупиняють ревізію", async () => {
+    const h = new Harness({
+      tuning: () => ({ speculativeRender: false, sfxMode: "designer", filmReview: true }),
+      behaviors: {
+        sfx: () => ({ fail: { code: "not_implemented", retryable: false } }),
+        review: () => ({ fail: { code: "not_implemented", retryable: false } }),
+      },
+    });
+    await toCheckpoint3(h);
+    const s = await h.project();
+    expect(s.project.status).toBe("awaiting_storyboard");
+    expect(s.pipe.failedJobs).toEqual([]);
+    expect(h.messages()).toEqual(expect.arrayContaining([t("sfxFallback"), t("reviewFailed")]));
+    expect(h.eventsOf("error")).toEqual([]);
   });
 });

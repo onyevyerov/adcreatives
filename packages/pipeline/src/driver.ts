@@ -6,6 +6,7 @@ import {
   createCostRecorder,
   createLlm,
   type Emitter,
+  FilmReview,
   type Format,
   type Llm,
   type Logger,
@@ -76,11 +77,14 @@ export interface PipelineDriverDeps {
   /** Писати репліку клієнта в стрім (`role: "user"`). Дефолт false — це робить API. */
   echoUserMessages?: boolean;
   /**
-   * Перемикачі (`speculativeRender`, `generationMode`); дефолт — `readTuning()` з env на кожен крок.
-   * Режим генерації читається на кожен крок, тож зміна `ADC_GENERATION_MODE` діє з наступного старту
-   * режисури (поточна ревізія доходить тим самим шляхом: обробник `author` не залежить від env).
+   * Перемикачі (`speculativeRender`, `generationMode`, `sfxMode`, `filmReview`, `reviewMaxRounds`);
+   * дефолт — `readTuning()` з env на кожен крок. Режими генерації і звуку читаються на кожен крок, тож
+   * зміна `ADC_GENERATION_MODE`/`ADC_SFX_MODE` діє з наступного старту режисури (поточна ревізія
+   * доходить тим самим шляхом: обробник `author` не залежить від env, режим звуку — у `pipe.sfxMode`).
+   * Не задане поле — машина бере його з `readTuning()`.
    */
-  tuning?: () => Pick<Tuning, "speculativeRender"> & Partial<Pick<Tuning, "generationMode">>;
+  tuning?: () => Pick<Tuning, "speculativeRender"> &
+    Partial<Pick<Tuning, "generationMode" | "sfxMode" | "filmReview" | "reviewMaxRounds">>;
 }
 
 export interface PipelineDriverImpl extends PipelineDriver {
@@ -238,12 +242,31 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
     }
   }
 
+  /** Зауваження `review.json` для маршруту sfx; без файлу (чи зламаний) — порожньо, коло йде без інструкцій. */
+  async function reviewIssues(ev: StageDoneEvent): Promise<StepContext["reviewIssues"]> {
+    const key = projectPaths(ev.projectId).rev(ev.rev).review;
+    try {
+      if (!(await storage.exists(key))) return [];
+      return (await storage.readJson(key, (v) => FilmReview.parse(v))).issues;
+    } catch (err) {
+      logger.warn("review.json не прочитано", { projectId: ev.projectId, err: String(err) });
+      return [];
+    }
+  }
+
   async function buildContext(state: MachineState, input: StepInput): Promise<StepContext> {
     const ctx: StepContext = { now: now().toISOString() };
     const tun = tuning();
     if (tun.speculativeRender) ctx.speculativeRender = true;
     if (tun.generationMode === "agent") ctx.generationMode = "agent";
-    if (input.kind !== "command") return ctx;
+    if (tun.sfxMode !== undefined) ctx.sfxMode = tun.sfxMode;
+    if (tun.filmReview !== undefined) ctx.filmReview = tun.filmReview;
+    if (tun.reviewMaxRounds !== undefined) ctx.reviewMaxRounds = tun.reviewMaxRounds;
+    if (input.kind === "stage_event") {
+      const ev = input.event;
+      if (ev.stage === "review" && ev.type === "stage_done") ctx.reviewIssues = await reviewIssues(ev);
+      return ctx;
+    }
     const { project } = state;
     const cmd = input.command;
     if (cmd.type === "start") {
@@ -434,6 +457,16 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
             stage: event.stage,
           });
           return;
+        }
+        if (event.type === "stage_failed" && (event.stage === "sfx" || event.stage === "review")) {
+          // Ці збої не зупиняють ревізію (машина йде далі без них) — лишаємо слід у журналі.
+          logger.warn("стадію пропущено після збою", {
+            projectId: event.projectId,
+            stage: event.stage,
+            rev: event.rev,
+            code: event.error.code,
+            err: event.error.message,
+          });
         }
         const next = await step(state, { kind: "stage_event", event });
         await drainPending(next);

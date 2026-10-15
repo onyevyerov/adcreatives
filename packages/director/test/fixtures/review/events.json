@@ -1,0 +1,43 @@
+{
+  "s1": [
+    {
+      "id": "logo-in",
+      "at": 15,
+      "what": "The logo pops in at the centre.",
+      "sound": { "cue": "pop", "accent": "normal" },
+      "textIds": []
+    },
+    {
+      "id": "cup-land",
+      "at": 90,
+      "what": "The cup lands on the counter.",
+      "sound": { "cue": "impact", "accent": "hard" },
+      "textIds": []
+    }
+  ],
+  "s2": [
+    {
+      "id": "price-hit",
+      "at": 30,
+      "what": "The price lands with a bump.",
+      "sound": { "cue": "impact", "accent": "hard" },
+      "textIds": ["t2"]
+    },
+    {
+      "id": "coins",
+      "at": 105,
+      "what": "Coins drop into the cup.",
+      "sound": null,
+      "textIds": []
+    }
+  ],
+  "s3": [
+    {
+      "id": "cta-in",
+      "at": 30,
+      "what": "The button slams into place.",
+      "sound": { "cue": "slam", "accent": "hard" },
+      "textIds": []
+    }
+  ]
+}

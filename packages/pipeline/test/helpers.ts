@@ -19,6 +19,7 @@ import {
   type PipelineCommand,
   projectPaths,
   type QaReport,
+  type ReviewIssue,
   recordCost,
   type StageDoneEvent,
   type StageJob,
@@ -61,8 +62,14 @@ export interface HarnessOptions {
   /** Непідтверджені твердження в claims.json сценарію. */
   unverified?: Array<{ sceneId: string; text: string; kind: "price" | "percent" }>;
   echoUserMessages?: boolean;
-  /** Перемикачі драйвера (`generationMode: "agent"` — сцени пише стадія author). */
-  tuning?: () => Pick<Tuning, "speculativeRender"> & Partial<Pick<Tuning, "generationMode">>;
+  /**
+   * Перемикачі драйвера (`generationMode: "agent"` — сцени пише стадія author; `sfxMode`, `filmReview`,
+   * `reviewMaxRounds` — звукорежисер і рецензент). Не задані поля машина бере з env.
+   */
+  tuning?: () => Pick<Tuning, "speculativeRender"> &
+    Partial<Pick<Tuning, "generationMode" | "sfxMode" | "filmReview" | "reviewMaxRounds">>;
+  /** Зауваження, які фейковий `review` пише в `review.json` (n — номер виклику стадії). */
+  reviewIssues?: (n: number) => ReviewIssue[];
 }
 
 /**
@@ -285,11 +292,11 @@ export class Harness {
       } as StageDoneEvent;
     }
     await this.writeCost(job, 0.1);
-    const outputs = { ...(await this.defaultOutputs(job)), ...(outcome ?? {}) };
+    const outputs = { ...(await this.defaultOutputs(job, n)), ...(outcome ?? {}) };
     return { ...common, type: "stage_done", artifacts: [], outputs, reused: false } as StageDoneEvent;
   }
 
-  private async defaultOutputs(job: StageJob): Promise<Record<string, unknown>> {
+  private async defaultOutputs(job: StageJob, n: number): Promise<Record<string, unknown>> {
     const pp = projectPaths(job.projectId);
     const rp = pp.rev(job.rev);
     const s = this.storage;
@@ -366,14 +373,17 @@ export class Harness {
         await s.writeJson(rp.qa, report);
         return { verdict: "pass", seriousScenes: [] };
       }
-      case "audio":
+      case "audio": {
+        // Фаза music — без зведення (mixed: false); mix і full (без поля) — зі зведенням.
+        const phase = (job.params as { phase?: string }).phase ?? "full";
         await s.write(rp.publicFile("music.mp3"), "mp3");
         await s.writeJson(rp.audio, {
           music: { src: "music.mp3", durationMs: 16000, fadeOutMs: 1000, volume: 0.8, planHash: "plan-1" },
           sfx: [],
           totalFrames: 450,
         });
-        return { planHash: "plan-1", reusedMusic: false, mixed: true };
+        return { planHash: "plan-1", reusedMusic: false, mixed: phase !== "music" };
+      }
       case "render": {
         const format = (job.params as { format: Format }).format;
         await s.write(rp.render(format), "mp4");
@@ -382,8 +392,22 @@ export class Harness {
       }
       case "sfx":
         return { sceneIds: [], changed: 0, muted: 0 };
-      case "review":
-        return { verdict: "pass", score: 8, routes: { fix: [], sfx: [], music: 0 } };
+      case "review": {
+        const issues = this.opts.reviewIssues?.(n) ?? [];
+        const round = (job.params as { round: number }).round;
+        const routes = { fix: [], sfx: [], music: 0 };
+        await s.writeJson(rp.review, {
+          version: 1,
+          round,
+          inputsHash: `h${n}`,
+          verdict: "pass",
+          score: 8,
+          issues,
+          summary: "Цілісний ролик.",
+          routes,
+        });
+        return { verdict: "pass", score: 8, routes };
+      }
     }
   }
 }

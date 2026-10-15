@@ -1,6 +1,7 @@
 import {
   AudioManifest,
   AudioPlan,
+  applySfxPlan,
   BrandKit,
   type CostRecorder,
   computeEventPlacements,
@@ -9,7 +10,8 @@ import {
   MusicMeta,
   ProjectState,
   projectPaths,
-  type SoundCue,
+  SfxPlan,
+  SoundCue,
   type Stage,
   type StageContext,
   StageError,
@@ -54,6 +56,7 @@ import {
   variantLabel,
 } from "./sfx.ts";
 import { defaultSfxQc, type SfxQcHook } from "./sfxQc.ts";
+import { buildSoundSheet, MixFacts, mixFacts } from "./soundSheet.ts";
 
 export interface AudioStageDeps {
   /** Клієнт ElevenLabs або фабрика (створюється ліниво — лише якщо потрібен платний виклик). */
@@ -79,6 +82,8 @@ export const MixMasterMeta = z.object({
   integratedLufs: z.number().nullable(),
   truePeakDbtp: z.number().nullable(),
   masterGainDb: z.number().nullable(),
+  /** Факти зведення для звукової відомості; null — кеш старший за відомість (зведення повторюється). */
+  facts: MixFacts.nullable().default(null),
 });
 export type MixMasterMeta = z.infer<typeof MixMasterMeta>;
 
@@ -161,12 +166,38 @@ export function canReuseMusic(
   return prev.briefHash === briefHash && videoMs <= prev.durationMs;
 }
 
+/** Cue, які звучать у подіях розкадровки. */
+function eventCuesOf(storyboard: Storyboard): SoundCue[] {
+  return [
+    ...new Set(
+      computeEventPlacements(storyboard)
+        .map((p) => p.cue)
+        .filter((c): c is SoundCue => c !== null),
+    ),
+  ];
+}
+
+interface VariantFile {
+  cue: SoundCue;
+  variant: number;
+  file: SfxFile;
+}
+
+type MixManifestInput = { durationMs: number } & Omit<MixMasterMeta, "facts">;
+
+/**
+ * Стадія `audio` у трьох фазах (`params.phase`):
+ * - `music` — план, трек, прогрів усіх варіантів бібліотеки SFX; `audio.json` з `mix: null`, без зведення;
+ * - `mix` — зведення треку цієї ревізії за розкадровкою з накладеним `sfx-plan.json` + `sound-sheet.json`;
+ * - `full` (або без поля) — усе разом, як до звукорежисера (план SFX накладається, якщо він є).
+ */
 export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
   return async (ctx) => {
     const { storage, projectId, rev, logger } = ctx;
     const paths = projectPaths(projectId);
     const revPaths = paths.rev(rev);
     const now = deps.now ?? (() => new Date());
+    const phase = ctx.params.phase ?? "full";
 
     try {
       await ctx.emit.progress("audio", t("audioProgress"));
@@ -174,8 +205,9 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       logger.warn("не вдалося надіслати прогрес", { err: String(err) });
     }
 
-    const storyboard = await readOptional(storage, revPaths.storyboard, (v) => Storyboard.parse(v));
-    if (!storyboard) {
+    // Розкадровка режисера (звук подій — чернетка); музика, план і legacy-SFX рахуються за нею.
+    const draft = await readOptional(storage, revPaths.storyboard, (v) => Storyboard.parse(v));
+    if (!draft) {
       throw new StageError(
         `audio: немає ${revPaths.storyboard}`,
         "audio_inputs_missing",
@@ -183,22 +215,20 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
         false,
       );
     }
-    const project = await readOptional(storage, paths.project, (v) => ProjectState.parse(v));
-    const brand = await readBrandKit(storage, projectId, project?.brandkitVersion ?? null);
-    if (!brand) {
-      throw new StageError(
-        "audio: немає бренд-кіта",
-        "audio_inputs_missing",
-        "Немає бренд-кіта для музики.",
-        false,
-      );
+    // План звукорежисера підміняє лише `events[].sound`; зведення і відомість — за ефективною розкадровкою.
+    const sfxPlan =
+      phase === "music" ? null : await readOptional(storage, revPaths.sfxPlan, (v) => SfxPlan.parse(v));
+    const applied = applySfxPlan(draft, sfxPlan);
+    if (sfxPlan) logger.info("план SFX накладено", { applied: applied.applied });
+    if (applied.dropped.length > 0) {
+      logger.warn("рішення плану SFX без події в розкадровці — пропущено", {
+        dropped: applied.dropped.map((d) => `${d.sceneId}/${d.eventId}`),
+      });
     }
-
-    const layout = computeChunkLayout(storyboard);
-    const sanitizer = createSanitizer(brandTerms(brand));
-    const standardCues = loadStandardCues(ctx.prompts);
+    const storyboard = applied.storyboard;
+    const project = await readOptional(storage, paths.project, (v) => ProjectState.parse(v));
+    const layout = computeChunkLayout(draft);
     const sfxLibrary = loadSfxLibrary(ctx.prompts);
-    const briefHash = musicBriefHash(storyboard.musicBrief);
 
     // Лінива фабрика клієнта: якщо все з кешу — ключ API не потрібен.
     let client: ElevenLabsLike | null = null;
@@ -223,61 +253,7 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       return client;
     };
     const gate = deps.gate ?? defaultGate(logger);
-
-    // Повторне використання треку попередньої ревізії.
-    const prev = await findPreviousMusic(storage, projectId, rev, project);
-    const reuse = prev !== null && canReuseMusic(prev.meta, briefHash, layout.videoMs);
-
-    // План: збережений у цій ревізії (повтор стадії) → план основи (якщо трек лишається) → LLM.
-    let plan = await readOptional(storage, revPaths.audioPlan, (v) => AudioPlan.parse(v));
-    if (plan && !planMatchesLayout(plan, layout, storyboard)) plan = null;
-    if (!plan && reuse && prev.rev !== null) {
-      const basePlan = await readOptional(storage, paths.rev(prev.rev).audioPlan, (v) => AudioPlan.parse(v));
-      if (basePlan && planCoversCues(basePlan, storyboard)) plan = basePlan;
-    }
-    if (!plan) {
-      const res = await ctx.llm.structured(
-        AUDIO_PLAN_PROMPT,
-        audioPlanVars(brand, storyboard, layout, sanitizer),
-        AudioPlanDraft,
-        ctx.signal ? { signal: ctx.signal } : {},
-      );
-      plan = normalizeAudioPlan(res.data, { layout, storyboard, sanitizer, standardCues });
-    }
-    await storage.writeJson(revPaths.audioPlan, plan);
-    const artifacts: string[] = [revPaths.audioPlan];
-
-    const musicDeps = {
-      storage,
-      client: getClient,
-      // Той самий декодер, що й у зведенні: перевірка треку бачить те саме, що чує мікс.
-      decode: deps.decode ?? decodeAudio,
-      gate,
-      cost: ctx.cost,
-      logger,
-      ...(ctx.signal ? { signal: ctx.signal } : {}),
-      now,
-    };
-
-    const musicPromise = (async () => {
-      if (reuse) {
-        logger.info("трек попередньої ревізії лишається", { planHash: prev.meta.planHash });
-        return { planHash: prev.meta.planHash, key: prev.key, meta: prev.meta, reused: true };
-      }
-      try {
-        const m = await ensureMusic(musicDeps, projectId, plan, briefHash);
-        return { ...m, reused: m.cached && m.planHash === prev?.meta.planHash };
-      } catch (err) {
-        if (err instanceof StageError) throw err;
-        throw new StageError(
-          `audio: музика не згенерувалась: ${(err as Error).message}`,
-          "music_failed",
-          "Не вдалося створити музику. Спробуйте ще раз.",
-          true,
-          { cause: err },
-        );
-      }
-    })();
+    const decode = deps.decode ?? decodeAudio;
 
     const sfxDeps: SfxDeps = {
       storage,
@@ -318,8 +294,262 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       return job;
     };
 
+    /** Усі варіанти бібліотеки для `cues` (спільний кеш; промах — генерація); без тих, що не пройшли QC. */
+    const ensureVariants = async (cues: readonly SoundCue[]): Promise<VariantFile[]> => {
+      const results = await Promise.allSettled(
+        cues.flatMap((cue) =>
+          sfxLibrary[cue].map((def, i) => {
+            const variant = i + 1;
+            return ensureShared(variantLabel(cue, variant), def).then((file) => ({ cue, variant, file }));
+          }),
+        ),
+      );
+      const generated: VariantFile[] = [];
+      for (const r of results) {
+        if (r.status === "fulfilled") generated.push(r.value);
+        else logger.warn("варіант SFX не згенерувався — пропускаємо", { err: String(r.reason) });
+      }
+      // Семпли, що не пройшли QC, — поза ротацією, якщо в cue є інший варіант.
+      const { kept, dropped: failedQc } = dropFailedQc(generated);
+      if (failedQc.length > 0) {
+        logger.warn("варіанти SFX не пройшли QC — поза ротацією", {
+          variants: failedQc.map((v) => variantLabel(v.cue, v.variant)),
+        });
+      }
+      return kept;
+    };
+
+    /**
+     * Зведення: трек + семпли бібліотеки SFX за таймлайном подій ефективної розкадровки + дакінг +
+     * мастер → soundtrack.wav і звукова відомість. Кеш — за planHash + тональністю + таймлайном +
+     * подіями + хешами варіантів семплів; без зведення (null) хост грає music і sfx, як раніше.
+     */
+    const produceMix = async (input: {
+      planHash: string;
+      /** Ключ треку в сховищі (той самий файл, що грає хост). */
+      musicKey: string;
+      eventKey: string | null;
+      variantFiles: readonly VariantFile[];
+      barOffsetMs: number | null;
+    }): Promise<{ mix: MixManifestInput | null; artifacts: string[] }> => {
+      const artifacts: string[] = [];
+      try {
+        const decodeOpts = ctx.signal ? { signal: ctx.signal } : {};
+        const hashesOf = (files: ReadonlyArray<{ cue: SoundCue; file: SfxFile }>) => {
+          const out: Partial<Record<SoundCue, string[]>> = {};
+          for (const f of files) out[f.cue] = [...(out[f.cue] ?? []), f.file.hash];
+          return out;
+        };
+        let mixHash = soundtrackHash({
+          planHash: input.planHash,
+          key: input.eventKey,
+          storyboard,
+          samples: hashesOf(input.variantFiles),
+        });
+        let mixKey = soundtrackCacheKey(projectId, input.planHash, mixHash);
+        // Кеш — лише разом із фактами для відомості; старий кеш без них зводиться заново (той самий WAV).
+        let master = (await storage.exists(mixKey))
+          ? await readOptional(storage, mixMasterMetaKey(mixKey), (v) => MixMasterMeta.parse(v))
+          : null;
+        if (!master?.facts) {
+          const pcm = await decode(await storage.read(input.musicKey), decodeOpts);
+          // Семпли: помилка декодування варіанта — пропуск варіанта; cue без варіантів — події без звуку.
+          const decoded = await Promise.allSettled(
+            input.variantFiles.map(async (v) => ({
+              ...v,
+              pcm: await decode(await storage.read(v.file.key), decodeOpts),
+            })),
+          );
+          if (ctx.signal?.aborted) throw ctx.signal.reason ?? new Error("aborted");
+          const samples: Partial<Record<SoundCue, SfxSample[]>> = {};
+          const used: VariantFile[] = [];
+          decoded.forEach((r, i) => {
+            const v = input.variantFiles[i];
+            if (!v) return;
+            if (r.status === "rejected") {
+              logger.warn("семпл SFX не декодувався — пропускаємо варіант", {
+                cue: v.cue,
+                variant: v.variant,
+                err: String(r.reason),
+              });
+              return;
+            }
+            const sample: SfxSample = { cue: v.cue, variant: v.variant, hash: v.file.hash, pcm: r.value.pcm };
+            samples[v.cue] = [...(samples[v.cue] ?? []), sample];
+            used.push(v);
+          });
+          // Семпли cue були, але жоден не декодувався — у відомості `decode_failed`, а не `no_sample`.
+          const decodeFailed = new Set<SoundCue>();
+          for (const cue of eventCuesOf(storyboard)) {
+            if (samples[cue]?.length) continue;
+            logger.warn("немає жодного семпла cue — події без звуку", { cue });
+            if (input.variantFiles.some((v) => v.cue === cue)) decodeFailed.add(cue);
+          }
+          // Хеш — за фактично використаними семплами: наступний прогін повторить пропущені.
+          mixHash = soundtrackHash({
+            planHash: input.planHash,
+            key: input.eventKey,
+            storyboard,
+            samples: hashesOf(used),
+          });
+          mixKey = soundtrackCacheKey(projectId, input.planHash, mixHash);
+          const soundtrack = renderSoundtrack({ music: pcm, storyboard, key: input.eventKey, samples });
+          master = {
+            integratedLufs: round1(soundtrack.master.integratedLufs),
+            truePeakDbtp: round1(soundtrack.master.truePeakDbtp),
+            masterGainDb: round1(soundtrack.master.gainDb),
+            facts: mixFacts(soundtrack, decodeFailed),
+          };
+          logger.info("зведення готове", {
+            mixHash,
+            events: soundtrack.sounds.length,
+            silentEvents: soundtrack.silent.length,
+            samples: used.length,
+            beatShiftMs: master.facts?.beatShiftMs ?? null,
+            beatConfidence: master.facts?.beatConfidence ?? null,
+            musicGainDb: Math.round(gainToDb(soundtrack.masterGain) * 10) / 10,
+            integratedLufs: master.integratedLufs,
+            truePeakDbtp: master.truePeakDbtp,
+            masterGainDb: master.masterGainDb,
+          });
+          await storage.write(mixKey, soundtrack.wav);
+          await storage.writeJson(mixMasterMetaKey(mixKey), master);
+        }
+        const mixPublic = revPaths.publicFile(PUBLIC_MIX_FILE);
+        await storage.copy(mixKey, mixPublic);
+        artifacts.push(mixPublic);
+        if (master.facts) {
+          const sheet = buildSoundSheet(master.facts, {
+            storyboard,
+            draft,
+            barOffsetMs: input.barOffsetMs,
+            integratedLufs: master.integratedLufs,
+            truePeakDbtp: master.truePeakDbtp,
+          });
+          await storage.writeJson(revPaths.soundSheet, sheet);
+          artifacts.push(revPaths.soundSheet);
+        }
+        return {
+          mix: {
+            durationMs: layout.videoMs,
+            integratedLufs: master.integratedLufs,
+            truePeakDbtp: master.truePeakDbtp,
+            masterGainDb: master.masterGainDb,
+          },
+          artifacts,
+        };
+      } catch (err) {
+        if (ctx.signal?.aborted) throw err;
+        logger.error("зведення не вдалося — хост гратиме музику і SFX окремо", { err: String(err) });
+        return { mix: null, artifacts };
+      }
+    };
+
+    // Фаза mix: трек і план — з фази music цієї ревізії; новий план SFX → новий хеш зведення.
+    if (phase === "mix") {
+      const plan = await readOptional(storage, revPaths.audioPlan, (v) => AudioPlan.parse(v));
+      const manifest = await readOptional(storage, revPaths.audio, (v) => AudioManifest.parse(v));
+      const musicKey = manifest?.music ? revPaths.publicFile(manifest.music.src) : null;
+      if (!plan || !manifest?.music || !musicKey || !(await storage.exists(musicKey))) {
+        throw new StageError(
+          `audio: фаза mix без фази music (немає ${!plan ? revPaths.audioPlan : !manifest?.music ? revPaths.audio : musicKey})`,
+          "audio_inputs_missing",
+          "Немає треку для зведення.",
+          false,
+        );
+      }
+      const planHash = manifest.music.planHash;
+      const meta = await readOptional(storage, paths.musicMeta(planHash), (v) => MusicMeta.parse(v));
+      const variantFiles = await ensureVariants(eventCuesOf(storyboard));
+      const produced = await produceMix({
+        planHash,
+        musicKey,
+        eventKey: resolveEventKey(meta?.check ?? null, plan.key, logger),
+        variantFiles,
+        barOffsetMs: meta?.check?.barOffsetMs ?? null,
+      });
+      const mixed = AudioManifest.parse({
+        ...manifest,
+        mix: buildAudioManifest({ storyboard: draft, music: null, sfx: [], mix: produced.mix }).mix,
+      });
+      await storage.writeJson(revPaths.audio, mixed);
+      const prev = await findPreviousMusic(storage, projectId, rev, project);
+      return {
+        artifacts: [...produced.artifacts, revPaths.audio],
+        outputs: { planHash, reusedMusic: prev?.meta.planHash === planHash, mixed: true },
+      };
+    }
+
+    const brand = await readBrandKit(storage, projectId, project?.brandkitVersion ?? null);
+    if (!brand) {
+      throw new StageError(
+        "audio: немає бренд-кіта",
+        "audio_inputs_missing",
+        "Немає бренд-кіта для музики.",
+        false,
+      );
+    }
+    const sanitizer = createSanitizer(brandTerms(brand));
+    const standardCues = loadStandardCues(ctx.prompts);
+    const briefHash = musicBriefHash(draft.musicBrief);
+
+    // Повторне використання треку попередньої ревізії.
+    const prev = await findPreviousMusic(storage, projectId, rev, project);
+    const reuse = prev !== null && canReuseMusic(prev.meta, briefHash, layout.videoMs);
+
+    // План: збережений у цій ревізії (повтор стадії) → план основи (якщо трек лишається) → LLM.
+    let plan = await readOptional(storage, revPaths.audioPlan, (v) => AudioPlan.parse(v));
+    if (plan && !planMatchesLayout(plan, layout, draft)) plan = null;
+    if (!plan && reuse && prev.rev !== null) {
+      const basePlan = await readOptional(storage, paths.rev(prev.rev).audioPlan, (v) => AudioPlan.parse(v));
+      if (basePlan && planCoversCues(basePlan, draft)) plan = basePlan;
+    }
+    if (!plan) {
+      const res = await ctx.llm.structured(
+        AUDIO_PLAN_PROMPT,
+        audioPlanVars(brand, draft, layout, sanitizer),
+        AudioPlanDraft,
+        ctx.signal ? { signal: ctx.signal } : {},
+      );
+      plan = normalizeAudioPlan(res.data, { layout, storyboard: draft, sanitizer, standardCues });
+    }
+    await storage.writeJson(revPaths.audioPlan, plan);
+    const artifacts: string[] = [revPaths.audioPlan];
+
+    const musicDeps = {
+      storage,
+      client: getClient,
+      // Той самий декодер, що й у зведенні: перевірка треку бачить те саме, що чує мікс.
+      decode,
+      gate,
+      cost: ctx.cost,
+      logger,
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+      now,
+    };
+
+    const musicPromise = (async () => {
+      if (reuse) {
+        logger.info("трек попередньої ревізії лишається", { planHash: prev.meta.planHash });
+        return { planHash: prev.meta.planHash, key: prev.key, meta: prev.meta, reused: true };
+      }
+      try {
+        const m = await ensureMusic(musicDeps, projectId, plan, briefHash);
+        return { ...m, reused: m.cached && m.planHash === prev?.meta.planHash };
+      } catch (err) {
+        if (err instanceof StageError) throw err;
+        throw new StageError(
+          `audio: музика не згенерувалась: ${(err as Error).message}`,
+          "music_failed",
+          "Не вдалося створити музику. Спробуйте ще раз.",
+          true,
+          { cause: err },
+        );
+      }
+    })();
+
     // Legacy `scene.sfxCue`: файли в public, хост грає їх, коли зведення немає.
-    const cues = referencedCues(storyboard);
+    const cues = referencedCues(draft);
     const sfxJobs: Array<Promise<SfxFile>> = [];
     for (const cue of [...cues.standard, ...cues.custom]) {
       const spec = plan.sfx.find((s) => s.cue === cue);
@@ -339,41 +569,17 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
     }
 
     // Звуки подій: усі варіанти cue, використаних подіями (спільний кеш; промах — генерація).
-    const eventCues = [
-      ...new Set(
-        computeEventPlacements(storyboard)
-          .map((p) => p.cue)
-          .filter((c): c is SoundCue => c !== null),
-      ),
-    ];
-    const variantJobs = eventCues.flatMap((cue) =>
-      sfxLibrary[cue].map((def, i) => {
-        const variant = i + 1;
-        return ensureShared(variantLabel(cue, variant), def).then((file) => ({ cue, variant, file }));
-      }),
-    );
-
-    const [music, sfxResults, variantResults] = await Promise.all([
+    // У фазі music — уся бібліотека: звукорежисер може вибрати будь-який cue, а mix не чекає генерації.
+    const warmCues = phase === "music" ? SoundCue.options : eventCuesOf(storyboard);
+    const [music, sfxResults, variantFiles] = await Promise.all([
       musicPromise,
       Promise.allSettled(sfxJobs),
-      Promise.allSettled(variantJobs),
+      ensureVariants(warmCues),
     ]);
     const sfxFiles: SfxFile[] = [];
     for (const r of sfxResults) {
       if (r.status === "fulfilled") sfxFiles.push(r.value);
       else logger.warn("SFX не згенерувався — сцена буде без нього", { err: String(r.reason) });
-    }
-    const generatedVariants: Array<{ cue: SoundCue; variant: number; file: SfxFile }> = [];
-    for (const r of variantResults) {
-      if (r.status === "fulfilled") generatedVariants.push(r.value);
-      else logger.warn("варіант SFX не згенерувався — пропускаємо", { err: String(r.reason) });
-    }
-    // Семпли, що не пройшли QC, — поза ротацією, якщо в cue є інший варіант.
-    const { kept: variantFiles, dropped: failedQc } = dropFailedQc(generatedVariants);
-    if (failedQc.length > 0) {
-      logger.warn("варіанти SFX не пройшли QC — поза ротацією", {
-        variants: failedQc.map((v) => variantLabel(v.cue, v.variant)),
-      });
     }
 
     // Файли для staticFile() хоста.
@@ -387,108 +593,23 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
       artifacts.push(dest);
     }
 
-    // Зведення: трек + семпли бібліотеки SFX за таймлайном подій + дакінг + мастер → soundtrack.wav.
-    // Кеш — за planHash + тональністю + таймлайном + подіями + хешами варіантів семплів;
-    // без зведення хост грає music і sfx, як раніше.
-    // Тональність звуків подій: план або визначена за треком (`resolveEventKey`).
-    const eventKey = resolveEventKey(music.meta.check, plan.key, logger);
-    let mix: ({ durationMs: number } & MixMasterMeta) | null = null;
-    try {
-      const decode = deps.decode ?? decodeAudio;
-      const decodeOpts = ctx.signal ? { signal: ctx.signal } : {};
-      const hashesOf = (files: ReadonlyArray<{ cue: SoundCue; file: SfxFile }>) => {
-        const out: Partial<Record<SoundCue, string[]>> = {};
-        for (const f of files) out[f.cue] = [...(out[f.cue] ?? []), f.file.hash];
-        return out;
-      };
-      let mixHash = soundtrackHash({
+    // Зведення (крім фази music). Тональність звуків подій: план або визначена за треком (`resolveEventKey`).
+    let mix: MixManifestInput | null = null;
+    if (phase !== "music") {
+      const produced = await produceMix({
         planHash: music.planHash,
-        key: eventKey,
-        storyboard,
-        samples: hashesOf(variantFiles),
+        musicKey: music.key,
+        eventKey: resolveEventKey(music.meta.check, plan.key, logger),
+        variantFiles,
+        barOffsetMs: music.meta.check?.barOffsetMs ?? null,
       });
-      let mixKey = soundtrackCacheKey(projectId, music.planHash, mixHash);
-      let master: MixMasterMeta | null = null;
-      if (await storage.exists(mixKey)) {
-        master = await readOptional(storage, mixMasterMetaKey(mixKey), (v) => MixMasterMeta.parse(v));
-      } else {
-        const pcm = await decode(await storage.read(music.key), decodeOpts);
-        // Семпли: помилка декодування варіанта — пропуск варіанта; cue без варіантів — події без звуку.
-        const decoded = await Promise.allSettled(
-          variantFiles.map(async (v) => ({
-            ...v,
-            pcm: await decode(await storage.read(v.file.key), decodeOpts),
-          })),
-        );
-        if (ctx.signal?.aborted) throw ctx.signal.reason ?? new Error("aborted");
-        const samples: Partial<Record<SoundCue, SfxSample[]>> = {};
-        const used: Array<{ cue: SoundCue; file: SfxFile }> = [];
-        decoded.forEach((r, i) => {
-          const v = variantFiles[i];
-          if (!v) return;
-          if (r.status === "rejected") {
-            logger.warn("семпл SFX не декодувався — пропускаємо варіант", {
-              cue: v.cue,
-              variant: v.variant,
-              err: String(r.reason),
-            });
-            return;
-          }
-          const sample: SfxSample = { cue: v.cue, variant: v.variant, hash: v.file.hash, pcm: r.value.pcm };
-          samples[v.cue] = [...(samples[v.cue] ?? []), sample];
-          used.push(v);
-        });
-        for (const cue of eventCues) {
-          if (!samples[cue]?.length) logger.warn("немає жодного семпла cue — події без звуку", { cue });
-        }
-        // Хеш — за фактично використаними семплами: наступний прогін повторить пропущені.
-        mixHash = soundtrackHash({
-          planHash: music.planHash,
-          key: eventKey,
-          storyboard,
-          samples: hashesOf(used),
-        });
-        mixKey = soundtrackCacheKey(projectId, music.planHash, mixHash);
-        const soundtrack = renderSoundtrack({ music: pcm, storyboard, key: eventKey, samples });
-        master = {
-          integratedLufs: round1(soundtrack.master.integratedLufs),
-          truePeakDbtp: round1(soundtrack.master.truePeakDbtp),
-          masterGainDb: round1(soundtrack.master.gainDb),
-        };
-        logger.info("зведення готове", {
-          mixHash,
-          events: soundtrack.sounds.length,
-          silentEvents: soundtrack.silent.length,
-          samples: used.length,
-          beatShiftMs: soundtrack.alignment
-            ? Math.round((soundtrack.alignment.shiftSamples / pcm.sampleRate) * 1000)
-            : null,
-          beatConfidence: soundtrack.alignment
-            ? Math.round(soundtrack.alignment.confidence * 100) / 100
-            : null,
-          musicGainDb: Math.round(gainToDb(soundtrack.masterGain) * 10) / 10,
-          ...master,
-        });
-        await storage.write(mixKey, soundtrack.wav);
-        await storage.writeJson(mixMasterMetaKey(mixKey), master);
-      }
-      const mixPublic = revPaths.publicFile(PUBLIC_MIX_FILE);
-      await storage.copy(mixKey, mixPublic);
-      artifacts.push(mixPublic);
-      mix = {
-        durationMs: layout.videoMs,
-        integratedLufs: master?.integratedLufs ?? null,
-        truePeakDbtp: master?.truePeakDbtp ?? null,
-        masterGainDb: master?.masterGainDb ?? null,
-      };
-    } catch (err) {
-      if (ctx.signal?.aborted) throw err;
-      logger.error("зведення не вдалося — хост гратиме музику і SFX окремо", { err: String(err) });
+      mix = produced.mix;
+      artifacts.push(...produced.artifacts);
     }
 
     const manifest = AudioManifest.parse(
       buildAudioManifest({
-        storyboard,
+        storyboard: draft,
         music: { planHash: music.planHash, durationMs: music.meta.durationMs, src: musicSrc },
         sfx: sfxFiles.map((f) => ({ cue: f.cue, durationMs: f.durationMs, key: f.key })),
         mix,
@@ -499,7 +620,7 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
 
     return {
       artifacts,
-      outputs: { planHash: music.planHash, reusedMusic: music.reused, mixed: true },
+      outputs: { planHash: music.planHash, reusedMusic: music.reused, mixed: phase !== "music" },
     };
   };
 }

@@ -1,0 +1,14 @@
+{
+  "usage": {
+    "input_tokens": 14800,
+    "output_tokens": 1100,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "json": {
+    "verdict": "pass",
+    "score": 8,
+    "issues": [],
+    "summary": "Історія читається від першого до останнього кадру, склейки передають стан, звук стоїть на видимих подіях."
+  }
+}

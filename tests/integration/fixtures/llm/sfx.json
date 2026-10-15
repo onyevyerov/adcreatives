@@ -1,0 +1,12 @@
+{
+  "usage": {
+    "input_tokens": 9600,
+    "output_tokens": 640,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "json": {
+    "decisions": [],
+    "notes": "Звук розкадровки відповідає тому, що видно на кадрах подій; змін немає."
+  }
+}

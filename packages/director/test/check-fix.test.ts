@@ -84,7 +84,7 @@ async function stripEStills(storage: LocalStorage, rev = 1): Promise<void> {
 const sceneOf = (o: RenderStillOptions) => (o.inputProps as ScenePreviewProps).sceneId;
 /** Рендери стілів (без кадрів стрічки). */
 const stillRenders = (engine: { stills: RenderStillOptions[] }) =>
-  engine.stills.filter((o) => o.out.includes("/stills/"));
+  engine.stills.filter((o) => o.out.replaceAll("\\", "/").includes("/stills/"));
 /** autoIssues без `event_unused` (у фікстурі s2 має події, а еталонний код їх не знає). */
 const withoutEvents = <T extends { kind: string }>(xs: T[]) => xs.filter((i) => i.kind !== "event_unused");
 
@@ -219,7 +219,8 @@ describe("checkStage (мок RenderEngine)", () => {
     await createCheckStage({ engine: engine3 })(
       makeCtx(storage, "check", { sceneIds: ["s2"] }, [], { rev: 3 }),
     );
-    expect(new Set(engine3.stills.map((s) => (s.inputProps as ScenePreviewProps).sceneId))).toEqual(
+    // стіли — лише змінена s2; перші кадри s3 рендеряться для склейки в аркуші моментів s2
+    expect(new Set(stillRenders(engine3).map((s) => (s.inputProps as ScenePreviewProps).sceneId))).toEqual(
       new Set(["s2"]),
     );
     expect((await readCheck(storage, 3)).stills).toHaveLength(18);

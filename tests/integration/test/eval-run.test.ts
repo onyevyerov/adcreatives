@@ -49,6 +49,10 @@ async function runs(): Promise<string[]> {
 let first: EvalReport;
 
 beforeAll(async () => {
+  // Записані відповіді й очікування («--from qa --only» → ЧП2) — для пайплайна без звукорежисера
+  // і рецензента; режим designer покривають тести машини і eval.test.ts.
+  vi.stubEnv("ADC_SFX_MODE", "storyboard");
+  vi.stubEnv("ADC_FILM_REVIEW", "off");
   site = await startFixtureSite();
   tmp = await mkdtemp(path.join(os.tmpdir(), "adc-eval-run-"));
   runsDir = path.join(tmp, "runs");
@@ -60,6 +64,7 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  vi.unstubAllEnvs();
   await site?.close();
   if (tmp) await rm(tmp, { recursive: true, force: true });
 });
