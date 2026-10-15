@@ -31,9 +31,11 @@ import {
   createAnthropicClient,
   createPromptLoader,
   distribution,
+  FilmReview,
   FORMATS,
   type Format,
   findRepoRoot,
+  GRID_SOUND_CUES,
   groupUsd,
   HIT_SOUND_CUES,
   type Logger,
@@ -51,7 +53,9 @@ import {
   readCosts,
   readTrace,
   readTuning,
+  routeOf,
   type SoundCue,
+  SoundSheet,
   type StageJob,
   type StageName,
   type Storage,
@@ -59,7 +63,7 @@ import {
   sumUsd,
   type TraceEntry,
   TUNING_ENV,
-  type Tuning,
+  Tuning,
 } from "@adc/shared";
 import type { StageRegistry } from "@adc/worker";
 import { z } from "zod";
@@ -80,6 +84,10 @@ import { autoApprove, createHarness, FORMAT_LABEL, type Harness, newProjectId } 
  * `--case <кейс>` проганяє один кейс, `--mode pipeline|agent` ставить
  * `ADC_GENERATION_MODE` воркеру eval на час прогону, `--audio <файл>` міряє будь-яку доріжку тими ж
  * метриками (порівняння з еталоном — `docs/analysis/README.md`).
+ *
+ * Режим звуку — з env, як решта `ADC_*` (воркер eval працює в цьому ж процесі): `ADC_SFX_MODE`
+ * (`designer` — звукорежисер, `storyboard` — звук розкадровки) і `ADC_FILM_REVIEW` (`on`/`off`). Звіти
+ * пишуть режим і з `sound-sheet.json`/`review.json` — оцінку рецензента, промахи повз долю і вимкнені події.
  */
 
 // ───────────────────────────── сайти ─────────────────────────────
@@ -173,7 +181,17 @@ export async function loadSites(file: string): Promise<EvalSite[]> {
 // ───────────────────────────── аргументи ─────────────────────────────
 
 /** Етапи, з яких можна перезапустити прогін (`crawl` — це просто новий прогін). */
-export const RERUN_STAGES = ["brandkit", "storyboard", "codegen", "check", "qa", "audio", "render"] as const;
+export const RERUN_STAGES = [
+  "brandkit",
+  "storyboard",
+  "codegen",
+  "check",
+  "qa",
+  "sfx",
+  "audio",
+  "review",
+  "render",
+] as const;
 export type RerunStage = (typeof RERUN_STAGES)[number];
 
 /** Режими генерації (`Tuning.generationMode`, env `ADC_GENERATION_MODE`). */
@@ -218,7 +236,8 @@ export const EVAL_USAGE = `Використання:
   --run <прогін>       тека в eval/runs/, з якої брати дані (для --from)
   --only               лише цей етап, без подальших
   --parallel <n>       скільки сайтів одночасно (дефолт 1)
-  --timeout <хв>       ліміт на сайт (дефолт 60)`;
+  --timeout <хв>       ліміт на сайт (дефолт 60)
+Режим звуку — з env: ADC_SFX_MODE=designer|storyboard, ADC_FILM_REVIEW=on|off, ADC_REVIEW_MAX_ROUNDS=0..2`;
 
 export function parseEvalArgs(argv: readonly string[], root: string = findRepoRoot()): EvalArgs {
   const args: EvalArgs = {
@@ -344,6 +363,20 @@ export function applyGenerationMode(
   };
 }
 
+/** Режим звуку воркера eval: звукорежисер і рецензент (`ADC_SFX_MODE`, `ADC_FILM_REVIEW`, `ADC_REVIEW_MAX_ROUNDS`). */
+export type SoundTuning = Pick<Tuning, "sfxMode" | "filmReview" | "reviewMaxRounds">;
+
+/** Режим звуку, з яким реально працюватиме воркер (невалідний env — дефолти). */
+export function currentSoundTuning(env: NodeJS.ProcessEnv = process.env): SoundTuning {
+  let t: Tuning;
+  try {
+    t = readTuning(env);
+  } catch {
+    t = Tuning.parse({});
+  }
+  return { sfxMode: t.sfxMode, filmReview: t.filmReview, reviewMaxRounds: t.reviewMaxRounds };
+}
+
 /** Режим генерації, з яким реально працюватиме воркер (невалідний env — дефолт `pipeline`). */
 export function currentGenerationMode(env: NodeJS.ProcessEnv = process.env): GenerationMode {
   try {
@@ -359,12 +392,17 @@ export function currentGenerationMode(env: NodeJS.ProcessEnv = process.env): Gen
  * Готує проєкт збереженого прогону до перезапуску етапу: стан і `pipeline.json` поточної ревізії
  * виставляються так, ніби оркестратор щойно поставив цей job (далі все йде звичайним шляхом).
  * Повертає job, які треба поставити в чергу.
+ *
+ * Звук іде за `sfxMode` воркера (як `startDirecting` машини): у режимі `designer` трек і план попереднього
+ * прогону вважаються готовими, після відео — `sfx` → `audio{mix}` → `review`; `--from audio` ставить
+ * `audio{music}` (план SFX попереднього прогону лишається), у режимі `storyboard` — `audio{full}`.
  */
 export async function prepareRerun(
   storage: Storage,
   projectId: string,
   stage: RerunStage,
   now: Date = new Date(),
+  sfxMode: Tuning["sfxMode"] = currentSoundTuning().sfxMode,
 ): Promise<StageJob[]> {
   const paths = projectPaths(projectId);
   const project: ProjectState = await storage.readJson(paths.project, (v) => ProjectStateSchema.parse(v));
@@ -377,19 +415,22 @@ export async function prepareRerun(
   if (stage !== "brandkit" && project.brandkitVersion === null) {
     throw new Error(`${projectId}: немає бренд-кіта — перезапуск з «${stage}» неможливий`);
   }
-  if (["codegen", "check", "qa", "audio", "render"].includes(stage)) {
+  if (stage === "sfx" && sfxMode !== "designer") {
+    throw new Error(`${projectId}: перезапуск з «sfx» — лише в режимі звукорежисера (ADC_SFX_MODE=designer)`);
+  }
+  if (["codegen", "check", "qa", "sfx", "audio", "review", "render"].includes(stage)) {
     if (!(await storage.exists(paths.rev(rev).storyboard))) {
       throw new Error(`${projectId}: немає розкадровки ревізії ${rev} — перезапуск з «${stage}» неможливий`);
     }
   }
   if (
-    (stage === "check" || stage === "qa" || stage === "render") &&
+    ["check", "qa", "sfx", "review", "render"].includes(stage) &&
     !(await storage.exists(paths.rev(rev).scenesIndex))
   ) {
     throw new Error(`${projectId}: немає коду сцен ревізії ${rev} — перезапуск з «${stage}» неможливий`);
   }
-  if (stage === "render" && !(await storage.exists(paths.rev(rev).audio))) {
-    throw new Error(`${projectId}: немає audio.json ревізії ${rev} — перезапуск рендеру неможливий`);
+  if ((stage === "render" || stage === "review") && !(await storage.exists(paths.rev(rev).audio))) {
+    throw new Error(`${projectId}: немає audio.json ревізії ${rev} — перезапуск з «${stage}» неможливий`);
   }
 
   const pipe = PipeState.parse({
@@ -424,6 +465,20 @@ export async function prepareRerun(
     pipe.dirtyScenes = [];
     pipe.changedScenes = null;
   };
+  /** Звук ревізії: режим і що з music/sfx уже готове (як фіксує `startDirecting`); коло рецензії з нуля. */
+  const resetSound = (ready: { music: boolean; sfx: boolean }) => {
+    pipe.sfxMode = sfxMode;
+    pipe.musicDone = ready.music;
+    pipe.sfxDone = ready.sfx;
+    pipe.reviewRounds = 0;
+    pipe.pendingSfx = null;
+  };
+  const designer = sfxMode === "designer";
+  /** Відео заново: у режимі designer аудіогілка чекає зведення після sfx (трек попереднього прогону готовий). */
+  const videoBranches = (): ProjectState["branches"] => ({
+    video: "running",
+    audio: designer ? "running" : "done",
+  });
 
   const next: ProjectState = {
     ...project,
@@ -451,29 +506,54 @@ export async function prepareRerun(
       break;
     case "codegen":
       next.status = "directing";
-      next.branches = { video: "running", audio: "done" };
+      next.branches = videoBranches();
       resetVideo();
+      resetSound({ music: true, sfx: false });
       enqueue("codegen", { sceneIds: null, instructions: [] });
       break;
     case "check":
       next.status = "directing";
-      next.branches = { video: "running", audio: "done" };
+      next.branches = videoBranches();
       resetVideo();
+      resetSound({ music: true, sfx: false });
       enqueue("check", { sceneIds: null });
       break;
     case "qa":
       next.status = "directing";
-      next.branches = { video: "running", audio: "done" };
+      next.branches = videoBranches();
       pipe.videoPhase = "build";
       pipe.qaRounds = 0;
       pipe.dirtyScenes = [];
       pipe.changedScenes = null;
+      resetSound({ music: true, sfx: false });
       enqueue("qa", { sceneIds: null });
       break;
+    case "sfx":
+      // Картинка попереднього прогону готова: звукорежисер по всіх сценах → audio{mix} → review.
+      next.status = "directing";
+      next.branches = { video: "running", audio: "running" };
+      pipe.videoPhase = "build";
+      pipe.dirtyScenes = [];
+      pipe.changedScenes = null;
+      resetSound({ music: true, sfx: false });
+      enqueue("sfx", { sceneIds: null, instructions: [] });
+      break;
     case "audio":
+      // designer: трек заново, далі зведення за планом SFX попереднього прогону (sfx вважається готовим).
       next.status = "directing";
       next.branches = { video: "done", audio: "running" };
-      enqueue("audio", {});
+      resetSound({ music: false, sfx: true });
+      enqueue("audio", { phase: designer ? "music" : "full" });
+      break;
+    case "review":
+      // Фільм і зведення попереднього прогону; коло рецензії з нуля (з --only — лише оцінка).
+      next.status = "directing";
+      next.branches = { video: "done", audio: "done" };
+      pipe.videoPhase = "build";
+      pipe.dirtyScenes = [];
+      pipe.changedScenes = null;
+      resetSound({ music: true, sfx: true });
+      enqueue("review", { round: 0 });
       break;
     case "render":
       next.status = "rendering";
@@ -504,6 +584,10 @@ export interface SiteReport {
   /** QA з першого разу сказав pass (без кола фіксів після QA); null — QA не було. */
   qaFirstPass: boolean | null;
   qaWarnings: { critical: number; major: number; minor: number };
+  /** Рецензія фільму (`review.json`); null — рецензії не було (режим без неї або старі дані). */
+  review: CaseReview | null;
+  /** Звукова відомість (`sound-sheet.json`); null — зведення без відомості (старі дані). */
+  sound: CaseSound | null;
   usd: number;
   usdByStage: Array<{ key: string; usd: number }>;
   usdByProvider: Array<{ key: string; usd: number }>;
@@ -522,6 +606,8 @@ export interface EvalReport {
   finishedAt: string;
   /** Режим генерації воркера eval (`ADC_GENERATION_MODE`). */
   mode: GenerationMode;
+  /** Режим звуку воркера eval (`ADC_SFX_MODE`, `ADC_FILM_REVIEW`, `ADC_REVIEW_MAX_ROUNDS`). */
+  soundMode: SoundTuning;
   from: RerunStage | null;
   baseRun: string | null;
   only: boolean;
@@ -540,6 +626,8 @@ export interface EvalReport {
     qaPassShare: number | null;
     /** Частка сцен, замінених на TemplateScene. */
     templateShare: number | null;
+    /** Середня оцінка рецензента по сайтах із рецензією; null — рецензій не було. */
+    reviewScoreMean: number | null;
     usdByStage: Array<{ key: string; usd: number }>;
   };
 }
@@ -553,6 +641,81 @@ async function readOptional<T>(storage: Storage, key: string, parse: (v: unknown
   } catch {
     return null;
   }
+}
+
+/** Поріг промаху повз долю у відомості, мс (як `sfx_off_beat` у промпті рецензента). */
+export const OFF_BEAT_MS = 20;
+
+export interface CaseReview {
+  score: number;
+  verdict: FilmReview["verdict"];
+  /** Коло останньої рецензії ревізії (0 — перша). */
+  round: number;
+  summary: string;
+  issues: number;
+  /** Зауваження за маршрутом (`routeOf`) і за серйозністю. */
+  byRoute: { fix: number; sfx: number; music: number; none: number };
+  bySeverity: { critical: number; major: number; minor: number };
+}
+
+export interface CaseSound {
+  /** Подій у відомості (зі звуком у розкадровці або плані). */
+  events: number;
+  /** Вимкнені планом звукорежисера (`silent: "muted"`). */
+  muted: number;
+  /** Не прозвучали з технічних причин (`no_sample`, `decode_failed`). */
+  silent: number;
+  /** Події, що звучать, з |beatOffsetMs| ≥ `OFF_BEAT_MS`, крім grid-cue (`GRID_SOUND_CUES`). */
+  offBeat: number;
+  /** Важкі удари (`HIT_SOUND_CUES`), що звучать. */
+  heavyHits: number;
+  /** Старти сцен не на такті (`onBar === false`). */
+  sceneStartsOffBar: number;
+}
+
+export function reviewStats(review: FilmReview): CaseReview {
+  const byRoute = { fix: 0, sfx: 0, music: 0, none: 0 };
+  const bySeverity = { critical: 0, major: 0, minor: 0 };
+  for (const issue of review.issues) {
+    byRoute[routeOf(issue.kind)] += 1;
+    bySeverity[issue.severity] += 1;
+  }
+  return {
+    score: review.score,
+    verdict: review.verdict,
+    round: review.round,
+    summary: review.summary,
+    issues: review.issues.length,
+    byRoute,
+    bySeverity,
+  };
+}
+
+export function soundSheetStats(sheet: SoundSheet): CaseSound {
+  const sounding = sheet.events.filter((e) => e.silent === "none");
+  return {
+    events: sheet.events.length,
+    muted: sheet.events.filter((e) => e.silent === "muted").length,
+    silent: sheet.events.filter((e) => e.silent === "no_sample" || e.silent === "decode_failed").length,
+    offBeat: sounding.filter(
+      (e) =>
+        !GRID_SOUND_CUES.has(e.cue) && e.beatOffsetMs !== null && Math.abs(e.beatOffsetMs) >= OFF_BEAT_MS,
+    ).length,
+    heavyHits: sounding.filter((e) => HIT_SOUND_CUES.has(e.cue)).length,
+    sceneStartsOffBar: sheet.sceneStarts.filter((s) => s.onBar === false).length,
+  };
+}
+
+/** Рецензія і відомість звуку ревізії; немає файлу або він не за схемою (старі дані) — null. */
+export async function readReviewAndSound(
+  storage: Storage,
+  projectId: string,
+  rev: number,
+): Promise<{ review: CaseReview | null; sound: CaseSound | null }> {
+  const revPaths = projectPaths(projectId).rev(rev);
+  const review = await readOptional(storage, revPaths.review, (v) => FilmReview.parse(v));
+  const sheet = await readOptional(storage, revPaths.soundSheet, (v) => SoundSheet.parse(v));
+  return { review: review ? reviewStats(review) : null, sound: sheet ? soundSheetStats(sheet) : null };
 }
 
 /** Метрики одного проєкту; враховуються лише витрати й стадії з моменту `since`. */
@@ -580,6 +743,9 @@ export async function buildSiteReport(
   const qaRan = trace.some((t) => t.stage === "qa" && t.ok);
   const warnings = { critical: 0, major: 0, minor: 0 };
   for (const issue of qa?.issues ?? []) warnings[issue.severity] += 1;
+  const { review, sound } = project
+    ? await readReviewAndSound(storage, projectId, project.rev)
+    : { review: null, sound: null };
 
   const delivered = project?.status === "delivered";
   return {
@@ -597,6 +763,8 @@ export async function buildSiteReport(
     templateScenes: templates.size,
     qaFirstPass: qaRan ? (pipe?.qaRounds ?? 0) === 0 : null,
     qaWarnings: warnings,
+    review,
+    sound,
     usd: round(sumUsd(costs)),
     usdByStage: groupUsd(costs, (e) => e.stage).map((g) => ({ key: g.key, usd: round(g.usd) })),
     usdByProvider: groupUsd(costs, (e) => e.provider).map((g) => ({ key: g.key, usd: round(g.usd) })),
@@ -611,6 +779,7 @@ export function summarize(sites: readonly SiteReport[]): EvalReport["summary"] {
   const delivered = sites.filter((s) => s.delivered);
   const scenes = sites.reduce((a, s) => a + s.scenes, 0);
   const qa = sites.filter((s) => s.qaFirstPass !== null);
+  const scores = sites.flatMap((s) => (s.review ? [s.review.score] : []));
   const byStage = new Map<string, number>();
   for (const s of sites) for (const g of s.usdByStage) byStage.set(g.key, (byStage.get(g.key) ?? 0) + g.usd);
   return {
@@ -624,6 +793,7 @@ export function summarize(sites: readonly SiteReport[]): EvalReport["summary"] {
     firstTryShare: scenes > 0 ? round(sites.reduce((a, s) => a + s.firstTryScenes, 0) / scenes, 3) : null,
     qaPassShare: qa.length > 0 ? round(qa.filter((s) => s.qaFirstPass).length / qa.length, 3) : null,
     templateShare: scenes > 0 ? round(sites.reduce((a, s) => a + s.templateScenes, 0) / scenes, 3) : null,
+    reviewScoreMean: scores.length > 0 ? round(scores.reduce((a, v) => a + v, 0) / scores.length, 1) : null,
     usdByStage: [...byStage.entries()]
       .map(([key, usd]) => ({ key, usd: round(usd) }))
       .sort((a, b) => b.usd - a.usd),
@@ -633,13 +803,43 @@ export function summarize(sites: readonly SiteReport[]): EvalReport["summary"] {
 const pct = (v: number | null) => (v === null ? "—" : `${Math.round(v * 100)}%`);
 const usd = (v: number | null) => (v === null ? "—" : `$${v.toFixed(2)}`);
 const sec = (v: number | null) => (v === null ? "—" : `${Math.round(v)} с`);
+/** «designer, рецензія on (кіл ≤ 1)». */
+const soundModeStr = (m: SoundTuning) =>
+  `${m.sfxMode}, рецензія ${m.filmReview ? `on (кіл ≤ ${m.reviewMaxRounds})` : "off"}`;
+const dashOr = <T>(v: T | null | undefined, f: (v: T) => string | number) =>
+  v === null || v === undefined ? "—" : String(f(v));
+
+/** Рядок таблиці «Звук і рецензія» (по кейсу): score, offBeat, muted і решта лічильників. */
+function soundReviewRow(name: string, review: CaseReview | null, sound: CaseSound | null): string {
+  return [
+    name,
+    dashOr(review, (r) => r.score),
+    dashOr(review, (r) => r.verdict),
+    dashOr(sound, (x) => x.offBeat),
+    dashOr(sound, (x) => x.muted),
+    dashOr(sound, (x) => x.events),
+    dashOr(sound, (x) => x.heavyHits),
+    dashOr(sound, (x) => x.sceneStartsOffBar),
+    dashOr(review, (r) => `${r.byRoute.fix}/${r.byRoute.sfx}/${r.byRoute.music}`),
+    dashOr(review, (r) => `${r.bySeverity.critical}/${r.bySeverity.major}/${r.bySeverity.minor}`),
+  ].join(" | ");
+}
+
+const SOUND_REVIEW_HEAD = [
+  "| Кейс | score | Вердикт | offBeat | muted | Подій | Важкі удари | Старти поза тактом | Зауваження fix/sfx/music | critical/major/minor |",
+  "|---|---|---|---|---|---|---|---|---|---|",
+];
+const SOUND_REVIEW_NOTE =
+  `score — оцінка рецензента 1–10 (\`review.json\`); offBeat — події, що звучать, з |зсувом до долі| ≥ ${OFF_BEAT_MS} мс ` +
+  "(крім grid-cue); muted — вимкнені звукорежисером (`sound-sheet.json`). «—» — файлу немає (режим без стадії або старі дані).";
 
 export function reportMarkdown(report: EvalReport): string {
   const s = report.summary;
   const lines = [
     `# Eval ${report.run}`,
     "",
-    `Старт ${report.startedAt}, кінець ${report.finishedAt}. Режим генерації: ${report.mode}.` +
+    `Старт ${report.startedAt}, кінець ${report.finishedAt}. Режим генерації: ${report.mode}. ` +
+      `Звук: ${soundModeStr(report.soundMode)}.` +
       (report.from
         ? ` Перезапуск з етапу «${report.from}» прогону ${report.baseRun}${report.only ? " (лише цей етап)" : ""}.`
         : ""),
@@ -656,6 +856,7 @@ export function reportMarkdown(report: EvalReport): string {
     `| Сцени, що скомпілювались з першої спроби | ${pct(s.firstTryShare)} |`,
     `| QA pass з першого разу | ${pct(s.qaPassShare)} |`,
     `| Сцени-шаблони (TemplateScene) | ${pct(s.templateShare)} |`,
+    `| Оцінка рецензента, середня | ${s.reviewScoreMean ?? "—"} |`,
     "",
     "## Витрати за етапами",
     "",
@@ -673,6 +874,13 @@ export function reportMarkdown(report: EvalReport): string {
     ),
     "",
     "Попередження QA: critical/major/minor (що лишилось після кола фіксів). Відео, стіли й аркуші — у `sites/<сайт>/`.",
+    "",
+    "## Звук і рецензія",
+    "",
+    ...SOUND_REVIEW_HEAD,
+    ...report.sites.map((r) => `| ${soundReviewRow(r.name, r.review ?? null, r.sound ?? null)} |`),
+    "",
+    SOUND_REVIEW_NOTE,
     "",
   ];
   return lines.join("\n");
@@ -708,6 +916,10 @@ export async function collectArtifacts(
   // Звук для порівняння з еталоном: зведення, план і метадані треку (з перевіркою).
   await copy(rev.publicFile(PUBLIC_MIX_FILE), "soundtrack.wav");
   await copy(rev.audioPlan, "audio-plan.json");
+  // Звукорежисер і рецензент (режим designer): план SFX, відомість звуку зведення, рецензія.
+  await copy(rev.sfxPlan, "sfx-plan.json");
+  await copy(rev.soundSheet, "sound-sheet.json");
+  await copy(rev.review, "review.json");
   const manifest = await readOptional(storage, rev.audio, (v) => AudioManifest.parse(v));
   if (manifest?.music) await copy(projectPaths(projectId).musicMeta(manifest.music.planHash), "music.json");
   if (project.brandkitVersion !== null)
@@ -891,6 +1103,8 @@ export interface CaseReport {
   run: string;
   generatedAt: string;
   mode: GenerationMode;
+  /** Режим звуку воркера eval — щоб порівнювати designer і storyboard на тих самих сайтах. */
+  soundMode: SoundTuning;
   site: string;
   projectId: string;
   status: string;
@@ -916,6 +1130,10 @@ export interface CaseReport {
   storyboard: CaseStoryboard | null;
   music: CaseMusic;
   audio: CaseAudio;
+  /** `review.json` ревізії; null — рецензії не було. */
+  review: CaseReview | null;
+  /** `sound-sheet.json` ревізії; null — відомості немає. */
+  sound: CaseSound | null;
   criteria: CaseCriterion[];
   files: string[];
 }
@@ -1355,6 +1573,8 @@ export async function buildCaseReport(
     since: Date;
     site: SiteReport;
     mode: GenerationMode;
+    /** Дефолт — `currentSoundTuning()` (env). */
+    soundMode?: SoundTuning;
     now?: Date;
   } & CaseAudioDeps,
 ): Promise<CaseReport> {
@@ -1390,12 +1610,14 @@ export async function buildCaseReport(
   const audio = await measureCaseAudio(storage, projectId, rev, storyboard, deps);
   const music = await caseMusic(storage, projectId, rev);
   const sb = storyboard ? storyboardStats(storyboard) : null;
+  const { review, sound } = await readReviewAndSound(storage, projectId, rev);
   const s = meta.site;
   return {
     case: meta.caseName,
     run: meta.run,
     generatedAt: (meta.now ?? new Date()).toISOString(),
     mode: meta.mode,
+    soundMode: meta.soundMode ?? currentSoundTuning(),
     site: s.site,
     projectId,
     status: s.status,
@@ -1419,6 +1641,8 @@ export async function buildCaseReport(
     storyboard: sb,
     music,
     audio,
+    review,
+    sound,
     criteria: caseCriteria(audio, music, sb),
     files: s.files,
   };
@@ -1443,6 +1667,7 @@ export function caseReportMarkdown(r: CaseReport): string {
     "| Метрика | Значення |",
     "|---|---|",
     `| Режим генерації | ${r.mode} |`,
+    `| Режим звуку | ${soundModeStr(r.soundMode)} |`,
     `| Формати / відео | ${r.formats.map((f) => FORMAT_LABEL[f]).join(", ") || "—"} / ${sec(r.videoSeconds)} (задано ${r.durationSeconds ?? "—"} с) |`,
     `| Витрачено | ${usd(r.cost.usd)} (${r.cost.llmCalls} викликів LLM) |`,
     `| Токени: input / output / cache write / cache read | ${r.cost.tokens.input} / ${r.cost.tokens.output} / ${r.cost.tokens.cacheWrite} / ${r.cost.tokens.cacheRead} |`,
@@ -1458,6 +1683,16 @@ export function caseReportMarkdown(r: CaseReport): string {
     `| Мастер: LUFS / dBTP / підсилення | ${orDash(a.integratedLufs)} / ${orDash(a.truePeakDbtp)} / ${dbStr(a.masterGainDb)} |`,
     `| Тональність: план / трек | ${a.keyPlanned ?? "—"} / ${keyStr(a.keyDetected)} |`,
     `| Трек: такт / кореляція L/R / низ; зведення: низ | ${orDash(a.barConfidence)} / ${orDash(a.stereoCorrelation)} / ${orDash(a.lowCorrelation)}; ${orDash(a.mixLowCorrelation)} |`,
+    "",
+    "## Звук і рецензія",
+    "",
+    ...SOUND_REVIEW_HEAD,
+    `| ${soundReviewRow(r.case, r.review, r.sound)} |`,
+    "",
+    SOUND_REVIEW_NOTE,
+    ...(r.review
+      ? ["", `Рецензент (коло ${r.review.round}): ${r.review.summary.replaceAll("\n", " ") || "—"}`]
+      : []),
     "",
     "## Критерії паритету",
     "",
@@ -1535,6 +1770,7 @@ async function writeCaseReport(
     now: () => Date;
     run: string;
     mode: GenerationMode;
+    soundMode: SoundTuning;
     decode?: DecodeAudio;
   },
 ): Promise<void> {
@@ -1545,6 +1781,7 @@ async function writeCaseReport(
       since: o.since,
       site: o.site,
       mode: o.mode,
+      soundMode: o.soundMode,
       now: o.now(),
       ...(o.decode ? { decode: o.decode } : {}),
     });
@@ -1569,7 +1806,7 @@ async function runTargets(
   runDir: string,
   print: (line: string) => void,
   now: () => Date,
-  cases: { run: string; mode: GenerationMode; decode?: DecodeAudio },
+  cases: { run: string; mode: GenerationMode; soundMode: SoundTuning; decode?: DecodeAudio },
 ): Promise<SiteReport[]> {
   const reports: SiteReport[] = new Array(targets.length);
   let cursor = 0;
@@ -1713,6 +1950,13 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
       return 2;
     }
   }
+  // Невалідні ADC_* (зокрема ADC_SFX_MODE / ADC_FILM_REVIEW) — до старту прогону, а не падінням воркера.
+  try {
+    readTuning(args.mode ? { ...process.env, [TUNING_ENV.generationMode]: args.mode } : process.env);
+  } catch (err) {
+    print(`eval: ${(err as Error).message}`);
+    return 2;
+  }
 
   const startedAt = now();
   const run = runName(startedAt, args.runsDir, args.from ? `.from-${args.from}` : "");
@@ -1726,6 +1970,9 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
   const restoreMode = applyGenerationMode(args.mode);
   const mode = currentGenerationMode();
   print(`eval: режим генерації ${mode}`);
+  // Режим звуку — з env (ADC_SFX_MODE, ADC_FILM_REVIEW): воркер читає його сам на кожен крок.
+  const soundMode = currentSoundTuning();
+  print(`eval: звук ${soundModeStr(soundMode)}`);
 
   // Імена кейсів перезапуску — з report.json базового прогону (без префікса «01-»).
   const baseNames = new Map<string, string>();
@@ -1774,7 +2021,7 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
         formats: null,
         language: null,
         start: async (h) => {
-          const jobs = await prepareRerun(h.storage, projectId, stage, now());
+          const jobs = await prepareRerun(h.storage, projectId, stage, now(), soundMode.sfxMode);
           for (const job of jobs) await h.queue.enqueueStage(job);
         },
       });
@@ -1814,6 +2061,7 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
     reports = await runTargets(harness, targets, args, runDir, print, now, {
       run,
       mode,
+      soundMode,
       ...(deps.decode ? { decode: deps.decode } : {}),
     });
     await harness.close();
@@ -1826,6 +2074,7 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
     startedAt: startedAt.toISOString(),
     finishedAt: now().toISOString(),
     mode,
+    soundMode,
     from: args.from,
     baseRun: args.run,
     only: args.only,
