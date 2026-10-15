@@ -1,4 +1,5 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseQaLog } from "@adc/motion-kit";
 import {
@@ -8,6 +9,7 @@ import {
   type Format,
   inputsHash,
   LEGACY_ARRIVE_EVENT_ID,
+  primaryFormat,
   QaLogEntry,
   type RenderEngine,
   revPaths,
@@ -44,6 +46,7 @@ import {
   type SceneLedger,
   writeLedger,
 } from "../ledger.ts";
+import { buildMomentSheet, type MomentPlan, momentSheetRows, planMoments } from "../moments.ts";
 import { buildSheet, buildStripSheet, diffThumb, type SheetCell, type StripCell } from "../sheets.ts";
 import { typecheckScenes } from "../typecheck.ts";
 
@@ -58,6 +61,12 @@ import { typecheckScenes } from "../typecheck.ts";
  * `event_unused` (подія сцени не згадана в коді). Логи `ADC_QA` кадрів стрічки не беруться (там появи
  * в процесі), але runtime-помилка на кадрі стрічки — помилка сцени (фінальний рендер на ній упаде).
  * Шаблонні сцени стрічки не мають.
+ *
+ * Після стрічки — аркуш моментів сцени (`revPaths.momentSheet`, лише головний формат): кадри ±2
+ * навколо кожної події і склейка з наступною сценою (`planMoments`, ≤ `MOMENT_MAX_FRAMES` кадрів;
+ * перші кадри наступної рендеряться, навіть якщо вона поза scope). Кадр, що вже є в стілах чи стрічці,
+ * не рендериться вдруге; PNG кадрів моментів не зберігаються, лише аркуш. Кадр, що не відрендерився, —
+ * заглушка на аркуші, не помилка сцени. Сцена з runtime-помилкою аркуша не має. → `check.moments`.
  *
  * `params.sceneIds` — які сцени знімати (null — усі). Типи перевіряються для всіх сцен (усі
  * потрапляють у бандл), записи інших сцен беруться з попереднього check.json цієї ревізії або
@@ -80,8 +89,11 @@ export type CheckMeta = z.infer<typeof CheckMeta>;
 const SCENE_FILE_IN_MESSAGE = /scenes[\\/](s\d{1,2})\.tsx/g;
 const MAX_BUNDLE_ATTEMPTS = 3;
 
-/** Версія логіки check у хеші входів: зміна детекторів чи стрічки — сцени знімаються заново. */
-const CHECK_LOGIC = "strip-v1";
+/**
+ * Версія логіки check у хеші входів: зміна детекторів, стрічки чи аркуша моментів — сцени знімаються
+ * заново (інакше сцени, перенесені з основи до появи аркушів моментів, лишились би без них).
+ */
+const CHECK_LOGIC = "moments-v1";
 
 /** Крок стрічки кадрів сцени (15 кадрів = 0.5 с при 30 fps). */
 export const STRIP_STEP = 15;
@@ -405,6 +417,13 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
     report.runtimeErrors = keep(report.runtimeErrors);
     report.autoIssues = keep(report.autoIssues);
     report.stills = keep(report.stills);
+    const primary = primaryFormat(formats);
+    report.moments = keep(report.moments).filter((m) => m.format === primary);
+    /** Запис аркуша моментів сцени у звіті (null — аркуша немає). */
+    const setMoment = (sceneId: string, key: string | null) => {
+      report.moments = report.moments.filter((m) => m.sceneId !== sceneId);
+      if (key !== null) report.moments.push({ sceneId, format: primary, path: key });
+    };
 
     // ---------- 0. нова ревізія: код незмінених сцен — з ревізії-основи ----------
     const base = baseRevOf(project, rev);
@@ -550,6 +569,16 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
               artifacts.add(dest);
             }
           }
+          // Аркуш моментів основи (якщо є; сцена без подій і без склейки його не має).
+          const momentFrom = baseRp.momentSheet(primary, id);
+          if (!templates.has(id) && (await storage.exists(momentFrom))) {
+            const dest = rp.momentSheet(primary, id);
+            await storage.copy(momentFrom, dest);
+            artifacts.add(dest);
+            setMoment(id, dest);
+          } else {
+            setMoment(id, null);
+          }
           replaceSceneData(report, id, { ...data, compileErrors: [], stills }, false);
           reusedScenes.add(id);
         }
@@ -615,10 +644,18 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
       const toRender = renderTargets.filter((id) => !compileFailed.has(id));
       const stripOf = (id: string, durationFrames: number) =>
         templates.has(id) ? [] : stripFrames(durationFrames, STRIP_STEP);
+      /** План аркуша моментів сцени (шаблонні сцени аркуша не мають). */
+      const momentPlanOf = (scene: Scene): MomentPlan | null => {
+        if (templates.has(scene.id)) return null;
+        const next = storyboard.scenes[storyboard.scenes.indexOf(scene) + 1] ?? null;
+        return planMoments(scene, next);
+      };
+      const momentCount = (plan: MomentPlan | null) => (plan ? plan.own.length + plan.next.length : 0);
       const total = toRender.reduce((sum, id) => {
         const scene = storyboard.scenes.find((s) => s.id === id);
         const strip = scene ? stripOf(id, scene.durationFrames).length : 0;
-        return sum + formats.length * (STILL_PLAN.length + strip);
+        const moments = scene ? momentCount(momentPlanOf(scene)) : 0;
+        return sum + formats.length * (STILL_PLAN.length + strip) + moments;
       }, 0);
       let done = 0;
       const tick = async () => {
@@ -703,6 +740,73 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
         );
       };
 
+      /**
+       * Аркуш моментів сцени в головному форматі за планом. Кадри сцени, що вже є серед стілів чи
+       * стрічки, читаються звідти; решта (і кадри наступної сцени) рендеряться в тимчасову теку, яка
+       * потім видаляється. Помилка кадру — заглушка на аркуші. Повертає ключ аркуша або null.
+       */
+      const renderMoments = async (
+        scene: Scene,
+        plan: MomentPlan,
+        data: Omit<SceneCheckData, "checkedAt">,
+      ): Promise<string | null> => {
+        if (plan.skipped.length > 0) {
+          logger.info("check: аркуш моментів — події понад ліміт кадрів пропущено", {
+            sceneId: scene.id,
+            skipped: plan.skipped,
+          });
+        }
+        if (plan.rows.length === 0) return null;
+        const ready = new Map<number, string>();
+        for (const s of data.stills) if (s.format === primary) ready.set(s.frame, s.path);
+        for (const f of stripOf(scene.id, scene.durationFrames)) ready.set(f, rp.strip(primary, scene.id, f));
+        const nextId = plan.rows.find((r) => r.kind === "join")?.nextId ?? null;
+        const own = new Map<number, Buffer>();
+        const next = new Map<number, Buffer>();
+        const jobs = [
+          ...plan.own.map((frame) => ({ sceneId: scene.id, frame, into: own })),
+          ...(nextId !== null && !compileFailed.has(nextId)
+            ? plan.next.map((frame) => ({ sceneId: nextId, frame, into: next }))
+            : []),
+        ];
+        done += momentCount(plan) - jobs.length;
+        const dir = await mkdtemp(path.join(tmpdir(), "adc-moments-"));
+        let failures = 0;
+        try {
+          await inPool(jobs, STRIP_CONCURRENCY, async ({ sceneId, frame, into }) => {
+            try {
+              const key = sceneId === scene.id ? ready.get(frame) : undefined;
+              if (key !== undefined && (await storage.exists(key))) {
+                into.set(frame, await storage.read(key));
+              } else {
+                const out = path.join(dir, `${sceneId}-${frame}.png`);
+                await renderOne(sceneId, primary, frame, out);
+                into.set(frame, await readFile(out));
+              }
+            } catch (err) {
+              if (ctx.signal?.aborted) throw err;
+              failures++;
+            }
+            await tick();
+          });
+        } finally {
+          await rm(dir, { recursive: true, force: true });
+        }
+        if (failures > 0) {
+          logger.warn("check: аркуш моментів — частина кадрів не відрендерилась", {
+            sceneId: scene.id,
+            failures,
+          });
+        }
+        const key = rp.momentSheet(primary, scene.id);
+        await storage.write(
+          key,
+          await buildMomentSheet(primary, momentSheetRows(plan, storyboard.fps, own, next)),
+        );
+        artifacts.add(key);
+        return key;
+      };
+
       for (const id of toRender) {
         const scene = storyboard.scenes.find((s) => s.id === id);
         if (!scene || serveUrl === null) continue;
@@ -755,6 +859,14 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
         }
         data.autoIssues = dedupeIssues(data.autoIssues);
         replaceSceneData(report, id, data, false);
+        // Аркуш моментів — після стілів і стрічки; сцена, що падає, його не має (її знімуть після fix).
+        const plan = momentPlanOf(scene);
+        if (plan && data.runtimeErrors.length === 0) {
+          setMoment(id, await renderMoments(scene, plan, data));
+        } else {
+          done += momentCount(plan);
+          setMoment(id, null);
+        }
       }
     } finally {
       if (typeof deps.engine === "function") {
@@ -771,7 +883,9 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
       report.stills = report.stills.filter((s) => s.sceneId !== id);
       report.runtimeErrors = report.runtimeErrors.filter((s) => s.sceneId !== id);
       report.autoIssues = report.autoIssues.filter((s) => s.sceneId !== id);
+      setMoment(id, null);
     }
+    report.moments.sort((a, b) => allIds.indexOf(a.sceneId) - allIds.indexOf(b.sceneId));
 
     // ---------- 4. аркуші і звіт ----------
     for (const k of await rebuildSheets(storage, projectId, rev, allIds, formats, report)) artifacts.add(k);
