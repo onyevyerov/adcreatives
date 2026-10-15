@@ -6,6 +6,7 @@ import {
   ReviewIssue,
   ReviewKind,
   routeOf,
+  StoryboardCheckpointPayload,
 } from "../src/index.ts";
 
 const issue = (kind: ReviewKind, severity: "minor" | "major" | "critical") =>
@@ -45,5 +46,24 @@ describe("FilmReviewDraft", () => {
     });
     expect(r.issues[0]).toMatchObject({ nextSceneId: null, eventId: null, frame: null, format: null });
     expect(() => FilmReviewDraft.parse({ verdict: "pass", score: 11, issues: [], summary: "" })).toThrow();
+  });
+});
+
+describe("StoryboardCheckpointPayload.review", () => {
+  const base = {
+    checkpoint: "storyboard",
+    primaryFormat: "vertical",
+    stills: [],
+    sheets: [],
+    warnings: [],
+    templateScenes: [],
+    music: null,
+    changedScenes: null,
+  } as const;
+  it("стара подія без review парситься; null і зауваження з маршрутом зберігаються", () => {
+    expect(StoryboardCheckpointPayload.parse(base).review).toBeUndefined();
+    expect(StoryboardCheckpointPayload.parse({ ...base, review: null }).review).toBeNull();
+    const review = { score: 7, summary: "s", issues: [{ ...issue("join_break", "major"), route: "fix" }] };
+    expect(StoryboardCheckpointPayload.parse({ ...base, review }).review).toEqual(review);
   });
 });
