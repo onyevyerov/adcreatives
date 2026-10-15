@@ -26,8 +26,8 @@ function loadRecorded(stage: string): Recorded {
   return rec;
 }
 
-/** Стадії, на які є записані відповіді (audio-план кличеться зі стадії `audio`). */
-export const RECORDED_STAGES = ["brandkit", "storyboard", "codegen", "qa", "audio"] as const;
+/** Стадії, на які є записані відповіді (audio-план кличеться зі стадії `audio`; sfx і review — синтетичні). */
+export const RECORDED_STAGES = ["brandkit", "storyboard", "codegen", "qa", "audio", "sfx", "review"] as const;
 
 export interface RoutedAnthropic extends AnthropicLike {
   /** Скільки викликів LLM зробила кожна стадія. */

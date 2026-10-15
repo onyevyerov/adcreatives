@@ -615,4 +615,54 @@ pnpm smoke
 
 ### Статус виконання
 
-_(заповнюється в інтеграційному PR)_
+Хвиля 1 злита в `claude/sfx-review-integration` (2026-10-15), інтеграційний PR у `main` — з README і цим розділом.
+
+| Блок | PR | Що зроблено |
+|---|---|---|
+| Крок 0 | #31 (у `main`) | схеми, реєстр стадій, шляхи, перемикачі, заглушки |
+| Міні-PR Кроку 0 | 898be6e, 07a2e0a | `StoryboardCheckpointPayload.review` (необов'язкове); `fix.reason` + `"review"` |
+| B1 | #35 | фази `music`/`mix`/`full`, `sound-sheet.json`, адитивні поля мікшера, `audio-measure --project` |
+| B5 | #32 | аркуші моментів у `check` → `check.moments` |
+| B2 | #34 | стадія `sfx`, промпт `sfx-design.md` |
+| B3 | #37 | стадія `review`, промпт `review.md`, `fix` із `reason: "review"`, абзац у `code-fix.md` |
+| B4 | #33 | машина станів (sfx → mix → review, кола), ЧП3 з рецензією |
+| B6 | #36 | eval: `sfx`/`review` у перезапуску, звіт `review`/`sound`, таблиця «Звук і рецензія» |
+| Інтеграція | 668d39b, cdc53d2 | правки тестів-споживачів (див. нижче), README |
+
+**Відхилення від тексту ТЗ (свідомі):**
+
+- `StoryboardCheckpointPayload.review` — `.nullable().optional()`, не `.default(null)`: інакше поле стало б
+  обов'язковим у типі виходу й ламало typecheck до злиття B4. Машина ставить його завжди явно.
+- B1: `Soundtrack.beatGrid` і `MixMasterMeta.facts` (адитивно) — факти міксу кешуються поруч із WAV, щоб
+  відомість на кеш-хіті не перераховувала мікс; старий кеш без фактів зводиться один раз заново (той самий WAV).
+  `peakDb` — до лімітера. Доля «визначена» при `alignment.confidence ≥ MIN_BEAT_CONFIDENCE`. Збій зведення в
+  `mix` → `mix: null`, `outputs.mixed = true` (щоб машина не зациклилась).
+- B5: `CHECK_LOGIC` `strip-v1` → `moments-v1` — перша ревізія після деплою один раз перезніме сцени, щоб
+  отримати аркуші. Ліміт 30 кадрів рахується разом із кадрами наступної сцени; кадри, що вже є серед стілів
+  або стрічки, не рендеряться.
+- B2: сигнатурні cue визначено в `sfx.ts` (`cash`, `cheer`, `scratch`, `glitch`, кожен ≤ 2 на ролик) — у
+  `@adc/shared` такої константи немає. `perScene` трактовано як «один perScene-тембр (`pop` або `ding`) на сцену».
+- B3: маршрути лише за major/critical (як `effectiveVerdict`); `nextSceneId` склейки ставить код; на колі ≥ 1
+  рецензент бачить свої попередні зауваження (до хешу не входять). `film`-зауваження з маршрутом fix/sfx
+  впливають на вердикт, але сцен у маршрути не додають.
+- B4: режим (`sfxMode`) фіксується в `pipe` на старті ревізії; `pipeline.json` до B4 доходять старим шляхом.
+  У режимі `storyboard` `filmReview` ігнорується (коло рецензії маршрутизує в `sfx`/`mix`, яких там немає).
+  Будь-який `stage_failed` для `sfx`/`review` не блокує ревізію.
+- B6: режим звуку — лише через env (без CLI-прапорців); понад мінімум — `silent`, `round`, `summary`,
+  `reviewScoreMean`.
+- Інтеграція: `director/test/check-fix.test.ts` — перевірка «знімається лише змінена сцена» рахує тільки стіли
+  (B5 за ТЗ рендерить перші кадри наступної сцени для склейки), фільтр `/stills/` нормалізує `\` → `/`, тож
+  тест «старий check.json (лише a/b)…», червоний на Windows і на `main`, тепер зелений. `integration/test/eval-run.test.ts` закріплено на
+  `ADC_SFX_MODE=storyboard ADC_FILM_REVIEW=off`: записані відповіді й очікування «--from qa --only» → ЧП2 —
+  для пайплайна без звукорежисера; режим `designer` покривають тести машини й `eval.test.ts`.
+  `integration/test/pipeline.test.ts` (наскрізний прогін, дефолтний `designer`) отримав синтетичні відповіді
+  `fixtures/llm/sfx.json` (план без змін) і `fixtures/llm/review.json` (`pass`, 8/10) — це не записи живих
+  викликів; тест тепер проходить codegen → check → qa → sfx → mix → review → ЧП3 → видача.
+
+**Перевірки інтеграції:** `pnpm typecheck`, `pnpm lint`, команди розділу 6 і `pnpm smoke` — зелені, крім відомих
+червоних на Windows (`director/test/check-strip.test.ts` «кадри стрічки в усіх форматах…»,
+`integration/test/eval-run.test.ts` «--from render»). Фінальний повний прогін — у описі інтеграційного PR.
+
+**Лишилось (власник):** `LIVE=1 pnpm eval` на 2–3 сайтах у режимі `designer` і в
+`ADC_SFX_MODE=storyboard ADC_FILM_REVIEW=off`; записати сюди `score`/`offBeat`/`muted`, суб'єктивну оцінку
+звуку і фактичну вартість `sfx`/`review` із `costs.jsonl` поруч з оцінкою з розділу 1.

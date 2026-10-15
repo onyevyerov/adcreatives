@@ -5,7 +5,8 @@
 
 Специфікація: [docs/superpowers/specs/2026-10-06-adcreative-design.md](docs/superpowers/specs/2026-10-06-adcreative-design.md),
 повне ТЗ з блоками робіт: [docs/superpowers/specs/adcreative-tz-v2.md](docs/superpowers/specs/adcreative-tz-v2.md),
-якість звуку (LUFS, моно-сумісність, такт, тональність): [docs/superpowers/specs/2026-10-13-audio-quality-tz.md](docs/superpowers/specs/2026-10-13-audio-quality-tz.md).
+якість звуку (LUFS, моно-сумісність, такт, тональність): [docs/superpowers/specs/2026-10-13-audio-quality-tz.md](docs/superpowers/specs/2026-10-13-audio-quality-tz.md),
+звукорежисер і рецензент фільму: [docs/superpowers/specs/2026-10-15-sound-designer-film-review-tz.md](docs/superpowers/specs/2026-10-15-sound-designer-film-review-tz.md).
 
 ## Вимоги
 
@@ -114,6 +115,41 @@ import { createMockAnthropic } from "@adc/shared/llm";     // мок Anthropic �
 крок оркестратора і діє з наступного старту режисури; воркер черги `llm` у цьому режимі рендерить кадри, тож
 йому потрібен браузер Remotion.
 
+### Звукорежисер і рецензент фільму
+
+Звук подій ставиться по готовій картинці, а не наосліп у розкадровці; перед ЧП3 весь ролик дивиться рецензент.
+
+```
+storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx ─┐
+                 └→ audio{music} ─────────────────────────────────┴→ audio{mix} → review ─┬→ ЧП3 → render
+                                                                                          │
+                                  fix(review) → check → sfx(instructions) → audio{mix} ←──┘ (≤ N кіл)
+```
+
+- **`sfx`** (`prompts/sfx-design.md`, Opus `medium`) — дивиться стрічки й аркуші моментів (кадри ±2 навколо
+  подій і склейок, їх кладе `check` у `check.moments`) у головному форматі і для кожної події розкадровки
+  вирішує cue/акцент або мовчання → `rev/<n>/sfx-plan.json`. Нових кадрів не вигадує; ліміти ударів
+  тримає код (один ретрай, далі обрізання від кінця ролика). Звук із розкадровки — чернетка.
+- **`audio`** ділиться на фази: `music` (план, трек, прогрів усіх 30 cue — паралельно з кодом) і `mix`
+  (зведення з накладеним планом SFX, пише звукову відомість `rev/<n>/sound-sheet.json`: кадр, зсув до долі,
+  пік кожної події, старти сцен проти тактів, RMS по секундах). `pnpm audio-measure -- --project <id>` друкує
+  відомість таблицями.
+- **`review`** (`prompts/review.md`, Opus `high`) — стрічки всіх сцен, аркуші моментів, аркуші інших форматів
+  і відомість текстом → `rev/<n>/review.json`. Вердикт і маршрути ставить код: візуальні зауваження → `fix`
+  (`reason: "review"`), звукові → `sfx`, музичні — лише попередження на ЧП3. Без відомості звук не судиться.
+- ЧП3 показує оцінку рецензента і до 10 зауважень major/critical із маршрутом. Збої `sfx` і `review` ревізію
+  не зупиняють: звук лишається з розкадровки, рецензія пропускається з повідомленням у чат.
+
+| Змінна | Дефолт | Що робить |
+|---|---|---|
+| `ADC_SFX_MODE` | `designer` | `storyboard` — звук із розкадровки, стадії `sfx` немає, `audio` однією фазою `full` (як до ТЗ) |
+| `ADC_FILM_REVIEW` | `on` | `off` — без рецензента, після зведення одразу ЧП3 (у режимі `storyboard` рецензії немає завжди) |
+| `ADC_REVIEW_MAX_ROUNDS` | `1` (0–2) | скільки кіл правок за рецензією; `0` — лише оцінка на ЧП3 |
+
+Відкат без деплою: `ADC_SFX_MODE=storyboard ADC_FILM_REVIEW=off`. Режим фіксується на старті ревізії.
+Бюджет (оцінка за токенами, не замір): `sfx` ≈ $0.5–1 на ролик, `review` ≈ $1.5–3 на коло — разом +$2–4 і
++3–6 хв на ролик при одному колі. Фактичні цифри — `costs.jsonl` зі `stage: sfx | review`.
+
 ## Відхилення від тексту ТЗ (технічні, свідомі)
 
 - **`jobId`**: `<projectId>.<stage>.r<rev>.a<attempt>` замість `<projectId>:<stage>:<rev>:<attempt>` —
@@ -177,11 +213,14 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
 pnpm eval                                        # → eval/runs/<дата-час>/report.md
 pnpm eval --from codegen --run 2026-10-06-1530   # перезапуск етапу і всього після нього на збережених даних
 pnpm eval --from qa --run 2026-10-06-1530 --only # лише один етап
+ADC_SFX_MODE=storyboard ADC_FILM_REVIEW=off pnpm eval   # той самий список у старому режимі звуку — для порівняння
 ```
 
 Порожній список — повідомлення «список порожній» без помилки. Звіт: вартість і час на сайт (настінний
 і машинний), частка сцен, що скомпілювались з першої спроби, частка QA pass, частка сцен-шаблонів,
-витрати за етапами; відео, постер, стіли й аркуші — у `eval/runs/<прогін>/sites/<сайт>/`.
+витрати за етапами, таблиця «Звук і рецензія» (`score` рецензента, події поза долею `offBeat`, вимкнені
+`muted`, удари, старти сцен поза тактом); відео, постер, стіли, аркуші, `sfx-plan.json`, `sound-sheet.json`
+і `review.json` — у `eval/runs/<прогін>/sites/<сайт>/`.
 
 ## CLI
 

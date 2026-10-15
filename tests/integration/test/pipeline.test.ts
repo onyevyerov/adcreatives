@@ -208,7 +208,7 @@ describe("пайплайн від URL до mp4", () => {
       expect(e.usd).toBeGreaterThan(0);
     }
     expect(new Set(anthropicEvents.map((e) => e.promptName))).toEqual(
-      new Set(["brandkit", "storyboard", "codegen", "qa", "audio-plan"]),
+      new Set(["brandkit", "storyboard", "codegen", "qa", "audio-plan", "sfx-design", "review"]),
     );
     const music = costs.filter((e) => e.provider === "elevenlabs");
     expect(music.length).toBeGreaterThan(0);
