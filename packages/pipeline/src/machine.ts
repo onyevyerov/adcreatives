@@ -18,11 +18,14 @@ import {
   type ProjectState,
   type ProjectStatus,
   projectPaths,
+  type ReviewIssue,
   readTuning,
+  routeOf,
   type StageDoneEvent,
   type StageJob,
   type StageName,
   type StageParamsMap,
+  type Tuning,
   t,
 } from "@adc/shared";
 import { FORMAT_LABEL, formatsLabel, LANGUAGE_LABEL_UK, STAGE_LABEL_UK } from "./labels.ts";
@@ -90,6 +93,19 @@ export interface StepContext {
    * (один агент пише, рендерить і дивиться) замість `codegen`. Не задано — `pipeline`.
    */
   generationMode?: GenerationMode;
+  /**
+   * `Tuning.sfxMode`: `designer` — звук ставить стадія `sfx` по готовій картинці (audio ділиться на
+   * `music` і `mix`), `storyboard` — звук із розкадровки, audio однією фазою `full`, як до звукорежисера.
+   * Читається на старті режисури й фіксується в `pipe.sfxMode` до кінця ревізії.
+   * Не задано — `readTuning().sfxMode` (`ADC_SFX_MODE`, дефолт designer).
+   */
+  sfxMode?: Tuning["sfxMode"];
+  /** `Tuning.filmReview`: рецензія фільму після зведення (лише в режимі designer). Не задано — з env. */
+  filmReview?: boolean;
+  /** `Tuning.reviewMaxRounds`: скільки кіл «рецензія → правки» до чекпоінта 3. Не задано — з env. */
+  reviewMaxRounds?: number;
+  /** Зауваження `review.json` щойно завершеної рецензії (драйвер читає на подію `review`). */
+  reviewIssues?: ReviewIssue[];
 }
 
 export type GenerationMode = "pipeline" | "agent";
@@ -347,11 +363,16 @@ function startDirecting(
   instructions: Array<{ sceneId: string; instruction: string }>,
 ): void {
   const stage = d.ctx.generationMode === "agent" ? "author" : "codegen";
+  const sfxMode = d.ctx.sfxMode ?? readTuning().sfxMode;
   d.project.branches = { video: "running", audio: "running" };
   d.pipe.videoPhase = "build";
+  d.pipe.sfxMode = sfxMode;
+  d.pipe.musicDone = false;
+  d.pipe.sfxDone = false;
   d.progress(stage, t("directingStarted"));
   d.enqueue(stage, { sceneIds, instructions });
-  d.enqueue("audio", {});
+  // designer: трек паралельно з кодом, зведення — після звукорежисера.
+  d.enqueue("audio", { phase: sfxMode === "designer" ? "music" : "full" });
 }
 
 /** Чи писав сцени цієї ревізії агент (стадія `author` уже ставилась у цій ревізії). */
@@ -625,10 +646,9 @@ function onStageEvent(d: Draft, ev: StageDoneEvent): void {
     check: (e) => onCheckDone(d, e),
     fix: (e) => onFixDone(d, e, job),
     qa: (e) => onQaDone(d, e),
-    // Крок 0: sfx і review ще не керують потоком — реальна логіка в блоці B4.
-    sfx: () => {},
-    review: () => {},
-    audio: (e) => onAudioDone(d, e),
+    sfx: () => onSfxDone(d),
+    review: (e) => onReviewDone(d, e),
+    audio: (e) => onAudioDone(d, e, job),
     render: () => onRenderDone(d),
   };
   (handlers[ev.stage] as (e: StageDoneEvent) => void)(ev);
@@ -643,6 +663,19 @@ function onStageFailed(d: Draft, job: JobRecord, ev: StageFailed): void {
     d.say(ev.error.userMessage);
     d.ioNext();
     maybeStartBrandkit(d);
+    return;
+  }
+  if (ev.stage === "sfx") {
+    // Звукорежисер — покращення, а не умова ревізії: зводимо без нового плану (звук розкадровки).
+    d.say(t("sfxFallback"));
+    d.pipe.sfxDone = true;
+    maybeMix(d);
+    return;
+  }
+  if (ev.stage === "review") {
+    // Рецензія — теж: без неї чекпоінт 3 показує лише попередження QA.
+    d.say(t("reviewFailed"));
+    maybeJoin(d);
     return;
   }
   d.pipe.failedJobs.push(job);
@@ -780,6 +813,11 @@ function onCheckDone(d: Draft, ev: StageDoneOk<"check">): void {
     d.enqueue("fix", { sceneIds: toFix, reason: "check" });
     return;
   }
+  if (pipe.videoPhase === "review_fix") {
+    // Коло рецензента — без QA: рецензент подивиться весь фільм ще раз після зведення.
+    startPendingSfx(d);
+    return;
+  }
   if (pipe.videoPhase === "qa_fix") {
     const scope = pipe.dirtyScenes.filter((s) => !pipe.templateScenes.includes(s));
     if (scope.length === 0) videoDone(d);
@@ -819,14 +857,95 @@ function onQaDone(d: Draft, ev: StageDoneOk<"qa">): void {
 }
 
 function videoDone(d: Draft): void {
+  if (d.pipe.sfxMode === "designer") {
+    // Картинка готова — звукорежисер ставить звук; відеогілка закриється разом зі зведенням.
+    startSfx(d, d.pipe.changedScenes, []);
+    return;
+  }
   d.project.branches.video = "done";
   maybeJoin(d);
 }
 
-function onAudioDone(d: Draft, ev: StageDoneOk<"audio">): void {
+function startSfx(d: Draft, sceneIds: string[] | null, instructions: ReviewIssue[]): void {
+  d.pipe.sfxDone = false;
+  d.progress("sfx", t("sfxProgress"));
+  d.enqueue("sfx", { sceneIds, instructions });
+}
+
+/** sfx після зеленого check у колі рецензента: сцени й звукові зауваження, збережені на onReviewDone. */
+function startPendingSfx(d: Draft): void {
+  const pending = d.pipe.pendingSfx;
+  d.pipe.pendingSfx = null;
+  startSfx(d, pending?.sceneIds ?? d.pipe.dirtyScenes, pending?.instructions ?? []);
+}
+
+function onSfxDone(d: Draft): void {
+  d.pipe.sfxDone = true;
+  maybeMix(d);
+}
+
+/** Зведення — коли є і трек (audio{music}), і план звуку (sfx); ставить його та подія, що прийшла другою. */
+function maybeMix(d: Draft): void {
+  if (!d.pipe.musicDone || !d.pipe.sfxDone) return;
+  d.enqueue("audio", { phase: "mix" });
+}
+
+function onAudioDone(d: Draft, ev: StageDoneOk<"audio">, job: JobRecord): void {
   // Від цього хешу залежить повторне використання треку в наступних ревізіях.
   d.project.audioPlanHash = ev.outputs.planHash;
+  const phase = (job.params as StageParamsMap["audio"]).phase ?? "full";
+  if (phase === "music") {
+    d.pipe.musicDone = true;
+    maybeMix(d);
+    return;
+  }
   d.project.branches.audio = "done";
+  if (phase === "full") {
+    maybeJoin(d);
+    return;
+  }
+  // Зведення за фінальним планом SFX: обидві гілки зійшлись.
+  d.project.branches.video = "done";
+  if (d.ctx.filmReview ?? readTuning().filmReview) {
+    d.progress("review", t("reviewProgress"));
+    d.enqueue("review", { round: d.pipe.reviewRounds });
+    return;
+  }
+  maybeJoin(d);
+}
+
+/**
+ * Маршрути рецензента ставить код стадії: `fix` — сцени для правки коду, `sfx` — сцени для звукорежисера.
+ * Коло: fix → check (без QA) → sfx → mix → review; лише звук — одразу sfx → mix → review.
+ * `pass`, вичерпані кола чи порожні маршрути (усе на template-сценах, лише музика) — чекпоінт 3.
+ */
+function onReviewDone(d: Draft, ev: StageDoneOk<"review">): void {
+  const pipe = d.pipe;
+  const maxRounds = d.ctx.reviewMaxRounds ?? readTuning().reviewMaxRounds;
+  if (ev.outputs.verdict === "fix" && pipe.reviewRounds < maxRounds) {
+    const live = (s: string) => !pipe.templateScenes.includes(s);
+    const fix = uniq(ev.outputs.routes.fix).filter(live);
+    const scope = uniq([...fix, ...ev.outputs.routes.sfx]).filter(live);
+    if (scope.length > 0) {
+      pipe.reviewRounds += 1;
+      pipe.videoPhase = "review_fix";
+      pipe.dirtyScenes = scope;
+      pipe.pendingSfx = {
+        sceneIds: scope,
+        instructions: (d.ctx.reviewIssues ?? []).filter(
+          (i) => routeOf(i.kind) === "sfx" && (i.sceneId === null || scope.includes(i.sceneId)),
+        ),
+      };
+      d.project.branches = { video: "running", audio: "running" };
+      if (fix.length > 0) {
+        d.progress("fix", t("reviewFixProgress"));
+        d.enqueue("fix", { sceneIds: fix, reason: "review" });
+      } else {
+        startPendingSfx(d);
+      }
+      return;
+    }
+  }
   maybeJoin(d);
 }
 

@@ -8,13 +8,17 @@ import {
   ClaimsReport,
   type CostStage,
   computeTimeline,
+  FilmReview,
   type Format,
   groupUsd,
   type ProjectState,
   primaryFormat,
   projectPaths,
   QaReport,
+  type ReviewIssue,
+  type ReviewRoute,
   readCosts,
+  routeOf,
   type Storage,
   Storyboard,
   sumUsd,
@@ -181,6 +185,41 @@ export async function buildScriptCheckpoint(
 
 // ─────────────────────────── чекпоінт 3: розкадровка ───────────────────────────
 
+/** Скільки зауважень рецензента показати власнику (як і попереджень QA). */
+export const REVIEW_WARNINGS_LIMIT = 10;
+
+export type ReviewWarning = ReviewIssue & { route: ReviewRoute };
+
+/**
+ * Зауваження рецензента для чекпоінта 3: major/critical, без template-сцен (там уже нічого не правиться),
+ * з маршрутом коду. Музичні показуються лише тут — перегенерації музики немає.
+ */
+export function reviewWarnings(
+  review: Pick<FilmReview, "issues">,
+  templateScenes: readonly string[],
+): ReviewWarning[] {
+  const templates = new Set(templateScenes);
+  return review.issues
+    .filter((i) => i.severity !== "minor" && (i.sceneId === null || !templates.has(i.sceneId)))
+    .map((i) => ({ ...i, route: routeOf(i.kind) }));
+}
+
+/** Рядок зауваження: `- s1 → s2 [fix]: опис` (join), `- s2 [sfx]: …` (сцена), `- [music]: …` (фільм). */
+export function formatReviewWarning(w: ReviewWarning): string {
+  const where =
+    w.sceneId === null ? "" : w.nextSceneId ? `${w.sceneId} → ${w.nextSceneId} ` : `${w.sceneId} `;
+  return `- ${where}[${w.route}]: ${w.description}`;
+}
+
+/** `review.json` ревізії; зіпсований файл не ламає чекпоінт — тоді рецензії ніби не було. */
+async function readReview(storage: Storage, key: string): Promise<FilmReview | null> {
+  try {
+    return await readOptional(storage, key, (v) => FilmReview.parse(v));
+  } catch {
+    return null;
+  }
+}
+
 export async function buildStoryboardCheckpoint(
   storage: Storage,
   project: ProjectState,
@@ -228,6 +267,13 @@ export async function buildStoryboardCheckpoint(
       lines.push(`- ${w.sceneId} (${FORMAT_LABEL[w.format]}): ${w.description}`);
     }
   }
+  const review = await readReview(storage, rp.review);
+  const notes = review ? reviewWarnings(review, opts.templateScenes) : [];
+  if (notes.length > 0) {
+    lines.push("", t("reviewWarnings", { count: notes.length }));
+    for (const w of notes.slice(0, REVIEW_WARNINGS_LIMIT)) lines.push(formatReviewWarning(w));
+  }
+  if (review) lines.push("", t("reviewScore", { score: review.score, summary: review.summary }));
   if (templates.size > 0) lines.push("", t("templateScenesNote", { scenes: [...templates].join(", ") }));
 
   return [
