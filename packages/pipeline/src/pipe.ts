@@ -1,4 +1,4 @@
-import { emptyCounters, PipelineCounters, StageName } from "@adc/shared";
+import { emptyCounters, PipelineCounters, ReviewIssue, StageName } from "@adc/shared";
 import { z } from "zod";
 
 /**
@@ -41,8 +41,26 @@ export const RevisionAt = z.enum(["script", "storyboard", "delivered"]);
 export type RevisionAt = z.infer<typeof RevisionAt>;
 
 export const PipeState = PipelineCounters.extend({
-  /** build — codegen (або author) → check ↔ fix → qa; qa_fix — коло фіксів після QA. */
-  videoPhase: z.enum(["build", "qa_fix"]).default("build"),
+  /**
+   * build — codegen (або author) → check ↔ fix → qa; qa_fix — коло фіксів після QA;
+   * review_fix — коло за рецензентом: fix → check (без QA) → sfx → mix → review.
+   */
+  videoPhase: z.enum(["build", "qa_fix", "review_fix"]).default("build"),
+  /**
+   * Звук ревізії, зафіксований на старті режисури (`Tuning.sfxMode`): designer — audio{music} ∥ відео →
+   * sfx → audio{mix} → review; storyboard — audio{full} ∥ відео, як до звукорежисера. Дефолт storyboard —
+   * для pipeline.json ревізій, розпочатих до B4 (їхній audio вже поставлено без фази).
+   */
+  sfxMode: z.enum(["storyboard", "designer"]).default("storyboard"),
+  /** audio{music} завершено (трек і план готові, можна зводити). */
+  musicDone: z.boolean().default(false),
+  /** Останній sfx ревізії завершено (або впав — тоді зведення за розкадровкою). */
+  sfxDone: z.boolean().default(false),
+  /** Що отримає sfx після зеленого check у колі рецензента (сцени і звукові зауваження). */
+  pendingSfx: z
+    .object({ sceneIds: z.array(z.string()), instructions: z.array(ReviewIssue) })
+    .nullable()
+    .default(null),
   /** Сцени, змінені правкою (check/qa лише по них; чекпоінт 3 показує їх). null — усі. */
   changedScenes: z.array(z.string()).nullable().default(null),
   outstanding: z.array(JobRecord).default([]),
