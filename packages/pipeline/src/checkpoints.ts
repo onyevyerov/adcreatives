@@ -291,6 +291,7 @@ export async function buildStoryboardCheckpoint(
         templateScenes: [...templates],
         music,
         changedScenes: changed ? [...changed] : null,
+        review: review ? { score: review.score, summary: review.summary, issues: notes } : null,
       },
     },
   ];

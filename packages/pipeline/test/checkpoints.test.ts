@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  CheckpointPayload,
   type ClaimsReport,
   type FilmReview,
   LocalStorage,
@@ -166,7 +167,12 @@ describe("чекпоінт 3: зауваження рецензента", () => 
     });
     const message = events[0];
     if (message?.type !== "message") throw new Error("немає повідомлення чекпоінта 3");
-    return { text: message.text, events };
+    const checkpoint = events[1];
+    if (checkpoint?.type !== "checkpoint") throw new Error("немає події чекпоінта 3");
+    // Через схему події: payload.review має пережити ChatEvent.parse емітера.
+    const payload = CheckpointPayload.parse(checkpoint.payload);
+    if (payload.checkpoint !== "storyboard") throw new Error("не чекпоінт 3");
+    return { text: message.text, payload };
   }
 
   it("major/critical з маршрутом, без minor і template-сцен; рядок оцінки; після попереджень QA", async () => {
@@ -185,7 +191,7 @@ describe("чекпоінт 3: зауваження рецензента", () => 
       issue({ sceneId: "s1", severity: "minor", description: "дрібниця" }),
       issue({ sceneId: "s3", kind: "sfx_level", description: "на template-сцені" }),
     ]);
-    const { text } = await storyboardMessage(review, ["s3"]);
+    const { text, payload } = await storyboardMessage(review, ["s3"]);
     const lines = text.split("\n");
     const qaAt = lines.indexOf(t("qaWarnings", { count: 1 }));
     const header = lines.indexOf(t("reviewWarnings", { count: 4 }));
@@ -201,6 +207,15 @@ describe("чекпоінт 3: зауваження рецензента", () => 
     expect(text).not.toContain("на template-сцені");
     expect(lines).toContain(t("reviewScore", { score: 7, summary: review.summary }));
     expect(text).toContain(t("templateScenesNote", { scenes: "s3" }));
+    expect(payload.review?.score).toBe(7);
+    expect(payload.review?.summary).toBe(review.summary);
+    expect(payload.review?.issues.map((i) => [i.sceneId, i.route])).toEqual([
+      ["s1", "fix"],
+      ["s2", "fix"],
+      ["s2", "sfx"],
+      [null, "music"],
+    ]);
+    expect(payload.warnings).toHaveLength(1);
   });
 
   it("не більше 10 зауважень у тексті; лічильник — усі", async () => {
@@ -215,8 +230,10 @@ describe("чекпоінт 3: зауваження рецензента", () => 
     const clean = await storyboardMessage({ ...filmReview([]), verdict: "pass", score: 9 });
     expect(clean.text).not.toContain(t("reviewWarnings", { count: 0 }));
     expect(clean.text).toContain("Оцінка рецензента: 9/10");
+    expect(clean.payload.review).toEqual({ score: 9, summary: expect.any(String), issues: [] });
     for (const review of [null, "{не json"]) {
-      const { text } = await storyboardMessage(review);
+      const { text, payload } = await storyboardMessage(review);
+      expect(payload.review).toBeNull();
       expect(text).not.toContain("Оцінка рецензента");
       expect(text).not.toContain("Зауваження рецензента");
     }
