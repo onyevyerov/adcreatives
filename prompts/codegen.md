@@ -71,7 +71,7 @@ Icons are decoration, not text: `<Icon name="…">` draws any lucide icon listed
 
 # Moments: `events`
 
-Each scene's `events` are the moments the director placed: `{ id, at, what, sound, textIds }`. `at` is the frame within the scene on which the moment is visible; `what` says what happens; `textIds` are the items that appear or change at that moment; `sound` is the cue the soundtrack plays there. The soundtrack is built from the same frames, so the picture must hit exactly there: `riser` ends on the frame, `whoosh` and `swoosh` peak on it, every other cue (`impact`, `slam`, `pop`, `ding`, `tick`, `click`, `shimmer`) starts on it.
+Each scene's `events` are the moments the director placed: `{ id, at, what, sound, textIds }`. `at` is the frame within the scene on which the moment is visible; `what` says what happens; `textIds` are the items that appear or change at that moment; `sound` is the cue the soundtrack plays there. The soundtrack is built from the same frames, so the picture must hit exactly there: `riser` ends on the frame, `whoosh`, `swoosh` and `swipe` peak on it, every other cue starts on it.
 
 So every `events[].id` of a scene drives its moment through `eventFrame(props.scene, "id")`, written with the id as a string literal:
 

@@ -88,13 +88,13 @@ describe("warmSfxCache: таблиця QC", () => {
       print: (l) => lines.push(l),
     });
     // pop.2 не пройшов жодного разу: 1 + 2 повтори.
-    expect(mock.calls).toBe(30 + SFX_QC_MAX_RETRIES);
-    expect(lines).toHaveLength(1 + 30 + 1);
+    expect(mock.calls).toBe(150 + SFX_QC_MAX_RETRIES);
+    expect(lines).toHaveLength(1 + 150 + 1);
     expect(lines[0]).toMatch(/^cue\s+hash\s+стан\s+QC\s+спроб/);
     const pop2 = lines.find((l) => l.startsWith("pop.2 "));
     expect(pop2).toMatch(/згенеровано\s+✗\s+3\s+-30\s+5\s+1\s+—\s+пік -30 dBFS < -12$/);
     expect(lines.find((l) => l.startsWith("pop.1 "))).toMatch(/згенеровано\s+ok\s+1\s/);
-    expect(lines.at(-1)).toBe("QC: 30 семплів, не пройшли 1, немає в кеші 0, QC не вдався 0");
+    expect(lines.at(-1)).toBe("QC: 150 семплів, не пройшли 1, немає в кеші 0, QC не вдався 0");
     expect((await metaOf(storage, library.pop[1] as (typeof library.pop)[number])).qc).toMatchObject({
       ok: false,
       attempts: 3,
@@ -110,7 +110,7 @@ describe("warmSfxCache: таблиця QC", () => {
       cost: sharedCost(storage),
       print: (l) => lines.push(l),
     });
-    expect(mock.calls).toBe(32);
+    expect(mock.calls).toBe(152);
     expect(lines.find((l) => l.startsWith("pop.2 "))).toMatch(/у кеші\s+✗\s+3/);
   });
 
@@ -139,7 +139,7 @@ describe("recheckSfxCache", () => {
       cost: sharedCost(storage),
       qc: hookFailing(["ding.1"]),
     });
-    expect(mock.calls).toBe(32);
+    expect(mock.calls).toBe(152);
 
     // Нові пороги: тепер не проходять ding.2 і ding.3; ding.1 — проходить; QC click.1 падає.
     const hook: SfxQcHook = async (audio, cue, def, signal) => {
@@ -147,8 +147,8 @@ describe("recheckSfxCache", () => {
       return hookFailing(["ding.2", "ding.3"])(audio, cue, def, signal);
     };
     const rows = await recheckSfxCache({ storage, prompts, qc: hook });
-    expect(mock.calls).toBe(32);
-    expect(rows).toHaveLength(30);
+    expect(mock.calls).toBe(152);
+    expect(rows).toHaveLength(150);
     expect(rows.every((r) => r.status === "cached")).toBe(true);
     expect(
       rows
@@ -166,7 +166,7 @@ describe("recheckSfxCache", () => {
       attempts: 3,
     });
     expect((await metaOf(storage, ding2)).qc).toMatchObject({ ok: false, attempts: 1 });
-    expect(await readCosts(storage, null)).toHaveLength(32);
+    expect(await readCosts(storage, null)).toHaveLength(152);
   });
 
   it("немає в кеші — рядок missing; файл без метаданих отримує метадані з QC", async () => {
@@ -174,7 +174,7 @@ describe("recheckSfxCache", () => {
     const key = sharedPaths.sfxCache(sfxHash(ding2));
     await storage.write(key, "v1:ding");
     const rows = await recheckSfxCache({ storage, prompts, qc: hookFailing([]) });
-    expect(rows.filter((r) => r.status === "missing")).toHaveLength(29);
+    expect(rows.filter((r) => r.status === "missing")).toHaveLength(149);
     expect(rows.find((r) => r.label === "ding.2")).toMatchObject({ status: "cached", key, qc: { ok: true } });
     expect(await metaOf(storage, ding2)).toMatchObject({
       cue: "ding.2",
@@ -197,7 +197,7 @@ describe("regenerateFailedSfx", () => {
       cost: sharedCost(storage),
     };
     await warmSfxCache({ ...base, qc: async () => qcOf(true) });
-    expect(mock.calls).toBe(30);
+    expect(mock.calls).toBe(150);
 
     mock.version = "v2";
     const { rejected, files } = await regenerateFailedSfx({
@@ -206,7 +206,7 @@ describe("regenerateFailedSfx", () => {
       now: () => new Date("2026-10-13T10:00:00.000Z"),
     });
     expect(rejected.map((r) => r.label)).toEqual(["ding.2"]);
-    expect(mock.calls).toBe(31);
+    expect(mock.calls).toBe(151);
     expect(files.filter((f) => f.generated).map((f) => f.cue)).toEqual(["ding.2"]);
     const key = sharedPaths.sfxCache(sfxHash(ding2));
     expect((await storage.read(key)).toString()).toBe(`v2:${ding2.text}`);
@@ -224,7 +224,7 @@ describe("regenerateFailedSfx", () => {
     );
     // Після перегенерації кеш проходить QC (відбраковане з rejected/ не перевіряється).
     expect((await recheckSfxCache({ storage, prompts, qc })).filter((r) => r.qc && !r.qc.ok)).toEqual([]);
-    expect(await readCosts(storage, null)).toHaveLength(31);
+    expect(await readCosts(storage, null)).toHaveLength(151);
   });
 });
 
@@ -263,7 +263,7 @@ describe("CLI pnpm sfx-cache", () => {
       const { code, out } = await cli(["--recheck"]);
       expect(code).toBe(0);
       expect(out[0]).toMatch(/^cue\s+hash/);
-      expect(out.at(-1)).toBe("QC: 30 семплів, не пройшли 0, немає в кеші 30, QC не вдався 0");
+      expect(out.at(-1)).toBe("QC: 150 семплів, не пройшли 0, немає в кеші 150, QC не вдався 0");
     } finally {
       if (key !== undefined) process.env.ELEVENLABS_API_KEY = key;
     }

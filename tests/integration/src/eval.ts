@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  audibilityWindow,
   correlation,
   type DecodeAudio,
   decodeAudio,
@@ -34,6 +35,7 @@ import {
   type Format,
   findRepoRoot,
   groupUsd,
+  HIT_SOUND_CUES,
   type Logger,
   loadRootEnv,
   MusicMeta,
@@ -743,7 +745,7 @@ export const AUDIO_TARGETS = {
   lowBelowHz: LOW_CORRELATION_HZ,
 } as const;
 
-/** Удари impact/slam на ролик: `1 + ⌊с / 6⌋` (25 с → 5), як ліміт нормалізації (A3). */
+/** Важкі удари (impact/slam/drop) на ролик: `1 + ⌊с / 6⌋` (25 с → 5), як ліміт нормалізації (A3). */
 export const impactLimit = (seconds: number) => 1 + Math.floor(seconds / 6);
 
 const DB_FLOOR = -120;
@@ -864,9 +866,10 @@ export interface CaseStoryboard {
   events: number;
   withSound: number;
   cues: Record<string, number>;
+  /** Важкі удари (impact/slam/drop, `HIT_SOUND_CUES`) у розкадровці. */
   impactSlam: number;
   impactSlamLimit: number;
-  /** Найбільше impact/slam у будь-якому вікні 3 с. */
+  /** Найбільше важких ударів у будь-якому вікні 3 с. */
   impactSlamMaxIn3s: number;
   /** Чи є `breakdown` у структурі музики. */
   breakdown: boolean;
@@ -926,18 +929,12 @@ interface EventPoint {
   window: [number, number];
 }
 
-/** Події зі звуком у семплах; вікно чутності — як у зведенні (riser до кадру, whoosh навколо, решта після). */
+/** Події зі звуком у семплах; вікно чутності — як у зведенні (`audibilityWindow`: за якорем cue). */
 function eventPoints(storyboard: Storyboard, sr: number): EventPoint[] {
-  const w = Math.round(0.1 * sr);
   return computeEventPlacements(storyboard).flatMap((p) => {
     if (p.cue === null) return [];
     const at = Math.round((p.frame * sr) / storyboard.fps);
-    const window: [number, number] =
-      p.cue === "riser"
-        ? [at - w, at]
-        : p.cue === "whoosh" || p.cue === "swoosh"
-          ? [at - Math.floor(w / 2), at + Math.ceil(w / 2)]
-          : [at, at + w];
+    const window = audibilityWindow(p.cue, at, sr);
     return [{ sceneId: p.sceneId, eventId: p.eventId, cue: p.cue, accent: p.accent, at, window }];
   });
 }
@@ -1243,7 +1240,7 @@ export function storyboardStats(storyboard: Storyboard): CaseStoryboard {
   const cues: Record<string, number> = {};
   for (const p of placements) if (p.cue) cues[p.cue] = (cues[p.cue] ?? 0) + 1;
   const hits = placements
-    .filter((p) => p.cue === "impact" || p.cue === "slam")
+    .filter((p) => p.cue !== null && HIT_SOUND_CUES.has(p.cue))
     .map((p) => p.frame / storyboard.fps);
   let maxIn3s = 0;
   for (const t of hits) maxIn3s = Math.max(maxIn3s, hits.filter((u) => u >= t && u < t + 3).length);
@@ -1323,7 +1320,7 @@ export function caseCriteria(
     },
     {
       id: "impact_count",
-      label: `impact/slam у розкадровці ≤ ${storyboard?.impactSlamLimit ?? "1 + ⌊с/6⌋"}`,
+      label: `impact/slam/drop у розкадровці ≤ ${storyboard?.impactSlamLimit ?? "1 + ⌊с/6⌋"}`,
       value: storyboard?.impactSlam ?? null,
       ok: storyboard ? storyboard.impactSlam <= storyboard.impactSlamLimit : null,
       note: storyboard ? null : "немає розкадровки",
@@ -1451,7 +1448,7 @@ export function caseReportMarkdown(r: CaseReport): string {
     `| Токени: input / output / cache write / cache read | ${r.cost.tokens.input} / ${r.cost.tokens.output} / ${r.cost.tokens.cacheWrite} / ${r.cost.tokens.cacheRead} |`,
     `| Хвилини: настінні / машинні | ${r.time.wallMinutes} / ${r.time.machineMinutes} |`,
     `| Стадії | ${r.time.stages.map((s) => `${s.stage}×${s.runs} ${s.minutes} хв`).join(", ") || "—"} |`,
-    `| impact/slam (ліміт) | ${sb ? `${sb.impactSlam} (${sb.impactSlamLimit}), макс. у 3 с: ${sb.impactSlamMaxIn3s}` : "—"} |`,
+    `| impact/slam/drop (ліміт) | ${sb ? `${sb.impactSlam} (${sb.impactSlamLimit}), макс. у 3 с: ${sb.impactSlamMaxIn3s}` : "—"} |`,
     `| Мікс: RMS / пік / p90 100 мс | ${a.mix ? `${a.mix.rmsDb} / ${a.mix.peakDb} / ${a.mix.p90Rms100msDb} dBFS` : "—"} |`,
     `| Бочка на сітці | ${a.beat?.bpm ? `${a.beat.onsets} онсетів, ${a.beat.onsetsPerBeat}/долю, впевненість ${a.beat.confidence} при ${a.beat.bpm} BPM` : "—"} |`,
     `| Звук — джерело метрик | ${a.source ?? "—"}${a.note ? ` (${a.note})` : ""} |`,

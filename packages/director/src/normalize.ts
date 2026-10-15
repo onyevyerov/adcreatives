@@ -3,6 +3,8 @@ import {
   computeTimeline,
   FORMATS,
   type Format,
+  GRID_SOUND_CUES,
+  HIT_SOUND_CUES,
   LEGACY_ARRIVE_EVENT_ID,
   MAX_TOTAL_FRAMES,
   MIN_SCENE_FRAMES,
@@ -28,10 +30,11 @@ import {
  * - `musicBrief.structure`: перша (хук) і остання (фінал) сцени — у частині з `mix: "full"`
  *   (`enforceMusicEnds`): ролик відкривається повним треком і не закінчується провалом;
  * - `items`: trim, унікальні id, відомі factIds; `events`: унікальні id, `at` у межах сцени
- *   (пропорційно до зміни тривалості; riser — до першого кадру наступної сцени), звукові удари — на найближчу
- *   восьму, riser ближче пів долі до наступної озвученої події — рівно на неї; legacy `sfxCue` → подія "arrive";
- * - щільність ударів (`limitHits`): impact/slam ≤ `1 + floor(totalSec / 6)` на ролик і ≤ 1 у вікні 3 с,
- *   зайві → `pop`; riser далі ніж за 2 такти до події — попередження;
+ *   (пропорційно до зміни тривалості; riser — до першого кадру наступної сцени), cue з `GRID_SOUND_CUES` —
+ *   на найближчу восьму, riser ближче пів долі до наступної озвученої події — рівно на неї; legacy `sfxCue` →
+ *   подія "arrive";
+ * - щільність важких ударів (`limitHits`, `HIT_SOUND_CUES`): ≤ `1 + floor(totalSec / 6)` на ролик і ≤ 1
+ *   у вікні 3 с, зайві → `pop`; riser далі ніж за 2 такти до події — попередження;
  * - довжина текстів звіряється з `copyRules` для обраних форматів → `textIssues` (текст не
  *   переписується: це робить стадія повторним викликом моделі або людина на чекпоінті 2);
  * - `throughline` (`normalizeThroughline`): стани невідомих сцен викидаються, відсутні сцени дописуються
@@ -402,18 +405,6 @@ function normalizeEventList(scene: Scene, changes: string[]): void {
 
 const SOUND_CUES: readonly string[] = SoundCue.options;
 
-/** Звуки-удари стоять на сітці восьмих; tick/click (набір тексту, лічба) лишаються де є. */
-const GRID_CUES: ReadonlySet<SoundCueT> = new Set<SoundCueT>([
-  "impact",
-  "slam",
-  "whoosh",
-  "swoosh",
-  "riser",
-  "pop",
-  "ding",
-  "shimmer",
-]);
-
 /** Найближча до `at` восьма (глобально: `from + at`) у межах сцени; немає — `at` без змін. */
 function snapToGrid(at: number, from: number, last: number, half: number): number {
   const k = Math.round((from + at) / half);
@@ -437,8 +428,8 @@ function riserEnd(scene: Scene, last: boolean): number {
 
 /**
  * Кадри подій після таймінгів: пропорційно до зміни тривалості сцени, у межах `[0, durationFrames − 1]`
- * (riser — `[0, riserEnd]`: закінчується на першому кадрі наступної сцени), удари — на найближчу
- * восьму. Порядок — за кадром.
+ * (riser — `[0, riserEnd]`: закінчується на першому кадрі наступної сцени), cue з `GRID_SOUND_CUES` — на
+ * найближчу восьму (решта йде за анімацією). Порядок — за кадром.
  */
 function placeEvents(
   scene: Scene,
@@ -453,7 +444,8 @@ function placeEvents(
     at = clamp(at, 0, last);
     // Подія "arrive" на кадрі 0 (з legacy sfxCue) лишається на початку сцени, як звучав старий sfxCue.
     const arrive = e.id === LEGACY_ARRIVE_EVENT_ID && at === 0;
-    if (e.sound && GRID_CUES.has(e.sound.cue) && !arrive) at = snapToGrid(at, opts.from, last, opts.half);
+    if (e.sound && GRID_SOUND_CUES.has(e.sound.cue) && !arrive)
+      at = snapToGrid(at, opts.from, last, opts.half);
     if (at !== e.at) moved++;
     e.at = at;
   }
@@ -461,8 +453,6 @@ function placeEvents(
   if (moved > 0) opts.changes.push(`${scene.id}: кадри подій уточнено (${moved})`);
 }
 
-/** Важкі удари: їх мало, кожен — структурний момент ролика. */
-const HIT_CUES: ReadonlySet<SoundCueT> = new Set<SoundCueT>(["impact", "slam"]);
 /** Між двома важкими ударами — щонайменше стільки секунд. */
 export const HIT_WINDOW_SEC = 3;
 /** Секунд ролика на один важкий удар понад перший. */
@@ -472,7 +462,7 @@ const RISER_MAX_BARS = 2;
 /** Порядок пониження зайвих ударів: спершу `soft`, потім `normal`, `hard` — останніми. */
 const ACCENT_RANK = { soft: 0, normal: 1, hard: 2 } as const;
 
-/** Ліміт важких ударів (impact/slam) на ролик: `1 + floor(totalSec / 6)` (24 с → 5). */
+/** Ліміт важких ударів на ролик: `1 + floor(totalSec / 6)` (24 с → 5). */
 export function maxHits(totalSec: number): number {
   return 1 + Math.floor(totalSec / SEC_PER_HIT);
 }
@@ -516,7 +506,7 @@ function pullRisers(sb: Storyboard, half: number, changes: string[]): void {
 
 /**
  * Щільність ударів (після `placeEvents` і `pullRisers`, кадри вже остаточні):
- * - impact/slam ближче `HIT_WINDOW_SEC` до попереднього залишеного удару → `pop` (`normal`);
+ * - важкий удар (`HIT_SOUND_CUES`) ближче `HIT_WINDOW_SEC` до попереднього залишеного → `pop` (`normal`);
  * - понад `maxHits` на ролик → `pop` (`normal`), починаючи з `soft`, далі `normal`, далі `hard`,
  *   у межах рівня — за порядком у ролику;
  * - `riser` далі ніж за 2 такти до наступної озвученої події — лише попередження в `changes`.
@@ -548,7 +538,7 @@ export function limitHits(sb: Storyboard, changes: string[]): void {
   const minGap = HIT_WINDOW_SEC * sb.fps;
   const kept: Placed[] = [];
   for (const p of all) {
-    if (p.legacy || !p.event.sound || !HIT_CUES.has(p.event.sound.cue)) continue;
+    if (p.legacy || !p.event.sound || !HIT_SOUND_CUES.has(p.event.sound.cue)) continue;
     const prev = kept[kept.length - 1];
     if (prev && p.frame - prev.frame < minGap) demote(p, `ближче ${HIT_WINDOW_SEC} с до попереднього удару`);
     else kept.push(p);

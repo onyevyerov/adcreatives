@@ -54,7 +54,7 @@ export const AudioPlanDraft = z.object({
       }),
     ),
   }),
-  /** Одна тональність треку («A minor»): у неї ж зведення строїть pop/ding/shimmer. */
+  /** Одна тональність треку («A minor»): у неї ж зведення строїть тональні cue (`PITCHED_SOUND_CUES`). */
   key: z.string().nullable().default(null),
   promptFallback: z.string(),
   sfx: z.array(

@@ -1,4 +1,4 @@
-import { SoundCue } from "@adc/shared";
+import { SOUND_CUE_TRAITS, SoundCue } from "@adc/shared";
 import { z } from "zod";
 import { type DecodeAudio, decodeAudio } from "./decode.ts";
 import { gainToDb, peakOf, type StereoPcm } from "./pcm.ts";
@@ -40,17 +40,17 @@ export type SfxQcHook = (
  * семпл піднімає й шум mp3 (замір: `ding.2` −34, `shimmer.2` −28 dBFS).
  */
 export const SFX_QC_MIN_PEAK_DB = -12;
-/** Onset (поріг −24 дБ від піку огинаючої, як у `analyzeSample`) — не пізніше 50 мс від початку файлу. */
+/**
+ * Onset (поріг −24 дБ від піку огинаючої, як у `analyzeSample`) кастомного cue — не пізніше 50 мс від
+ * початку файлу; для `SoundCue` — `SOUND_CUE_TRAITS.maxOnsetMs` (riser наростає з тиші — до 400 мс).
+ */
 export const SFX_QC_MAX_ONSET_MS = 50;
-/** riser починається тихо й наростає: onset за порогом −24 дБ — до 400 мс. */
-const MAX_ONSET_MS: Partial<Record<SoundCue, number>> = { riser: 400 };
 /**
  * Кореляція L/R: удари й тональні звуки мають бути майже моно (у протифазі на телефоні зникають);
- * прольоти й наростання можуть бути широкими, але не в протифазі.
+ * прольоти й наростання (`stereo: "wide"`) можуть бути широкими, але не в протифазі.
  */
 export const SFX_QC_MIN_CORRELATION = 0.3;
 export const SFX_QC_MIN_CORRELATION_WIDE = -0.2;
-const WIDE_CUES: ReadonlySet<SoundCue> = new Set(["whoosh", "swoosh", "riser"]);
 
 /** Cue з мітки варіанта: `pop.2` → `pop`; кастомний cue (`cup-clink`) → null. */
 export function sfxQcCue(label: string): SoundCue | null {
@@ -62,7 +62,7 @@ const round = (x: number, digits: number) => Math.round(x * 10 ** digits) / 10 *
 
 /**
  * QC декодованого семпла. Кастомні cue (не `SoundCue`) — лише пік, onset і протифаза
- * (кореляція як у широких cue); тон перевіряється лише для `pop`, `ding`, `shimmer`.
+ * (кореляція як у широких cue); тон перевіряється лише для тональних (`PITCHED_CUES`).
  */
 export function checkSfxPcm(label: string, pcm: StereoPcm): SfxQc {
   const cue = sfxQcCue(label);
@@ -76,9 +76,10 @@ export function checkSfxPcm(label: string, pcm: StereoPcm): SfxQc {
 
   if (!analysis) reasons.push("семпл порожній або тихий");
   if (peakDb < SFX_QC_MIN_PEAK_DB) reasons.push(`пік ${peakDb} dBFS < ${SFX_QC_MIN_PEAK_DB}`);
-  const maxOnset = (cue && MAX_ONSET_MS[cue]) ?? SFX_QC_MAX_ONSET_MS;
+  const traits = cue ? SOUND_CUE_TRAITS[cue] : null;
+  const maxOnset = traits?.maxOnsetMs ?? SFX_QC_MAX_ONSET_MS;
   if (onsetMs !== null && onsetMs > maxOnset) reasons.push(`onset ${onsetMs} мс > ${maxOnset}`);
-  const minCorr = cue && !WIDE_CUES.has(cue) ? SFX_QC_MIN_CORRELATION : SFX_QC_MIN_CORRELATION_WIDE;
+  const minCorr = traits && traits.stereo !== "wide" ? SFX_QC_MIN_CORRELATION : SFX_QC_MIN_CORRELATION_WIDE;
   if (corr < minCorr) reasons.push(`кореляція L/R ${corr} < ${minCorr}`);
   if (analysis && cue && PITCHED_CUES.has(cue) && pitchHz === null)
     reasons.push("немає впевненої висоти тону");

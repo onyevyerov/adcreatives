@@ -50,18 +50,18 @@ const sharedCost = (storage: ReturnType<typeof tmpStorage>) =>
   });
 
 describe("standard SFX cache", () => {
-  it("warms all 30 library variants once into cache/sfx/<hash>.mp3 with shared costs; second run is free", async () => {
+  it("warms all 150 library variants once into cache/sfx/<hash>.mp3 with shared costs; second run is free", async () => {
     const storage = tmpStorage();
     const client = mockElevenLabs();
     const opts = { storage, prompts, client: () => client, gate: instantGate(), cost: sharedCost(storage) };
     const first = await warmSfxCache(opts);
-    expect(first.filter((f) => f.generated)).toHaveLength(30);
-    expect(client.calls).toHaveLength(30);
+    expect(first.filter((f) => f.generated)).toHaveLength(150);
+    expect(client.calls).toHaveLength(150);
     for (const call of client.calls) {
       expect(call.request).toMatchObject({ promptInfluence: 0.6, modelId: "eleven_text_to_sound_v2" });
     }
     expect(new Set(first.map((f) => f.cue))).toEqual(
-      new Set(SoundCue.options.flatMap((c) => [1, 2, 3].map((n) => `${c}.${n}`))),
+      new Set(SoundCue.options.flatMap((c) => [1, 2, 3, 4, 5].map((n) => `${c}.${n}`))),
     );
     // Legacy-cue — варіант 1 бібліотеки: той самий файл.
     const whoosh = sharedPaths.sfxCache(sfxHash(library.whoosh));
@@ -72,7 +72,7 @@ describe("standard SFX cache", () => {
       expect(await storage.exists(sharedPaths.sfxCache(sfxHash(def)))).toBe(true);
 
     const costs = await readCosts(storage, null);
-    expect(costs).toHaveLength(30);
+    expect(costs).toHaveLength(150);
     expect(
       costs.every((c) => c.provider === "elevenlabs" && c.stage === "sfx-cache" && c.projectId === null),
     ).toBe(true);
@@ -82,7 +82,7 @@ describe("standard SFX cache", () => {
 
     const second = await warmSfxCache(opts);
     expect(second.every((f) => !f.generated)).toBe(true);
-    expect(client.calls).toHaveLength(30);
+    expect(client.calls).toHaveLength(150);
   });
 
   it("the CLI refuses paid calls without LIVE=1", async () => {
@@ -167,7 +167,7 @@ describe("QC семплів SFX", () => {
       cost: sharedCost(storage),
       qc: reasonsHook,
     });
-    expect(client.calls).toHaveLength(30);
+    expect(client.calls).toHaveLength(150);
     const meta = await storage.readJson(sharedPaths.sfxCacheMeta(sfxHash(library.pop)), (v) =>
       SfxCacheMeta.parse(v),
     );
