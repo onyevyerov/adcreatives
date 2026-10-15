@@ -675,3 +675,46 @@ describe("вирівнювання музики на такт у зведенн�
     expect(tail).toBeGreaterThan(rmsOf(slice(0, n)) * 0.5);
   });
 });
+
+describe("поля для звукової відомості", () => {
+  const sb = storyboard({ events: ALL_EVENTS });
+
+  it("gainDb/peakDb/beatIndex/ducked у sounds[]: пік = gain + підсилення мастера, доля — найближча на сітці 120 BPM", () => {
+    const out = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor", samples: LIB });
+    expect(out.beatGrid).toEqual({ periodSec: 0.5, onBar: expect.any(Boolean) });
+    expect(out.sounds.length).toBeGreaterThan(0);
+    for (const s of out.sounds) {
+      expect(s.gainDb).toBeCloseTo(gainToDb(s.gain), 9);
+      expect(s.peakDb).toBeCloseTo(s.gainDb + out.master.gainDb, 9);
+      expect(s.beatIndex).toBe(Math.round(s.at / SAMPLE_RATE / 0.5));
+      const traits = SOUND_CUE_TRAITS[s.cue];
+      expect(s.ducked).toBe(traits.hit || traits.anchor === "end");
+    }
+    // Кадр 20 ≈ 0.67 с → найближча доля 1 (0.5 с).
+    const tick = out.sounds.find((s) => s.eventId === "tick-a");
+    expect(tick?.beatIndex).toBe(1);
+    expect(out.sounds.find((s) => s.cue === "slam")?.ducked).toBe(true);
+    expect(out.sounds.find((s) => s.cue === "pop")?.ducked).toBe(false);
+  });
+
+  it("silent[]: семпл кадру і доля; без музики сітки немає — beatIndex null", () => {
+    const { impact: _drop, ...noImpact } = LIB;
+    const sb2 = only({ s1: [ev("hit", 30, "impact"), ev("p", 60, "pop")] });
+    const out = renderSoundtrack({ music: music(), storyboard: sb2, key: null, samples: noImpact });
+    expect(out.silent).toEqual([
+      expect.objectContaining({ eventId: "hit", cue: "impact", at: f2s(30), beatIndex: 2 }),
+    ]);
+    const bare = renderSoundtrack({ music: null, storyboard: sb2, key: null, samples: noImpact });
+    expect(bare.beatGrid).toBeNull();
+    expect(bare.silent[0]?.beatIndex).toBeNull();
+    expect(bare.sounds.every((s) => s.beatIndex === null)).toBe(true);
+  });
+
+  it("нові поля не змінюють зведення: MIX_VERSION = 4, WAV побайтно той самий між прогонами", () => {
+    expect(MIX_VERSION).toBe(4);
+    const a = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor", samples: LIB });
+    const b = renderSoundtrack({ music: music(), storyboard: sb, key: "A minor", samples: LIB });
+    expect(a.wav.equals(b.wav)).toBe(true);
+    expect(a.sounds).toEqual(b.sounds);
+  });
+});

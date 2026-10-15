@@ -11,7 +11,14 @@ import {
   type Storyboard,
 } from "@adc/shared";
 import { applyMixAutomation, duckMusic, type MusicDuck, mixSections } from "./automation.ts";
-import { alignToBeatGrid, type BeatAlignment, beatShiftSamples, shiftPcm } from "./beat.ts";
+import { MIN_BAR_CONFIDENCE } from "./bars.ts";
+import {
+  alignToBeatGrid,
+  type BeatAlignment,
+  beatShiftSamples,
+  MIN_BEAT_CONFIDENCE,
+  shiftPcm,
+} from "./beat.ts";
 import { EVENT_BUS_EQ, eqChannel } from "./eq.ts";
 import { FALLBACK_KEY, parseKey } from "./key.ts";
 import { masterize } from "./master.ts";
@@ -20,6 +27,7 @@ import {
   dbToGain,
   fitLength,
   frameToSample,
+  gainToDb,
   pcmLength,
   rmsOf,
   SAMPLE_RATE,
@@ -90,6 +98,38 @@ export interface PlacedSound {
   window: [number, number];
   /** Пікова гучність звуку (лінійна, до мастера). */
   gain: number;
+  /** `gain` у dBFS (до мастера). */
+  gainDb: number;
+  /** Пік звуку в міксі після підсилення мастера (до лімітера; > 0 — лімітер його притискає), dBFS. */
+  peakDb: number;
+  /** Найближча доля сітки зведення до кадру події (`nearestBeatIndex`); null — доля не визначена. */
+  beatIndex: number | null;
+  /** Подія вмикає дакінг музики (важкий удар або riser). */
+  ducked: boolean;
+}
+
+/** Подія зі звуком, для cue якої в бібліотеці немає семпла (звучить тишею). */
+export type SilentPlacement = EventPlacement & {
+  cue: SoundCue;
+  /** Семпл кадру події в треку. */
+  at: number;
+  beatIndex: number | null;
+};
+
+/**
+ * Сітка долей зведення: після вирівнювання (`alignToBeatGrid`) доля k лежить на k·periodSec від
+ * кадру 0. Без музики або без певної долі сітки немає.
+ */
+export interface BeatGrid {
+  periodSec: number;
+  /** Трек зсунуто по такту: на кадр 0 ліг downbeat, долі з k % 4 = 0 — сильні. */
+  onBar: boolean;
+}
+
+/** Найближча доля сітки до семпла `at` (не раніше долі 0); null — сітки немає. */
+export function nearestBeatIndex(at: number, grid: BeatGrid | null, sampleRate = SAMPLE_RATE): number | null {
+  if (!grid || !(grid.periodSec > 0)) return null;
+  return Math.max(0, Math.round(at / sampleRate / grid.periodSec));
 }
 
 export interface SoundtrackInput {
@@ -114,9 +154,11 @@ export interface Soundtrack {
   /** Мастер: підсилення суми до −14 LUFS, дБ; інтегральна гучність (LUFS) і true peak (dBTP) результату. */
   master: { gainDb: number; integratedLufs: number; truePeakDbtp: number };
   alignment: BeatAlignment | null;
+  /** Сітка долей, за якою рахуються `beatIndex`; null — без музики або без певної долі. */
+  beatGrid: BeatGrid | null;
   sounds: PlacedSound[];
   /** Події зі звуком, для cue яких у бібліотеці немає семпла (звучать тишею). */
-  silent: EventPlacement[];
+  silent: SilentPlacement[];
 }
 
 /**
@@ -189,10 +231,14 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
   // 1. Музика: долі на сітку → довжина відео → RMS −14 dBFS (до подій) → ширина стерео →
   // автоматизація частин і короткий fade закінчення (`ENDING_FADE_SEC`).
   let alignment: BeatAlignment | null = null;
+  let beatGrid: BeatGrid | null = null;
   let music = createStereo(total, sr);
   let masterGain = 1;
   if (input.music && pcmLength(input.music) > 0) {
     let aligned = alignToBeatGrid(input.music, bpm, fps);
+    // Певна доля → трек зсунуто на сітку; фаза такту оцінюється лише тоді, і з певним тактом зсув — по такту.
+    const a0 = aligned.alignment;
+    let onBar = a0.barConfidence !== null && a0.barConfidence >= MIN_BAR_CONFIDENCE;
     // Зсув на downbeat зрізає до такту з початку; якщо трек через це коротший за відео (старий
     // `music.wav` із запасом 1 с), лишається фаза долі — тиша в кінці гірша за старт не з такту.
     if (pcmLength(aligned.pcm) < total && aligned.alignment.shiftSamples > 0) {
@@ -200,9 +246,11 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
       const beatShift = beatShiftSamples(a.offsetSec, a.periodSec, sr);
       if (beatShift < a.shiftSamples) {
         aligned = { pcm: shiftPcm(input.music, beatShift), alignment: { ...a, shiftSamples: beatShift } };
+        onBar = false;
       }
     }
     alignment = aligned.alignment;
+    if (alignment.confidence >= MIN_BEAT_CONFIDENCE) beatGrid = { periodSec: alignment.periodSec, onBar };
     const fitted = fitLength(aligned.pcm, total);
     const rms = rmsOf(fitted);
     masterGain = rms > 0 ? Math.min(dbToGain(MASTER_MAX_GAIN_DB), dbToGain(MASTER_RMS_DBFS) / rms) : 1;
@@ -224,7 +272,12 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
   const withCue = computeEventPlacements(storyboard).filter(
     (p): p is EventPlacement & { cue: SoundCue } => p.cue !== null,
   );
-  const silent = withCue.filter((p) => !library.has(p.cue));
+  const silent: SilentPlacement[] = withCue
+    .filter((p) => !library.has(p.cue))
+    .map((p) => {
+      const at = frameToSample(p.frame, fps, sr);
+      return { ...p, at, beatIndex: nearestBeatIndex(at, beatGrid, sr) };
+    });
   const placements = withCue.filter((p) => library.has(p.cue));
   const degrees = scaleDegrees(placements);
   const chosen = chooseVariants(placements, library);
@@ -237,7 +290,7 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
     key,
   );
   const rendered = new Map<string, PreparedSound>();
-  const sounds: PlacedSound[] = [];
+  const sounds: Array<Omit<PlacedSound, "peakDb">> = [];
   for (const [idx, p] of placements.entries()) {
     const degree = degrees.get(p) ?? null;
     const entry = chosen[idx] as PreparedEntry;
@@ -284,15 +337,18 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
       start,
       window,
       gain,
+      gainDb: gainToDb(gain),
+      beatIndex: nearestBeatIndex(at, beatGrid, sr),
+      ducked: SOUND_CUE_TRAITS[p.cue].hit || SOUND_CUE_TRAITS[p.cue].anchor === "end",
     });
   }
 
   // 3. Музичний дакінг: HPF на музиці — на долю після важкого удару і відкриття до кадру riser.
   const ducks: MusicDuck[] = [];
   for (const s of sounds) {
-    const traits = SOUND_CUE_TRAITS[s.cue];
-    if (traits.hit) ducks.push({ kind: "beat", at: s.at });
-    else if (traits.anchor === "end") ducks.push({ kind: "riser", from: Math.max(0, s.start), at: s.at });
+    if (!s.ducked) continue;
+    if (SOUND_CUE_TRAITS[s.cue].hit) ducks.push({ kind: "beat", at: s.at });
+    else ducks.push({ kind: "riser", from: Math.max(0, s.start), at: s.at });
   }
   if (musicRms > 0) {
     music = duckMusic(music, ducks, { beatSamples: frameToSample(beatFrames(bpm, fps), fps, sr) });
@@ -328,7 +384,8 @@ export function renderSoundtrack(input: SoundtrackInput): Soundtrack {
       truePeakDbtp: master.truePeakDbtp,
     },
     alignment,
-    sounds,
+    beatGrid,
+    sounds: sounds.map((s) => ({ ...s, peakDb: s.gainDb + master.gainDb })),
     silent,
   };
 }

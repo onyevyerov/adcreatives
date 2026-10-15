@@ -8,7 +8,8 @@ import {
   noopLogger,
   projectPaths,
   readCosts,
-  type SoundCue,
+  SoundCue,
+  SoundSheet,
   type Storyboard,
   sharedPaths,
 } from "@adc/shared";
@@ -19,7 +20,7 @@ import type { DecodeAudio } from "../src/decode.ts";
 import { computeAudioPlacements } from "../src/manifest.ts";
 import { loadSfxLibrary, loadStandardCues, sfxHash } from "../src/sfx.ts";
 import type { SfxQcHook } from "../src/sfxQc.ts";
-import { canReuseMusic, createAudioStage } from "../src/stage.ts";
+import { canReuseMusic, createAudioStage, MixMasterMeta, mixMasterMetaKey } from "../src/stage.ts";
 import { decodeWav } from "../src/wav.ts";
 import { fakeSample } from "./fakeSfx.ts";
 import {
@@ -569,5 +570,181 @@ describe("computeAudioPlacements", () => {
         durationInFrames: 45,
       }),
     ]);
+  });
+});
+
+describe("audioStage: фази music і mix (звукорежисер)", () => {
+  /** План звукорежисера для фікстури: price-hit мовчить (або `hit`), badge-in звучить ding. */
+  const sfxPlan = (hit: { cue: SoundCue; accent: "soft" | "normal" | "hard" } | null = null) => ({
+    version: 1,
+    inputsHash: "test",
+    sceneIds: ["s2"],
+    notes: "",
+    decisions: [
+      { sceneId: "s2", eventId: "price-hit", sound: hit, reason: "" },
+      { sceneId: "s2", eventId: "badge-in", sound: { cue: "ding", accent: "normal" }, reason: "" },
+    ],
+  });
+  const rev = projectPaths(PROJECT_ID).rev(1);
+  const withPhase = (ctx: ReturnType<typeof makeCtx>, phase: "music" | "mix" | "full") =>
+    Object.assign(ctx, { params: { phase } });
+  const readSheet = async (storage: ReturnType<typeof tmpStorage>) =>
+    storage.readJson(rev.soundSheet, (v) => SoundSheet.parse(v));
+  const mixFiles = async (storage: ReturnType<typeof tmpStorage>, planHash: string) =>
+    (await storage.list(`${projectPaths(PROJECT_ID).audioDir}/${planHash}`)).filter((k) =>
+      /mix-[0-9a-f]+\.wav$/.test(k),
+    );
+
+  it("music: план, трек і прогрів усієї бібліотеки, без зведення; повтор без ключа ElevenLabs при повному кеші не падає", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    await warmCache(storage, SoundCue.options);
+    const client = mockElevenLabs();
+    const decode = fakeDecoder();
+    const { run } = stage(client, storage, decode);
+    const res = await run(
+      withPhase(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]), "music"),
+    );
+    expect(res.outputs).toEqual({
+      planHash: expect.stringMatching(/^[0-9a-f]{16}$/),
+      reusedMusic: false,
+      mixed: false,
+    });
+    // Лише трек: усі 30 cue × 5 варіантів — із кешу; семпли не декодуються (зведення немає).
+    expect(client.calls.map((c) => c.method)).toEqual(["compose"]);
+    expect(decode.sfxCalls()).toHaveLength(0);
+    const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
+    expect(manifest.mix).toBeNull();
+    expect(manifest.music).toMatchObject({ src: "music.wav", planHash: res.outputs.planHash });
+    expect(await storage.exists(rev.publicFile("soundtrack.wav"))).toBe(false);
+    expect(await storage.exists(rev.soundSheet)).toBe(false);
+    expect(res.artifacts).toEqual(expect.arrayContaining([rev.audioPlan, rev.audio]));
+
+    // Повтор фази без ключа: план — з ревізії, трек — з кешу за хешем плану, семпли — зі спільного кешу.
+    const noKey = createAudioStage({
+      client: () => {
+        throw new Error("ELEVENLABS_API_KEY не задано");
+      },
+      gate: instantGate(),
+      decode,
+      qc: async () => ({ ...PASSING_QC }),
+    });
+    const again = await noKey(withPhase(makeCtx(storage, []), "music"));
+    expect(again.outputs).toEqual(res.outputs);
+  });
+
+  it("mix без фази music → audio_inputs_missing (не повторюється)", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    const { run } = stage(mockElevenLabs(), storage);
+    await expect(run(withPhase(makeCtx(storage, []), "mix"))).rejects.toMatchObject({
+      name: "StageError",
+      code: "audio_inputs_missing",
+      retryable: false,
+    });
+  });
+
+  it("music → mix: план SFX накладено, зведення і відомість; новий план — нове зведення, старе лишається в кеші", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    await warmCache(storage, SoundCue.options);
+    const client = mockElevenLabs();
+    const decode = fakeDecoder();
+    const { run } = stage(client, storage, decode);
+    const music = await run(
+      withPhase(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]), "music"),
+    );
+    const musicManifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
+
+    await storage.writeJson(rev.sfxPlan, sfxPlan());
+    const ctx = withPhase(makeCtx(storage, []), "mix");
+    const mixed = await run(ctx);
+    expect(mixed.outputs).toEqual({ planHash: music.outputs.planHash, reusedMusic: false, mixed: true });
+    expect(ctx.anthropic.calls).toHaveLength(0);
+    expect(client.calls.map((c) => c.method)).toEqual(["compose"]);
+    expect(mixed.artifacts).toEqual(
+      expect.arrayContaining([rev.audio, rev.soundSheet, rev.publicFile("soundtrack.wav")]),
+    );
+    const manifest = await storage.readJson(rev.audio, (v) => AudioManifest.parse(v));
+    expect(manifest).toEqual({
+      ...musicManifest,
+      mix: { src: "soundtrack.wav", durationMs: 15_000, ...MASTER_METRICS },
+    });
+    // Декодуються лише варіанти cue ефективної розкадровки: impact вимкнено, ding додано.
+    expect(new Set(decode.sfxCalls().map((c) => c.split(".")[0]))).toEqual(
+      new Set(["whoosh", "pop", "shimmer", "ding"]),
+    );
+
+    const sheet = await readSheet(storage);
+    expect(sheet.events.map((e) => `${e.sceneId}/${e.eventId}:${e.cue}:${e.silent}`)).toEqual([
+      "s1/arrive:whoosh:none",
+      "s2/arrive:pop:none",
+      "s2/price-hit:impact:muted",
+      "s2/badge-in:ding:none",
+      "s3/arrive:shimmer:none",
+    ]);
+    expect(sheet).toMatchObject({ version: 1, fps: 30, bpm: 85, totalFrames: 450 });
+    expect(sheet.integratedLufs).toBe(manifest.mix?.integratedLufs);
+    const firstSheet = await storage.read(rev.soundSheet);
+    const firstMix = await storage.read(rev.publicFile("soundtrack.wav"));
+
+    // Повтор mix з тим самим планом: зведення з кешу, відомість — побайтно та сама.
+    const musicDecodes = decode.musicCalls();
+    await run(withPhase(makeCtx(storage, []), "mix"));
+    expect(decode.musicCalls()).toBe(musicDecodes);
+    expect((await storage.read(rev.soundSheet)).equals(firstSheet)).toBe(true);
+    expect((await storage.read(rev.publicFile("soundtrack.wav"))).equals(firstMix)).toBe(true);
+
+    // Новий план у тій самій ревізії: новий хеш і нове зведення; старий файл лишається в кеші.
+    await storage.writeJson(rev.sfxPlan, sfxPlan({ cue: "slam", accent: "hard" }));
+    await run(withPhase(makeCtx(storage, []), "mix"));
+    expect((await storage.read(rev.publicFile("soundtrack.wav"))).equals(firstMix)).toBe(false);
+    expect(await mixFiles(storage, music.outputs.planHash)).toHaveLength(2);
+    expect((await readSheet(storage)).events.find((e) => e.eventId === "price-hit")).toMatchObject({
+      cue: "slam",
+      accent: "hard",
+      silent: "none",
+      ducked: true,
+    });
+  });
+
+  it("full (без phase): як раніше, плюс план SFX і відомість", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    await warmCache(storage, [...FIXTURE_EVENT_CUES, "ding"]);
+    await storage.writeJson(rev.sfxPlan, sfxPlan());
+    const { run } = stage(mockElevenLabs(), storage);
+    const res = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
+    expect(res.outputs.mixed).toBe(true);
+    expect(res.artifacts).toContain(rev.soundSheet);
+    const sheet = await readSheet(storage);
+    expect(sheet.events.find((e) => e.eventId === "price-hit")?.silent).toBe("muted");
+    expect(sheet.events.find((e) => e.eventId === "badge-in")).toMatchObject({ cue: "ding", silent: "none" });
+  });
+
+  it("старий кеш зведення без фактів відомості → зводиться заново тим самим WAV, відомість з'являється", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage);
+    const decode = fakeDecoder();
+    const { run } = stage(mockElevenLabs(), storage, decode);
+    const res = await run(makeCtx(storage, [{ json: draftFor(computeChunkLayout(fixtureStoryboard)) }]));
+    const [wavKey] = await mixFiles(storage, res.outputs.planHash);
+    if (!wavKey) throw new Error("немає зведення в кеші");
+    const metaKey = mixMasterMetaKey(wavKey);
+    const meta = await storage.readJson(metaKey, (v) => MixMasterMeta.parse(v));
+    expect(meta.facts).not.toBeNull();
+    const wav = await storage.read(wavKey);
+    const sheet = await storage.read(rev.soundSheet);
+    // Як писав код до відомості: лише заміри мастера.
+    const { facts: _facts, ...legacy } = meta;
+    await storage.writeJson(metaKey, legacy);
+    expect(MixMasterMeta.parse(legacy).facts).toBeNull();
+
+    const musicDecodes = decode.musicCalls();
+    await run(makeCtx(storage, []));
+    expect(decode.musicCalls()).toBe(musicDecodes + 1);
+    expect((await storage.read(wavKey)).equals(wav)).toBe(true);
+    expect((await storage.read(rev.soundSheet)).equals(sheet)).toBe(true);
+    expect((await storage.readJson(metaKey, (v) => MixMasterMeta.parse(v))).facts).toEqual(meta.facts);
   });
 });
