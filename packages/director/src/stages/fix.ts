@@ -119,7 +119,7 @@ export async function readonlyScenesFor(args: {
 /** Опис проблем сцени для промпта: помилки check (guard, типи, runtime) або зауваження QA + autoIssues. */
 export function describeProblems(args: {
   sceneId: string;
-  reason: "check" | "qa";
+  reason: "check" | "qa" | "review";
   check: CheckReport | null;
   qa: QaReport | null;
   guardViolations: readonly string[];

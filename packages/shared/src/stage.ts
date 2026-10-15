@@ -29,7 +29,7 @@ export interface StageParamsMap {
   /** Агентний режим: ті самі sceneIds/instructions, що й codegen. */
   author: { sceneIds: string[] | null; instructions: Array<{ sceneId: string; instruction: string }> };
   check: { sceneIds: string[] | null };
-  fix: { sceneIds: string[]; reason: "check" | "qa" };
+  fix: { sceneIds: string[]; reason: "check" | "qa" | "review" };
   qa: { sceneIds: string[] | null };
   revise: { text: string; at: "script" | "storyboard" | "delivered" };
   /** sceneIds = null — усі сцени; instructions — з review (маршрут sfx). */
