@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "fps": 30,
+  "bpm": 120,
+  "totalFrames": 450,
+  "beatShiftMs": 12,
+  "beatConfidence": 0.82,
+  "barOffsetMs": 40,
+  "sceneStarts": [
+    { "sceneId": "s1", "frame": 0, "beatOffsetMs": 0, "onBar": true },
+    { "sceneId": "s2", "frame": 135, "beatOffsetMs": 0, "onBar": false },
+    { "sceneId": "s3", "frame": 285, "beatOffsetMs": -250, "onBar": false }
+  ],
+  "sections": [
+    { "sceneId": "s1", "mix": "full", "fromFrame": 0, "toFrame": 135 },
+    { "sceneId": "s2", "mix": "breakdown", "fromFrame": 135, "toFrame": 285 },
+    { "sceneId": "s3", "mix": "breakdown", "fromFrame": 285, "toFrame": 450 }
+  ],
+  "events": [
+    {
+      "sceneId": "s1",
+      "eventId": "logo-in",
+      "cue": "pop",
+      "accent": "normal",
+      "frame": 15,
+      "ms": 500,
+      "beatIndex": 1,
+      "beatOffsetMs": 0,
+      "peakDb": -14.2,
+      "ducked": false,
+      "silent": "none"
+    },
+    {
+      "sceneId": "s1",
+      "eventId": "cup-land",
+      "cue": "impact",
+      "accent": "hard",
+      "frame": 90,
+      "ms": 3000,
+      "beatIndex": 6,
+      "beatOffsetMs": 0,
+      "peakDb": -6.1,
+      "ducked": true,
+      "silent": "none"
+    },
+    {
+      "sceneId": "s2",
+      "eventId": "price-hit",
+      "cue": "impact",
+      "accent": "hard",
+      "frame": 165,
+      "ms": 5500,
+      "beatIndex": 12,
+      "beatOffsetMs": 0,
+      "peakDb": -5.8,
+      "ducked": true,
+      "silent": "none"
+    },
+    {
+      "sceneId": "s2",
+      "eventId": "coins",
+      "cue": "cash",
+      "accent": "normal",
+      "frame": 240,
+      "ms": 8000,
+      "beatIndex": 17,
+      "beatOffsetMs": 0,
+      "peakDb": null,
+      "ducked": false,
+      "silent": "muted"
+    },
+    {
+      "sceneId": "s3",
+      "eventId": "cta-in",
+      "cue": "slam",
+      "accent": "hard",
+      "frame": 315,
+      "ms": 10500,
+      "beatIndex": 23,
+      "beatOffsetMs": 0,
+      "peakDb": -34.5,
+      "ducked": false,
+      "silent": "none"
+    }
+  ],
+  "rmsPerSecondDb": [-18, -17, -17, -16, -24, -25, -25, -24, -24, -25, -24, -23, -24, -24, -22],
+  "integratedLufs": -14.1,
+  "truePeakDbtp": -1.2
+}
