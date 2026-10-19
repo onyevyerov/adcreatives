@@ -150,6 +150,27 @@ storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx
 Бюджет (оцінка за токенами, не замір): `sfx` ≈ $0.5–1 на ролик, `review` ≈ $1.5–3 на коло — разом +$2–4 і
 +3–6 хв на ролик при одному колі. Фактичні цифри — `costs.jsonl` зі `stage: sfx | review`.
 
+### Провайдер музики і SFX (тест Epidemic Sound)
+
+Прототип для порівняння на слух ([ТЗ](docs/superpowers/specs/2026-10-19-epidemic-sound-test-tz.md)). Epidemic
+не генерує: стадія `audio` шукає готовий трек чи семпл у каталозі, підганяє трек під тривалість
+(`tracks/versions`, бета) і завантажує. Перевірки ті самі (`checkTrack`, `sfxQc`), мікшер не змінюється.
+
+| Змінна | Дефолт | Що робить |
+|---|---|---|
+| `ADC_MUSIC_PROVIDER` | `elevenlabs` | `epidemic` — трек із каталогу Epidemic Sound (пошук за брифом + темп, вибір LLM) |
+| `ADC_SFX_PROVIDER` | `elevenlabs` | `epidemic` — семпли з каталогу; завантажуються лише варіанти, що реально звучать |
+| `EPIDEMIC_API_KEY` | — | ключ Partner API (`epidemic_live_…`); потрібен, лише якщо будь-який провайдер `epidemic` |
+| `ADC_EPIDEMIC_DIR` | `<корінь checkout>/.data/epidemic` | лічильник завантажень `downloads.json` і постійний кеш треків/семплів |
+
+Провайдери фіксуються на старті ревізії (як `ADC_SFX_MODE`). **Квота:** безкоштовний тариф — 50 завантажень
+(без комерційної ліцензії, ролики нікуди не публікуються). Локальний лічильник рахує `version`,
+`version_fetch`, `track`, `sfx` і зупиняє прогін на 45 (`epidemic_quota`, без повторів). Лічильник живе в
+`ADC_EPIDEMIC_DIR`, а не в `DATA_DIR`: на час тесту задайте абсолютний шлях у кореневому `.env`, щоб усі
+прогони з будь-якого checkout ділили один лічильник і кеш. Без ключа й без нових env усе — як раніше.
+Перевірка зв'язку без завантажень: `LIVE=1 pnpm --filter @adc/audio live:epidemic`. Як прогнати тест —
+[eval/README.md](eval/README.md#тест-epidemic-sound).
+
 ## Відхилення від тексту ТЗ (технічні, свідомі)
 
 - **`jobId`**: `<projectId>.<stage>.r<rev>.a<attempt>` замість `<projectId>:<stage>:<rev>:<attempt>` —
@@ -214,6 +235,7 @@ pnpm eval                                        # → eval/runs/<дата-ча�
 pnpm eval --from codegen --run 2026-10-06-1530   # перезапуск етапу і всього після нього на збережених даних
 pnpm eval --from qa --run 2026-10-06-1530 --only # лише один етап
 ADC_SFX_MODE=storyboard ADC_FILM_REVIEW=off pnpm eval   # той самий список у старому режимі звуку — для порівняння
+ADC_MUSIC_PROVIDER=epidemic ADC_FILM_REVIEW=off pnpm eval --sites eval/sites.epidemic.json   # тест Epidemic Sound
 ```
 
 Порожній список — повідомлення «список порожній» без помилки. Звіт: вартість і час на сайт (настінний
