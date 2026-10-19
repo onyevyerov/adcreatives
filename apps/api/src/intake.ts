@@ -1,4 +1,12 @@
-import { IntakeFile, PROJECTS_DIR, ProjectState, projectPaths, type Storage } from "@adc/shared";
+import {
+  IntakeFile,
+  PROJECTS_DIR,
+  ProjectState,
+  type PublicUser,
+  projectPaths,
+  type Storage,
+} from "@adc/shared";
+import { z } from "zod";
 
 export { IntakeFile } from "@adc/shared";
 
@@ -41,4 +49,28 @@ export async function projectExists(storage: Storage, projectId: string): Promis
 
 export async function listProjectIds(storage: Storage): Promise<string[]> {
   return (await storage.listDirs(PROJECTS_DIR)).filter(isProjectId);
+}
+
+const OwnerOnly = z.object({ ownerId: z.string().optional() });
+
+/**
+ * Власник проєкту: `ownerId` з `project.json`, якщо його там немає — з `intake.json`.
+ * Жодного файлу (або `ownerId` немає в обох) → null. Читає лише поле `ownerId`, тож
+ * неповний чи старий файл не «губить» власника.
+ */
+export async function projectOwner(storage: Storage, projectId: string): Promise<string | null> {
+  if (!isProjectId(projectId)) return null;
+  for (const key of [projectPaths(projectId).project, intakeKey(projectId)]) {
+    const owner = await readOptionalJson(storage, key, (v) => OwnerOnly.parse(v));
+    if (owner?.ownerId) return owner.ownerId;
+  }
+  return null;
+}
+
+/** Хто бачить проєкт: admin — усе; користувач — лише проєкти зі своїм `ownerId` (безхазяйні — ні). */
+export function canSee(
+  user: Pick<PublicUser, "id" | "isAdmin">,
+  ownerId: string | null | undefined,
+): boolean {
+  return user.isAdmin || (ownerId !== undefined && ownerId !== null && ownerId === user.id);
 }

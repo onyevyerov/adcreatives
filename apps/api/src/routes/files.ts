@@ -2,8 +2,10 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { PROJECTS_DIR, type PublicUser, type Storage } from "@adc/shared";
 import type { Context } from "hono";
 import type { ApiDeps } from "../deps.ts";
+import { canSee, isProjectId, projectOwner } from "../intake.ts";
 import type { AppEnv } from "../session.ts";
 
 export const FILES_PREFIX = "/files/";
@@ -86,7 +88,18 @@ const SECURITY_HEADERS = {
     "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
 };
 
-/** `GET /files/*` — файли лише всередині DATA_DIR. */
+/**
+ * Чи може користувач читати ключ сховища: `projects/<id>/…` — власник проєкту або admin;
+ * будь-що інше (`cache/…`, `costs*.jsonl`, `users/…`, `outbox/…`) — лише admin.
+ */
+export async function canReadKey(storage: Storage, user: PublicUser, key: string): Promise<boolean> {
+  if (user.isAdmin) return true;
+  const [top, id] = key.split("/");
+  if (top !== PROJECTS_DIR || !id || !isProjectId(id)) return false;
+  return canSee(user, await projectOwner(storage, id));
+}
+
+/** `GET /files/*` — файли лише всередині DATA_DIR і лише ті, до яких має доступ користувач сесії. */
 export function filesHandler(deps: ApiDeps) {
   return async (c: Context<AppEnv>) => {
     const pathname = new URL(c.req.url).pathname;
@@ -98,6 +111,10 @@ export function filesHandler(deps: ApiDeps) {
     } catch {
       return c.text("Недопустимий шлях", 400);
     }
+    const user = c.get("user");
+    if (!user) return c.text("Потрібно увійти.", 401);
+    // Чужий і неіснуючий файл — однакова 404, без витоку існування.
+    if (!(await canReadKey(deps.storage, user, key))) return c.text("Файл не знайдено", 404);
     const info = await stat(abs).catch(() => null);
     if (!info?.isFile()) return c.text("Файл не знайдено", 404);
 

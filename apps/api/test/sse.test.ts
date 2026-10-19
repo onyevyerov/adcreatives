@@ -1,13 +1,13 @@
 import { createEmitter, eventsKey } from "@adc/shared";
 import { describe, expect, it } from "vitest";
 import { intakeKey } from "../src/intake.ts";
-import { readSse, setup } from "./helpers.ts";
+import { readSse, seedUser, setup } from "./helpers.ts";
 
 const PROJECT = "sseProject123";
 
 async function seed() {
   const env = await setup();
-  await env.storage.writeJson(intakeKey(PROJECT), { projectId: PROJECT });
+  await env.storage.writeJson(intakeKey(PROJECT), { projectId: PROJECT, ownerId: env.user?.id });
   const emitter = createEmitter(env.redis, PROJECT);
   const ids = [
     await emitter.message("Сканую сайт"),
@@ -20,7 +20,7 @@ async function seed() {
 describe("GET /api/projects/:id/events (SSE)", () => {
   it("без Last-Event-ID віддає всю історію; id події = ID запису стріму", async () => {
     const { env, ids } = await seed();
-    const res = await env.app.request(`/api/projects/${PROJECT}/events`);
+    const res = await env.request(`/api/projects/${PROJECT}/events`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const events = await readSse(res, (e) => e.length >= 3);
@@ -31,7 +31,7 @@ describe("GET /api/projects/:id/events (SSE)", () => {
 
   it("з Last-Event-ID довантажує лише пропущене", async () => {
     const { env, ids } = await seed();
-    const res = await env.app.request(`/api/projects/${PROJECT}/events`, {
+    const res = await env.request(`/api/projects/${PROJECT}/events`, {
       headers: { "Last-Event-ID": ids[0] as string },
     });
     const events = await readSse(res, (e) => e.length >= 2);
@@ -40,14 +40,14 @@ describe("GET /api/projects/:id/events (SSE)", () => {
 
   it("?lastEventId= (ручне перепідключення сторінки) працює так само", async () => {
     const { env, ids } = await seed();
-    const res = await env.app.request(`/api/projects/${PROJECT}/events?lastEventId=${ids[1]}`);
+    const res = await env.request(`/api/projects/${PROJECT}/events?lastEventId=${ids[1]}`);
     const events = await readSse(res, (e) => e.length >= 1);
     expect(events.map((e) => e.id)).toEqual([ids[2]]);
   });
 
   it("після історії стрімить нові події (XREAD), без дублів", async () => {
     const { env, emitter, ids } = await seed();
-    const res = await env.app.request(`/api/projects/${PROJECT}/events`, {
+    const res = await env.request(`/api/projects/${PROJECT}/events`, {
       headers: { "Last-Event-ID": ids[2] as string },
     });
     let newId = "";
@@ -65,8 +65,8 @@ describe("GET /api/projects/:id/events (SSE)", () => {
 
   it("порожній стрім: нові події приходять після підключення; битий запис пропускається", async () => {
     const env = await setup();
-    await env.storage.writeJson(intakeKey(PROJECT), { projectId: PROJECT });
-    const res = await env.app.request(`/api/projects/${PROJECT}/events`);
+    await env.storage.writeJson(intakeKey(PROJECT), { projectId: PROJECT, ownerId: env.user?.id });
+    const res = await env.request(`/api/projects/${PROJECT}/events`);
     setTimeout(() => {
       void (async () => {
         await env.redis.xadd(eventsKey(PROJECT), "*", "data", "{broken");
@@ -79,7 +79,7 @@ describe("GET /api/projects/:id/events (SSE)", () => {
 
   it("некоректний Last-Event-ID ігнорується → уся історія", async () => {
     const { env, ids } = await seed();
-    const res = await env.app.request(`/api/projects/${PROJECT}/events`, {
+    const res = await env.request(`/api/projects/${PROJECT}/events`, {
       headers: { "Last-Event-ID": "garbage" },
     });
     const events = await readSse(res, (e) => e.length >= 3);
@@ -88,6 +88,15 @@ describe("GET /api/projects/:id/events (SSE)", () => {
 
   it("неіснуючий проєкт → 404", async () => {
     const env = await setup();
-    expect((await env.app.request("/api/projects/missing/events")).status).toBe(404);
+    expect((await env.request("/api/projects/missing/events")).status).toBe(404);
+  });
+
+  it("чужий проєкт → та сама 404, анонім → 401; стрім не відкривається", async () => {
+    const { env } = await seed();
+    const other = await seedUser(env, { email: "other@example.com" });
+    const foreign = await other.request(`/api/projects/${PROJECT}/events`);
+    expect(foreign.status).toBe(404);
+    expect(await foreign.json()).toEqual(await (await other.request("/api/projects/missing/events")).json());
+    expect((await env.app.request(`/api/projects/${PROJECT}/events`)).status).toBe(401);
   });
 });
