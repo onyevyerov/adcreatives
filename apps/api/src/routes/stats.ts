@@ -1,7 +1,7 @@
 import { aggregateCosts, type StatsReport, type StatsRow, statsToCsv } from "@adc/shared";
 import { Hono } from "hono";
 import type { ApiDeps } from "../deps.ts";
-import type { AppEnv } from "../session.ts";
+import { type AppEnv, requireAdmin, requireUser } from "../session.ts";
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -111,6 +111,20 @@ ${fullCost}
 `;
 }
 
+const FORBIDDEN_HTML = `<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AdCreative — доступ заборонено</title>
+</head>
+<body>
+<h1>Лише для адміністратора</h1>
+<p><a href="/">← до чату</a></p>
+</body>
+</html>
+`;
+
 export function statsRoutes(deps: ApiDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const report = () =>
@@ -121,16 +135,24 @@ export function statsRoutes(deps: ApiDeps): Hono<AppEnv> {
       ...(deps.config.prices ? { prices: deps.config.prices } : {}),
     });
 
-  app.get("/api/stats", async (c) => c.json(await report()));
+  // Роутер змонтовано на "/", тож middleware — лише на свої маршрути, не "*".
 
-  app.get("/api/stats.csv", async (c) =>
+  app.get("/api/stats", requireUser(), requireAdmin(), async (c) => c.json(await report()));
+
+  app.get("/api/stats.csv", requireUser(), requireAdmin(), async (c) =>
     c.body(statsToCsv((await report()).rows), 200, {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": 'attachment; filename="adcreative-stats.csv"',
     }),
   );
 
-  app.get("/stats", async (c) => c.html(renderStatsHtml(await report())));
+  // Сторінка для браузера: відмови — текстом/HTML, а не JSON.
+  app.get("/stats", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.text("Потрібно увійти.", 401);
+    if (!user.isAdmin) return c.html(FORBIDDEN_HTML, 403);
+    return c.html(renderStatsHtml(await report()));
+  });
 
   return app;
 }

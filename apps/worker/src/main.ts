@@ -1,10 +1,12 @@
 import { createChatLlmFactory, createPipelineDriver, createRedisLock } from "@adc/pipeline";
 import {
+  createAccountStore,
   createAnthropicClient,
   createConsoleLogger,
   createEmitter,
   createPromptLoader,
   LocalStorage,
+  loadCredits,
   loadPrices,
   loadRootEnv,
   type PipelineDriver,
@@ -33,6 +35,8 @@ async function main(): Promise<void> {
   const prices = loadPrices();
   const prompts = createPromptLoader();
   const queue = createBullQueue({ connection });
+  // Кредити власників: той самий леджер, що в API (lock:user:<id> у Redis), ціни — config/credits.json.
+  const credits = loadCredits();
 
   const registry = createStageRegistry();
 
@@ -43,6 +47,10 @@ async function main(): Promise<void> {
     storage,
     queue,
     lock: createRedisLock(redis),
+    billing: {
+      store: createAccountStore({ storage, lock: createRedisLock(redis) }),
+      prices: credits.prices,
+    },
     emitter: (projectId) => createEmitter(redis, projectId),
     llm: (ctx) => {
       chatLlm ??= createChatLlmFactory({ client: createAnthropicClient(), prompts, storage, prices, logger });
