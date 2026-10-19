@@ -2,13 +2,16 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  type AccountStore,
   type ChatEvent,
   type ChatIntent,
   type ClaimsReport,
   type CostEvent,
+  createAccountStore,
   createMemoryEmitter,
   createMockAnthropic,
   createPromptLoader,
+  defaultCredits,
   type Emitter,
   FORMATS,
   type Format,
@@ -76,7 +79,16 @@ export interface HarnessOptions {
     >;
   /** Зауваження, які фейковий `review` пише в `review.json` (n — номер виклику стадії). */
   reviewIssues?: (n: number) => ReviewIssue[];
+  /**
+   * Кредитний білінг: `AccountStore` на тому ж `LocalStorage` і `createMemoryLock()`, користувач
+   * `TEST_OWNER` із засівом `bonus:seed` на `credits`, ціни — `defaultCredits().prices`;
+   * `create()`/`createProjectJson()` ставлять `ownerId`.
+   */
+  billing?: { credits: number };
 }
+
+/** Власник проєкту в тестах білінгу. */
+export const TEST_OWNER = "u_test0001";
 
 /**
  * Обв'язка сценарних тестів: справжній драйвер, LocalStorage у тимчасовій теці,
@@ -104,8 +116,15 @@ export class Harness {
   /** Максимум одночасно «запущених» IO-задач (crawl/ingest), зафіксований за тест. */
   maxConcurrentIo = 0;
   readonly projectId = "p1";
+  /** Леджер власника (лише з `billing`). */
+  readonly accounts: AccountStore | null;
+  readonly prices = defaultCredits().prices;
+  private seeded = false;
 
   constructor(private readonly opts: HarnessOptions = {}) {
+    this.accounts = opts.billing
+      ? createAccountStore({ storage: this.storage, lock: createMemoryLock(), now: this.now })
+      : null;
     this.driver = createPipelineDriver({
       storage: this.storage,
       queue: this.queue,
@@ -121,7 +140,36 @@ export class Harness {
       now: this.now,
       echoUserMessages: opts.echoUserMessages ?? false,
       ...(opts.tuning ? { tuning: opts.tuning } : {}),
+      ...(this.accounts ? { billing: { store: this.accounts, prices: this.prices } } : {}),
     });
+  }
+
+  /** Засів балансу власника (один раз) і `ownerId` для нового проєкту. */
+  private async owner(ownerId: string | null | undefined): Promise<string | undefined> {
+    if (!this.accounts || !this.opts.billing || ownerId === null) return undefined;
+    if (!this.seeded) {
+      this.seeded = true;
+      if (this.opts.billing.credits > 0) {
+        await this.accounts.apply(TEST_OWNER, {
+          id: "bonus:seed",
+          kind: "bonus",
+          credits: this.opts.billing.credits,
+        });
+      }
+    }
+    return ownerId ?? TEST_OWNER;
+  }
+
+  /** Баланс власника. */
+  async balance(): Promise<number> {
+    if (!this.accounts) throw new Error("Harness без billing");
+    return this.accounts.balance(TEST_OWNER);
+  }
+
+  /** Записи леджера власника (старіші першими). */
+  async ledger() {
+    if (!this.accounts) throw new Error("Harness без billing");
+    return (await this.accounts.readLedger(TEST_OWNER)).reverse();
   }
 
   emitter(id: string) {
@@ -161,8 +209,17 @@ export class Harness {
   }
 
   /** Те, що робить API на `POST /api/projects`: uploads/ + intake.json (без project.json). */
-  async create(opts: { url?: string | null; manualText?: string | null; photos?: string[] } = {}) {
+  async create(
+    opts: {
+      url?: string | null;
+      manualText?: string | null;
+      photos?: string[];
+      /** З `billing`: null — проєкт без власника; не задано — `TEST_OWNER`. */
+      ownerId?: string | null;
+    } = {},
+  ) {
     const url = opts.url === undefined ? "https://zerno.example.com/" : opts.url;
+    const ownerId = await this.owner(opts.ownerId);
     const photos = (opts.photos ?? []).map((p) => projectPaths(this.projectId).upload(p));
     for (const key of photos) await this.storage.write(key, "fake-image");
     await this.storage.writeJson(intakeKey(this.projectId), {
@@ -172,16 +229,19 @@ export class Harness {
       input: { kind: url ? "site" : "manual", url, manualText: opts.manualText ?? null },
       photos,
       startCommandId: "c0",
+      ...(ownerId ? { ownerId } : {}),
     });
   }
 
   /** Альтернатива: project.json уже створено (createInitialProject). */
   async createProjectJson() {
+    const ownerId = await this.owner(undefined);
     const project = createInitialProject({
       id: this.projectId,
       url: "https://zerno.example.com/",
       manualText: null,
       now: this.now(),
+      ...(ownerId ? { ownerId } : {}),
     });
     await this.storage.writeJson(projectPaths(this.projectId).project, project);
   }

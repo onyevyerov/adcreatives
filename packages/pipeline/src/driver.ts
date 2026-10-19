@@ -10,6 +10,7 @@ import {
   type Emitter,
   FilmReview,
   type Format,
+  InsufficientCreditsError,
   type Llm,
   type Logger,
   noopLogger,
@@ -270,6 +271,29 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
     }
   }
 
+  /**
+   * Ціни й баланс власника для машини. Списання, які цей крок може зробити, але вже оплачені
+   * (повтор команди після збою запису стану, повторне затвердження тих самих форматів), повертаються
+   * в баланс: їх `apply` буде no-op, тож машина не має відмовляти через нестачу «вже витрачених».
+   */
+  async function billingContext(state: MachineState, input: StepInput): Promise<StepContext["billing"]> {
+    const ownerId = state.project.ownerId;
+    const billing = deps.billing;
+    if (!ownerId || !billing) return null;
+    let balance = await billing.store.balance(ownerId);
+    if (input.kind === "command") {
+      const p = state.project;
+      const keys = new Set([
+        `revision:${p.id}:r${p.rev + 1}`,
+        ...p.formats.slice(1).map((f) => `format:${p.id}:${f}`),
+      ]);
+      for (const e of await billing.store.readLedger(ownerId)) {
+        if (e.kind === "charge" && keys.has(e.id)) balance -= e.credits;
+      }
+    }
+    return { prices: billing.prices, balance };
+  }
+
   async function buildContext(state: MachineState, input: StepInput): Promise<StepContext> {
     const ctx: StepContext = { now: now().toISOString() };
     const tun = tuning();
@@ -280,6 +304,7 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
     if (tun.sfxProvider !== undefined) ctx.sfxProvider = tun.sfxProvider;
     if (tun.filmReview !== undefined) ctx.filmReview = tun.filmReview;
     if (tun.reviewMaxRounds !== undefined) ctx.reviewMaxRounds = tun.reviewMaxRounds;
+    ctx.billing = await billingContext(state, input);
     if (input.kind === "stage_event") {
       const ev = input.event;
       if (ev.stage === "review" && ev.type === "stage_done") ctx.reviewIssues = await reviewIssues(ev);
@@ -361,10 +386,51 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
     }
   }
 
-  /** Один крок: контекст → nextStep → черги → запис стану → події → ефекти. */
+  /**
+   * Списання/повернення кроку — до запису стану й постановки джоб (ключі ідемпотентні: повтор
+   * команди чи події після збою запису не списує вдруге). false — кредитів не вистачило (гонка з
+   * оптимістичним балансом у ctx): крок відкидається, клієнт отримує відмову.
+   */
+  async function settleBilling(state: MachineState, res: StepResult): Promise<boolean> {
+    const ownerId = state.project.ownerId;
+    const billing = deps.billing;
+    for (const effect of res.effects) {
+      if (effect.type !== "charge" && effect.type !== "refund") continue;
+      if (!ownerId || !billing) continue;
+      try {
+        await billing.store.apply(ownerId, {
+          id: effect.key,
+          kind: effect.type,
+          credits: effect.type === "charge" ? -effect.credits : effect.credits,
+          ref: effect.ref,
+          note: effect.note,
+        });
+      } catch (err) {
+        if (!(err instanceof InsufficientCreditsError)) throw err;
+        logger.warn("крок відкинуто: не вистачає кредитів", {
+          projectId: state.project.id,
+          key: effect.key,
+          required: err.required,
+          available: err.available,
+        });
+        await emitAll(state.project.id, [
+          {
+            type: "message",
+            role: "assistant",
+            text: t("insufficientCredits", { need: err.required, have: err.available }),
+          },
+        ]);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Один крок: контекст → nextStep → білінг → черги → запис стану → події → ефекти. */
   async function step(state: MachineState, input: StepInput): Promise<MachineState> {
     const ctx = await buildContext(state, input);
     const res = nextStep(state, input, ctx);
+    if (!(await settleBilling(state, res))) return state;
     const costEvents = await stageCostEvents(res);
     const unchanged =
       res.jobs.length === 0 && sameJson(res.state, state.project) && sameJson(res.pipe, state.pipe);
@@ -414,7 +480,9 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
         text,
         messageId: first.id,
       };
-      cur = await step(cur, { kind: "command", command, intent, deferred: true });
+      const next = await step(cur, { kind: "command", command, intent, deferred: true });
+      if (next === cur) break; // крок відкинуто (кредити) — не повторюємо ту саму відмову
+      cur = next;
     }
     return cur;
   }
@@ -429,6 +497,7 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
         manualText: intake.input.manualText,
         origin: intake.origin,
         now: now(),
+        ...(intake.ownerId !== undefined ? { ownerId: intake.ownerId } : {}),
       });
       project.input = { ...intake.input };
       await storage.writeJson(projectPaths(cmd.projectId).project, project);

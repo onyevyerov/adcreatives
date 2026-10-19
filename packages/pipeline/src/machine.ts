@@ -410,11 +410,41 @@ function authoredByAgent(d: Draft): boolean {
 }
 
 function approveStoryboard(d: Draft): void {
+  if (!chargeExtraFormats(d)) return;
   d.setStatus("rendering");
   d.progress("render", t("renderStarted", { formats: formatsLabel(d.project.formats) }));
   for (const format of d.project.formats) {
     d.enqueue("render", { format } satisfies RenderParams, format);
   }
+}
+
+/**
+ * Додаткові формати (усі, крім першого) до першої видачі — по `charge` на формат.
+ * Ключ `format:<id>:<format>` один на проєкт: повторне затвердження драйвер не списує вдруге.
+ * false — кредитів не вистачає, лишаємось на чекпоінті 3.
+ */
+function chargeExtraFormats(d: Draft): boolean {
+  const billing = d.ctx.billing;
+  const p = d.project;
+  if (!billing || p.phase !== "first_delivery" || billing.prices.extraFormat <= 0) return true;
+  const extra = p.formats.slice(1);
+  if (extra.length === 0) return true;
+  const need = extra.length * billing.prices.extraFormat;
+  if (billing.balance < need) {
+    d.say(t("insufficientCreditsFormats", { need, have: billing.balance }));
+    return false;
+  }
+  for (const format of extra) {
+    d.effects.push({
+      type: "charge",
+      key: `format:${p.id}:${format}`,
+      credits: billing.prices.extraFormat,
+      note: `Додатковий формат: ${FORMAT_LABEL[format]}`,
+      ref: { projectId: p.id, format },
+    });
+  }
+  d.say(t("chargedFormats", { credits: need, count: extra.length, balance: billing.balance - need }));
+  return true;
 }
 
 function onRetry(d: Draft): void {
@@ -563,6 +593,7 @@ function applyIntent(d: Draft, intent: ChatIntent, text: string, deferred: boole
   }
   p.restartRequested = false;
 
+  const prevFormats = [...p.formats];
   const { saved, formatsChanged } = applyAnswers(d, intent);
   const wantsApprove = intent.kind === "approve";
   // Змішане повідомлення ніколи не вважається затвердженням.
@@ -622,7 +653,8 @@ function applyIntent(d: Draft, intent: ChatIntent, text: string, deferred: boole
   if (cp === "storyboard" || atDelivered) {
     // Після стілів зміна форматів — теж правка: потрібні стіли й перевірка нових форматів.
     if (hasEdits || formatsChanged) {
-      startRevision(d, atDelivered ? "delivered" : "storyboard", text, intent);
+      // Відмова через кредити — формати лишаються як були: інакше повтор після поповнення не був би правкою.
+      if (!startRevision(d, atDelivered ? "delivered" : "storyboard", text, intent)) p.formats = prevFormats;
       return;
     }
     if (approve && !deferred && cp === "storyboard") {
@@ -633,9 +665,28 @@ function applyIntent(d: Draft, intent: ChatIntent, text: string, deferred: boole
   }
 }
 
-function startRevision(d: Draft, at: RevisionAt, text: string, intent: ChatIntent): void {
-  if (intent.durationSeconds !== null) d.project.durationSeconds = intent.durationSeconds;
+/** Правка → нова ревізія. false — правку після видачі не оплачено (ревізії немає, стан той самий). */
+function startRevision(d: Draft, at: RevisionAt, text: string, intent: ChatIntent): boolean {
+  const billing = d.ctx.billing;
+  const p = d.project;
+  // Правки на чекпоінтах до першої видачі — безкоштовні; після неї кожна правка — `prices.revision`.
+  const need = billing && p.phase === "revision" ? billing.prices.revision : 0;
+  if (billing && need > 0 && billing.balance < need) {
+    d.say(t("insufficientCredits", { need, have: billing.balance }));
+    return false;
+  }
+  if (intent.durationSeconds !== null) p.durationSeconds = intent.durationSeconds;
   d.newRevision("edit", at, text);
+  if (billing && need > 0) {
+    d.effects.push({
+      type: "charge",
+      key: `revision:${p.id}:r${p.rev}`,
+      credits: need,
+      note: "Правка",
+      ref: { projectId: p.id, rev: p.rev },
+    });
+    d.say(t("chargedRevision", { credits: need, balance: billing.balance - need }));
+  }
   d.setStatus("revising");
   d.say(t("revisionStarted"));
   if (intent.brandEdits || intent.facts.length > 0) {
@@ -643,9 +694,10 @@ function startRevision(d: Draft, at: RevisionAt, text: string, intent: ChatInten
     d.pipe.afterPatch = "revise";
     d.pipe.pendingRevise = { text, at };
     d.enqueue("brandkit-patch", { instruction: intent.brandEdits, logoAssetId: null, facts: intent.facts });
-    return;
+    return true;
   }
   d.enqueue("revise", { text, at });
+  return true;
 }
 
 // ───────────────────────────── події стадій ─────────────────────────────
@@ -734,6 +786,27 @@ function onStageFailed(d: Draft, job: JobRecord, ev: StageFailed): void {
     ev.error.retryable ? ["retry"] : undefined,
   );
   if (ev.stage === "crawl" && !ev.error.retryable) d.say(t("manualModePrompt"));
+  maybeRefund(d, ev);
+}
+
+/**
+ * Збій без можливості повтору до першої видачі — повертаємо ціну ролика. `crawl` має власне
+ * відновлення (ручний опис); ключ `refund:<id>` один на проєкт — друге повернення драйвер не виконає.
+ */
+function maybeRefund(d: Draft, ev: StageFailed): void {
+  const billing = d.ctx.billing;
+  const p = d.project;
+  if (!billing || ev.error.retryable || ev.stage === "crawl" || p.firstDeliveredAt !== null) return;
+  const credits = billing.prices.video;
+  if (credits <= 0) return;
+  d.effects.push({
+    type: "refund",
+    key: `refund:${p.id}`,
+    credits,
+    note: "Повернення за збій",
+    ref: { projectId: p.id },
+  });
+  d.say(t("refundedFailure", { credits }));
 }
 
 function maybeStartBrandkit(d: Draft): void {
