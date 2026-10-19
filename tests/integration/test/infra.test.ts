@@ -85,10 +85,12 @@ describe("docker-compose.yml", () => {
 });
 
 describe("docker-compose.server.yml + Caddyfile", () => {
-  it("Caddy з HTTPS для APP_DOMAIN; пароль на сервері обов'язковий", () => {
+  it("Caddy з HTTPS для APP_DOMAIN; пароль — опційний gate поверх акаунтів", () => {
     const server = read("docker-compose.server.yml");
     expect(server).toMatch(/APP_DOMAIN: \$\{APP_DOMAIN:\?/);
-    expect(server).toMatch(/APP_PASSWORD: \$\{APP_PASSWORD:\?/);
+    expect(server).toMatch(/APP_PASSWORD: \$\{APP_PASSWORD:-\}/);
+    expect(server).toMatch(/ADMIN_EMAILS: \$\{ADMIN_EMAILS:-\}/);
+    expect(server).toMatch(/APP_URL: \$\{APP_URL:-https:\/\/\$\{APP_DOMAIN\}\}/);
     expect(server).toMatch(/"443:443"/);
     const caddy = read("docker/Caddyfile");
     expect(caddy).toMatch(/^\{\$APP_DOMAIN\} \{/m);

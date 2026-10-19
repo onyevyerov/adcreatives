@@ -6,7 +6,8 @@
 Специфікація: [docs/superpowers/specs/2026-10-06-adcreative-design.md](docs/superpowers/specs/2026-10-06-adcreative-design.md),
 повне ТЗ з блоками робіт: [docs/superpowers/specs/adcreative-tz-v2.md](docs/superpowers/specs/adcreative-tz-v2.md),
 якість звуку (LUFS, моно-сумісність, такт, тональність): [docs/superpowers/specs/2026-10-13-audio-quality-tz.md](docs/superpowers/specs/2026-10-13-audio-quality-tz.md),
-звукорежисер і рецензент фільму: [docs/superpowers/specs/2026-10-15-sound-designer-film-review-tz.md](docs/superpowers/specs/2026-10-15-sound-designer-film-review-tz.md).
+звукорежисер і рецензент фільму: [docs/superpowers/specs/2026-10-15-sound-designer-film-review-tz.md](docs/superpowers/specs/2026-10-15-sound-designer-film-review-tz.md),
+акаунти, кабінет і кредити (бекенд): [docs/superpowers/specs/2026-10-19-auth-monetization-tz.md](docs/superpowers/specs/2026-10-19-auth-monetization-tz.md).
 
 ## Вимоги
 
@@ -20,7 +21,7 @@
 ```bash
 corepack enable
 pnpm install
-cp .env.example .env        # вписати ключі; APP_PASSWORD можна лишити порожнім локально
+cp .env.example .env        # вписати ключі і свій e-mail в ADMIN_EMAILS; APP_PASSWORD — порожній
 docker run -d --name adc-redis -p 6379:6379 redis:7 redis-server --appendonly yes
 ```
 
@@ -171,6 +172,74 @@ storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx
 Перевірка зв'язку без завантажень: `LIVE=1 pnpm --filter @adc/audio live:epidemic`. Як прогнати тест —
 [eval/README.md](eval/README.md#тест-epidemic-sound).
 
+## Користувачі, кредити, адмін
+
+Макет монетизації (ТЗ [2026-10-19-auth-monetization-tz.md](docs/superpowers/specs/2026-10-19-auth-monetization-tz.md)):
+справжні акаунти й сесії, а листи, оплата і Google — заглушки. Екранів входу й кабінету в UI ще немає, тож
+поки що все робиться через API (curl). Контракт API ↔ UI описаний у розділі 10 ТЗ.
+
+| Змінна | Дефолт | Що робить |
+|---|---|---|
+| `ADMIN_EMAILS` | — | e-mail адміністраторів через кому. Роль не зберігається, а обчислюється з e-mail на кожен запит |
+| `APP_URL` | `http://localhost:${PORT}` (на сервері — `https://${APP_DOMAIN}`) | база для посилань у листах і checkout |
+| `APP_PASSWORD` | — | опційний staging-gate: HTTP Basic поверх усього, разом із сесіями. Якщо порожній, діють лише сесії |
+
+- **Акаунти** — e-mail + пароль (8–128 символів, scrypt). Вхід можливий лише після активації. Сесія живе в cookie `adc_session`
+  (HttpOnly, SameSite=Lax, 30 діб, Secure за HTTPS); зміна або скидання пароля завершує всі сесії. Лендинг відкритий
+  для всіх, а старт проєкту — лише після входу. На `/api/auth/*` діє ліміт: 10 спроб за 15 хв.
+- **Листи** не відправляються. Кожен лист пишеться в `DATA_DIR/outbox/<час>-<id>.json` і в лог API
+  (`лист в outbox` з полем `link`), а адміну він доступний через `GET /api/admin/outbox`. Посилання мають вигляд
+  `${APP_URL}/?auth=activate&token=…` і `${APP_URL}/?auth=reset&token=…`. Токен із посилання передають у
+  `POST /api/auth/activate` або `POST /api/auth/reset`. Адмінський e-mail теж активується листом, а не автоматично.
+- **Кредити** — цілі числа, без валюти. Ціни, пакети, `creditsPerUsd` і `signupBonus` лежать у `config/credits.json`;
+  це **плейсхолдери** до реального розрахунку тарифів. Без валідного файлу API не стартує. Що списується: старт
+  проєкту (`video`, якщо кредитів не вистачає — 402 з `required`/`available`), кожна правка після видачі (`revision`)
+  і кожен додатковий формат на ЧП3 (`extraFormat`). Правки на чекпоінтах до видачі безкоштовні. Якщо проєкт упав
+  до першої видачі без можливості повтору, ціна ролика повертається автоматично. Відмови й списання приходять у чат
+  звичайними повідомленнями. Леджер ідемпотентний: `DATA_DIR/users/<id>/ledger.jsonl`.
+- **Оплата — заглушка.** `POST /api/billing/topups` повертає `checkoutUrl` = `${APP_URL}/?checkout=<topupId>`,
+  а «оплата» — це `POST /api/billing/topups/<id>/confirm {"outcome":"paid"|"failed"}` (ідемпотентно).
+- **Google** — `POST /api/auth/google` → 501.
+- **Адмін** (`ADMIN_EMAILS`): `/stats` і `/api/stats*`, `GET /api/admin/users[/:id[/transactions]]`,
+  ручне нарахування або коригування `POST /api/admin/users/<id>/credits {"credits": 20, "note": "…"}` (знак будь-який,
+  але баланс не може стати від'ємним — інакше 402), dev-outbox `GET /api/admin/outbox`, а також усі проєкти
+  (`GET /api/projects?all=1`). Звичайний користувач отримує тут 403. Чужий проєкт і його файли — 404.
+- Проєкти без `ownerId` (eval, CLI, інтеграційні тести, старі) білінгу не мають, і бачить їх лише адмін.
+
+Шлях «зареєструватись → активувати → поповнити → запустити ролик» через curl (API на `localhost:3000`,
+cookie — у `jar.txt`; якщо задано `APP_PASSWORD`, до кожного виклику додайте `-u x:$APP_PASSWORD`):
+
+```bash
+API=http://localhost:3000; J='content-type: application/json'
+curl -s -X POST $API/api/auth/register -H "$J" -d '{"email":"me@example.com","name":"Я","password":"secret-pass-1"}'   # 202
+ls .data/outbox/   # або: docker compose logs api | grep 'лист в outbox'  → link …?auth=activate&token=<TOKEN>
+curl -s -c jar.txt -X POST $API/api/auth/activate -H "$J" -d '{"token":"<TOKEN>"}'   # ставить cookie
+curl -s -b jar.txt $API/api/auth/me                                                   # user, balance, prices, packages
+curl -s -b jar.txt -X POST $API/api/billing/topups -H "$J" -d '{"packageId":"starter"}'   # 201 {topup, checkoutUrl}
+curl -s -b jar.txt -X POST $API/api/billing/topups/<topupId>/confirm -H "$J" -d '{"outcome":"paid"}'   # balance 10
+curl -s -b jar.txt $API/api/account/transactions
+curl -s -b jar.txt -X POST $API/api/projects -H "$J" -d '{"url":"https://example.com"}'   # 201 {id, chatUrl, balance}
+```
+
+Далі ролик можна вести через `POST /api/projects/<id>/messages {"text":…}` і `/commands {"type":"approve"}`
+або у веб-чаті. Чат-сторінка поки не вміє входити сама. Щоб відкрити `/?project=<id>` у браузері, увійдіть з
+консолі DevTools на тому ж origin:
+`fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email,password})})`.
+Повторний вхід з curl — `POST /api/auth/login`, вихід — `/api/auth/logout`, скидання — `/api/auth/forgot` → лист →
+`/api/auth/reset {"token","password"}`. Профіль і пароль: `PATCH /api/account {"name"}`,
+`POST /api/account/password {"current","next"}`.
+
+### Ручний прохід (чеклист, розділ 11 ТЗ)
+
+API + воркер + Redis, у `.env` задані `ADMIN_EMAILS` і `APP_URL`:
+
+- [ ] `register` → лист в `.data/outbox/` (або в лозі) → `activate` → cookie → `me` (баланс 0 або `signupBonus`).
+- [ ] `topups {"packageId":"starter"}` → `confirm {"outcome":"paid"}` → баланс 10; у `transactions` є `topup`.
+- [ ] `POST /api/projects` → 201 з `balance: 0`, у `users/<id>/ledger.jsonl` з'явився `video:<id>`; другий старт → 402 з `required: 10, available: 0`.
+- [ ] Після видачі правка через `messages`: у стрімі «Списано 3 кредитів…» або відмова при балансі < 3; ЧП3 з двома форматами списує додатковий формат.
+- [ ] `/stats` і `/api/admin/*` віддають 403 звичайному користувачу і 200 адміну; `POST /api/admin/users/<id>/credits` змінює баланс; чужий `GET /api/projects/<id>` і `/files/projects/<id>/…` → 404.
+- [ ] Із заданим `APP_PASSWORD` Basic-gate працює поверх усього, як раніше; з порожнім діють лише сесії.
+
 ## Відхилення від тексту ТЗ (технічні, свідомі)
 
 - **`jobId`**: `<projectId>.<stage>.r<rev>.a<attempt>` замість `<projectId>:<stage>:<rev>:<attempt>` —
@@ -190,16 +259,18 @@ storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx
 Один образ (`docker/Dockerfile`) для API і воркера; Redis з AOF; томи для Redis і `DATA_DIR`.
 
 ```bash
-cp .env.example .env          # ANTHROPIC_API_KEY, ELEVENLABS_API_KEY, APP_PASSWORD
+cp .env.example .env          # ANTHROPIC_API_KEY, ELEVENLABS_API_KEY, ADMIN_EMAILS; APP_PASSWORD — опційно
 docker compose up --build     # перша збірка ~5–10 хв: браузери + перевірочний 2-с рендер
 ```
 
-Відкрити `http://localhost:3000` (порт — `PORT` з `.env`), ввести пароль (`APP_PASSWORD`, логін будь-який),
-вставити URL сайту. Статистика — `http://localhost:3000/stats`.
+Відкрити `http://localhost:3000` (порт — `PORT` з `.env`). Якщо задано `APP_PASSWORD`, браузер спершу попросить
+його (логін будь-який). Старт проєкту потребує акаунта з кредитами — див. [Користувачі, кредити, адмін](#користувачі-кредити-адмін);
+посилання активації — у `docker compose logs api` або в томі `data` (`/data/outbox`). Статистика — `http://localhost:3000/stats`
+(лише для `ADMIN_EMAILS`).
 
 - `api` — `apps/api` (HTTP, SSE, чат-сторінка); `worker` — `apps/worker` (усі черги BullMQ + оркестратор);
   `redis` — `redis:7` з `appendonly yes`.
-- Том `data` → `/data` (`DATA_DIR`): проєкти, артефакти, `costs.jsonl`, кеш SFX. Том `redis-data` — черги й події чату.
+- Том `data` → `/data` (`DATA_DIR`): проєкти, артефакти, `costs.jsonl`, кеш SFX, користувачі й леджер (`users/`), поповнення, outbox листів. Том `redis-data` — черги й події чату.
 - Збірка без перевірочного рендера: `docker compose build --build-arg SMOKE=0`.
 - Кеш стандартних SFX (раз на деплой, платно):
   `docker compose run --rm -e LIVE=1 worker /app/node_modules/.bin/tsx scripts/sfx-cache.ts`.
@@ -213,16 +284,19 @@ docker compose up --build     # перша збірка ~5–10 хв: брауз
 ```bash
 git clone <repo> adcreative && cd adcreative
 cp .env.example .env
-# у .env: ключі API, APP_PASSWORD (обов'язково не порожній), APP_DOMAIN=demo.example.com,
-#         REMOTION_LICENSE_KEY (якщо є Company License)
+# у .env: ключі API, APP_DOMAIN=demo.example.com, ADMIN_EMAILS=you@example.com,
+#         REMOTION_LICENSE_KEY (якщо є Company License); APP_PASSWORD — опційний staging-gate
 docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
 ```
 
 `docker-compose.server.yml` додає Caddy (`docker/Caddyfile`): сертифікат Let's Encrypt для `APP_DOMAIN`
 отримується автоматично, SSE проксується без буферизації, порт API назовні не відкривається.
-Без `APP_DOMAIN` або з порожнім `APP_PASSWORD` compose відмовиться стартувати.
+Без `APP_DOMAIN` compose відмовиться стартувати. `APP_PASSWORD` не обов'язковий: доступ тримається на акаунтах,
+а пароль лише додає Basic-gate поверх них (наприклад, поки сервіс не відкрито клієнтам). `APP_URL` за замовчуванням
+`https://${APP_DOMAIN}` — від нього будуються посилання в листах і checkout. Перевірити конфіг:
+`docker compose -f docker-compose.yml -f docker-compose.server.yml config`.
 Оновлення: `git pull && docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build`.
-Резервна копія даних: том `adcreative_data` (і `adcreative_redis-data` для історії чатів).
+Резервна копія даних: том `adcreative_data` (зокрема користувачі й баланси) і `adcreative_redis-data` (історія чатів, сесії, токени активації/скидання).
 
 ## Eval
 
