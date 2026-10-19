@@ -79,8 +79,9 @@ describe("sessionMiddleware", () => {
   it("env.request підмішує cookie; app змонтовано із sessionMiddleware", async () => {
     const env = await setup();
     const res = await env.request("/api/auth/me");
-    // Роутер auth у Кроці 0 порожній — 404, але запит проходить крізь сесію без помилок.
-    expect(res.status).toBe(404);
+    // Сесія з cookie доходить до requireUser роутера auth.
+    expect(res.status).toBe(200);
+    expect((await res.json()).user.email).toBe("user@example.com");
   });
 });
 
