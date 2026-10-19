@@ -7,6 +7,10 @@ import {
   type DecodeAudio,
   decodeAudio,
   decodeWav,
+  EPIDEMIC_DOWNLOAD_LIMIT,
+  EPIDEMIC_DOWNLOADS_FILE,
+  EpidemicDownloadsFile,
+  epidemicDir,
   estimateBeatPhase,
   LOW_CORRELATION_HZ,
   loadSfxLibrary,
@@ -25,6 +29,7 @@ import { type JobRecord, PipeState } from "@adc/pipeline";
 import {
   type AnthropicLike,
   AudioManifest,
+  type AudioProvider,
   type CostEvent,
   computeEventPlacements,
   computeTimeline,
@@ -363,8 +368,20 @@ export function applyGenerationMode(
   };
 }
 
-/** Режим звуку воркера eval: звукорежисер і рецензент (`ADC_SFX_MODE`, `ADC_FILM_REVIEW`, `ADC_REVIEW_MAX_ROUNDS`). */
-export type SoundTuning = Pick<Tuning, "sfxMode" | "filmReview" | "reviewMaxRounds">;
+/**
+ * Режим звуку воркера eval: звукорежисер і рецензент (`ADC_SFX_MODE`, `ADC_FILM_REVIEW`,
+ * `ADC_REVIEW_MAX_ROUNDS`) і провайдери музики/SFX (`ADC_MUSIC_PROVIDER`, `ADC_SFX_PROVIDER`).
+ */
+export type SoundTuning = Pick<
+  Tuning,
+  "sfxMode" | "filmReview" | "reviewMaxRounds" | "musicProvider" | "sfxProvider"
+>;
+
+/** Провайдери звуку ревізії для перезапуску (`prepareRerun`). */
+export interface SoundProviders {
+  music: AudioProvider;
+  sfx: AudioProvider;
+}
 
 /** Режим звуку, з яким реально працюватиме воркер (невалідний env — дефолти). */
 export function currentSoundTuning(env: NodeJS.ProcessEnv = process.env): SoundTuning {
@@ -374,7 +391,19 @@ export function currentSoundTuning(env: NodeJS.ProcessEnv = process.env): SoundT
   } catch {
     t = Tuning.parse({});
   }
-  return { sfxMode: t.sfxMode, filmReview: t.filmReview, reviewMaxRounds: t.reviewMaxRounds };
+  return {
+    sfxMode: t.sfxMode,
+    filmReview: t.filmReview,
+    reviewMaxRounds: t.reviewMaxRounds,
+    musicProvider: t.musicProvider,
+    sfxProvider: t.sfxProvider,
+  };
+}
+
+/** Провайдери з env (`currentSoundTuning`) у формі параметра `prepareRerun`. */
+function currentProviders(): SoundProviders {
+  const t = currentSoundTuning();
+  return { music: t.musicProvider, sfx: t.sfxProvider };
 }
 
 /** Режим генерації, з яким реально працюватиме воркер (невалідний env — дефолт `pipeline`). */
@@ -396,6 +425,11 @@ export function currentGenerationMode(env: NodeJS.ProcessEnv = process.env): Gen
  * Звук іде за `sfxMode` воркера (як `startDirecting` машини): у режимі `designer` трек і план попереднього
  * прогону вважаються готовими, після відео — `sfx` → `audio{mix}` → `review`; `--from audio` ставить
  * `audio{music}` (план SFX попереднього прогону лишається), у режимі `storyboard` — `audio{full}`.
+ *
+ * Провайдери музики/SFX (`providers`, дефолт — з env) фіксуються в `pipe` ревізії, як `sfxMode`, і йдуть
+ * у параметри кожного `audio` job. `--from audio` скидає `project.audioPlanHash`: трек вирішує
+ * `ensureMusic` за кешем `planHash` і провайдером, а не «той, що був» (інакше прогін з іншим провайдером
+ * узяв би трек попереднього).
  */
 export async function prepareRerun(
   storage: Storage,
@@ -403,6 +437,7 @@ export async function prepareRerun(
   stage: RerunStage,
   now: Date = new Date(),
   sfxMode: Tuning["sfxMode"] = currentSoundTuning().sfxMode,
+  providers: SoundProviders = currentProviders(),
 ): Promise<StageJob[]> {
   const paths = projectPaths(projectId);
   const project: ProjectState = await storage.readJson(paths.project, (v) => ProjectStateSchema.parse(v));
@@ -468,6 +503,8 @@ export async function prepareRerun(
   /** Звук ревізії: режим і що з music/sfx уже готове (як фіксує `startDirecting`); коло рецензії з нуля. */
   const resetSound = (ready: { music: boolean; sfx: boolean }) => {
     pipe.sfxMode = sfxMode;
+    pipe.musicProvider = providers.music;
+    pipe.sfxProvider = providers.sfx;
     pipe.musicDone = ready.music;
     pipe.sfxDone = ready.sfx;
     pipe.reviewRounds = 0;
@@ -542,8 +579,13 @@ export async function prepareRerun(
       // designer: трек заново, далі зведення за планом SFX попереднього прогону (sfx вважається готовим).
       next.status = "directing";
       next.branches = { video: "done", audio: "running" };
+      next.audioPlanHash = null;
       resetSound({ music: false, sfx: true });
-      enqueue("audio", { phase: designer ? "music" : "full" });
+      enqueue("audio", {
+        phase: designer ? "music" : "full",
+        musicProvider: providers.music,
+        sfxProvider: providers.sfx,
+      });
       break;
     case "review":
       // Фільм і зведення попереднього прогону; коло рецензії з нуля (з --only — лише оцінка).
@@ -596,8 +638,28 @@ export interface SiteReport {
   wallSeconds: number;
   /** Сума тривалостей стадій цього прогону, с. */
   machineSeconds: number;
+  /** Провайдери звуку ревізії і що взято з Epidemic (`audio.json` + `music.json`). */
+  audio: SiteAudio;
   /** Скопійовані результати відносно теки прогону. */
   files: string[];
+}
+
+/** Звук ревізії за провайдерами; старі дані (без `providers`) — elevenlabs/elevenlabs, `epidemic: null`. */
+export interface SiteAudio {
+  musicProvider: AudioProvider;
+  sfxProvider: AudioProvider;
+  /** null — Epidemic у ревізії не використовувався. */
+  epidemic: {
+    /** Трек Epidemic; null — музика не з Epidemic. */
+    trackId: string | null;
+    trackTitle: string | null;
+    /** Семплів Epidemic у зведенні. */
+    sfxCount: number;
+    /** Завантажень Epidemic, витрачених стадією `audio` (не з кешу). */
+    downloads: number;
+    /** Темп треку поза допуском ±10 BPM (`music.json`). */
+    tempoWarning: boolean;
+  } | null;
 }
 
 export interface EvalReport {
@@ -612,6 +674,8 @@ export interface EvalReport {
   baseRun: string | null;
   only: boolean;
   sites: SiteReport[];
+  /** Лічильник завантажень Epidemic (`downloads.json` у `ADC_EPIDEMIC_DIR`) після прогону; null — файлу немає. */
+  epidemicUsed: number | null;
   summary: {
     sites: number;
     delivered: number;
@@ -628,6 +692,8 @@ export interface EvalReport {
     templateShare: number | null;
     /** Середня оцінка рецензента по сайтах із рецензією; null — рецензій не було. */
     reviewScoreMean: number | null;
+    /** Завантажень Epidemic за прогін (сума `audio.epidemic.downloads` по сайтах). */
+    epidemicDownloads: number;
     usdByStage: Array<{ key: string; usd: number }>;
   };
 }
@@ -718,6 +784,46 @@ export async function readReviewAndSound(
   return { review: review ? reviewStats(review) : null, sound: sheet ? soundSheetStats(sheet) : null };
 }
 
+/**
+ * Провайдери і Epidemic ревізії: `audio.json` (providers, epidemic) і `music.json` за `planHash` (назва треку,
+ * попередження темпу). Немає файлу або старі дані — elevenlabs/elevenlabs і `epidemic: null`.
+ */
+export async function readSiteAudio(storage: Storage, projectId: string, rev: number): Promise<SiteAudio> {
+  const paths = projectPaths(projectId);
+  const manifest = await readOptional(storage, paths.rev(rev).audio, (v) => AudioManifest.parse(v));
+  const planHash = manifest?.music?.planHash ?? null;
+  const meta = planHash
+    ? await readOptional(storage, paths.musicMeta(planHash), (v) => MusicMeta.parse(v))
+    : null;
+  const providers = manifest?.providers ?? { music: "elevenlabs", sfx: "elevenlabs" };
+  const ep = manifest?.epidemic ?? null;
+  const track = meta?.provider === "epidemic" ? meta.epidemic : null;
+  return {
+    musicProvider: providers.music,
+    sfxProvider: providers.sfx,
+    epidemic:
+      ep || track
+        ? {
+            trackId: ep?.trackId ?? track?.trackId ?? null,
+            trackTitle: track?.title ?? null,
+            sfxCount: ep?.sfx.length ?? 0,
+            downloads: ep?.downloads ?? 0,
+            tempoWarning: track?.tempoWarning ?? false,
+          }
+        : null,
+  };
+}
+
+/** Лічильник завантажень Epidemic з `<dir>/downloads.json`; немає файлу або він не за схемою — null. */
+export async function readEpidemicUsed(dir: string): Promise<number | null> {
+  try {
+    const raw = await readFile(path.join(dir, EPIDEMIC_DOWNLOADS_FILE), "utf8");
+    return EpidemicDownloadsFile.parse(JSON.parse(raw)).used;
+  } catch {
+    return null;
+  }
+}
+
 /** Метрики одного проєкту; враховуються лише витрати й стадії з моменту `since`. */
 export async function buildSiteReport(
   storage: Storage,
@@ -746,6 +852,7 @@ export async function buildSiteReport(
   const { review, sound } = project
     ? await readReviewAndSound(storage, projectId, project.rev)
     : { review: null, sound: null };
+  const audio = await readSiteAudio(storage, projectId, project?.rev ?? 1);
 
   const delivered = project?.status === "delivered";
   return {
@@ -771,6 +878,7 @@ export async function buildSiteReport(
     llmCalls: costs.filter((e) => e.provider === "anthropic").length,
     wallSeconds: Math.round(meta.wallSeconds),
     machineSeconds: Math.round(trace.reduce((a, t) => a + t.durationMs, 0) / 100) / 10,
+    audio,
     files: meta.files ?? [],
   };
 }
@@ -794,6 +902,7 @@ export function summarize(sites: readonly SiteReport[]): EvalReport["summary"] {
     qaPassShare: qa.length > 0 ? round(qa.filter((s) => s.qaFirstPass).length / qa.length, 3) : null,
     templateShare: scenes > 0 ? round(sites.reduce((a, s) => a + s.templateScenes, 0) / scenes, 3) : null,
     reviewScoreMean: scores.length > 0 ? round(scores.reduce((a, v) => a + v, 0) / scores.length, 1) : null,
+    epidemicDownloads: sites.reduce((a, s) => a + (s.audio?.epidemic?.downloads ?? 0), 0),
     usdByStage: [...byStage.entries()]
       .map(([key, usd]) => ({ key, usd: round(usd) }))
       .sort((a, b) => b.usd - a.usd),
@@ -808,6 +917,29 @@ const soundModeStr = (m: SoundTuning) =>
   `${m.sfxMode}, рецензія ${m.filmReview ? `on (кіл ≤ ${m.reviewMaxRounds})` : "off"}`;
 const dashOr = <T>(v: T | null | undefined, f: (v: T) => string | number) =>
   v === null || v === undefined ? "—" : String(f(v));
+/** «music=epidemic, sfx=elevenlabs». */
+const providersStr = (m: SoundTuning) => `music=${m.musicProvider}, sfx=${m.sfxProvider}`;
+
+/** Старі звіти без `audio` — як дані без провайдерів. */
+const ELEVENLABS_AUDIO: SiteAudio = {
+  musicProvider: "elevenlabs",
+  sfxProvider: "elevenlabs",
+  epidemic: null,
+};
+
+/** Клітинка «Epidemic: трек / семплів / завантажень»: «Назва (id) ⚠ темп / 9 / 11»; без Epidemic — «—». */
+function epidemicCell(a: SiteAudio): string {
+  const e = a.epidemic;
+  if (!e) return "—";
+  const title = e.trackTitle ? `${e.trackTitle} (${e.trackId})` : e.trackId;
+  const track = e.trackId ? `${title}${e.tempoWarning ? " ⚠ темп" : ""}` : "—";
+  return `${track.replaceAll("|", "/")} / ${e.sfxCount} / ${e.downloads}`;
+}
+
+/** «Завантажень Epidemic за прогін: N (лічильник: M з 50)»; немає файлу лічильника — «—». */
+export function epidemicSummaryLine(downloads: number, used: number | null): string {
+  return `Завантажень Epidemic за прогін: ${downloads} (лічильник: ${used ?? "—"} з ${EPIDEMIC_DOWNLOAD_LIMIT})`;
+}
 
 /** Рядок таблиці «Звук і рецензія» (по кейсу): score, offBeat, muted і решта лічильників. */
 function soundReviewRow(name: string, review: CaseReview | null, sound: CaseSound | null): string {
@@ -858,6 +990,8 @@ export function reportMarkdown(report: EvalReport): string {
     `| Сцени-шаблони (TemplateScene) | ${pct(s.templateShare)} |`,
     `| Оцінка рецензента, середня | ${s.reviewScoreMean ?? "—"} |`,
     "",
+    epidemicSummaryLine(s.epidemicDownloads ?? 0, report.epidemicUsed ?? null),
+    "",
     "## Витрати за етапами",
     "",
     "| Етап | USD |",
@@ -866,12 +1000,12 @@ export function reportMarkdown(report: EvalReport): string {
     "",
     "## Сайти",
     "",
-    "| Сайт | Статус | Формати | Відео | Сцен | 1-а спроба | Шаблони | QA pass | Попередження QA | USD | Час | Машинний час |",
-    "|---|---|---|---|---|---|---|---|---|---|---|---|",
-    ...report.sites.map(
-      (r) =>
-        `| ${r.name} | ${r.status}${r.error ? ` — ${r.error.replaceAll("|", "/")}` : ""} | ${r.formats.map((f) => FORMAT_LABEL[f]).join(", ")} | ${sec(r.videoSeconds)} | ${r.scenes} | ${r.firstTryScenes} | ${r.templateScenes} | ${r.qaFirstPass === null ? "—" : r.qaFirstPass ? "так" : "ні"} | ${r.qaWarnings.critical}/${r.qaWarnings.major}/${r.qaWarnings.minor} | ${usd(r.usd)} | ${sec(r.wallSeconds)} | ${sec(r.machineSeconds)} |`,
-    ),
+    "| Сайт | Статус | Формати | Відео | Сцен | 1-а спроба | Шаблони | QA pass | Попередження QA | USD | Час | Машинний час | Музика | SFX | Epidemic: трек / семплів / завантажень |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ...report.sites.map((r) => {
+      const a = r.audio ?? ELEVENLABS_AUDIO;
+      return `| ${r.name} | ${r.status}${r.error ? ` — ${r.error.replaceAll("|", "/")}` : ""} | ${r.formats.map((f) => FORMAT_LABEL[f]).join(", ")} | ${sec(r.videoSeconds)} | ${r.scenes} | ${r.firstTryScenes} | ${r.templateScenes} | ${r.qaFirstPass === null ? "—" : r.qaFirstPass ? "так" : "ні"} | ${r.qaWarnings.critical}/${r.qaWarnings.major}/${r.qaWarnings.minor} | ${usd(r.usd)} | ${sec(r.wallSeconds)} | ${sec(r.machineSeconds)} | ${a.musicProvider} | ${a.sfxProvider} | ${epidemicCell(a)} |`;
+    }),
     "",
     "Попередження QA: critical/major/minor (що лишилось після кола фіксів). Відео, стіли й аркуші — у `sites/<сайт>/`.",
     "",
@@ -1134,6 +1268,8 @@ export interface CaseReport {
   review: CaseReview | null;
   /** `sound-sheet.json` ревізії; null — відомості немає. */
   sound: CaseSound | null;
+  /** Провайдери звуку ревізії і що взято з Epidemic (з `SiteReport.audio`). */
+  providers: SiteAudio;
   criteria: CaseCriterion[];
   files: string[];
 }
@@ -1643,6 +1779,7 @@ export async function buildCaseReport(
     audio,
     review,
     sound,
+    providers: s.audio ?? ELEVENLABS_AUDIO,
     criteria: caseCriteria(audio, music, sb),
     files: s.files,
   };
@@ -1668,6 +1805,9 @@ export function caseReportMarkdown(r: CaseReport): string {
     "|---|---|",
     `| Режим генерації | ${r.mode} |`,
     `| Режим звуку | ${soundModeStr(r.soundMode)} |`,
+    `| Музика | ${(r.providers ?? ELEVENLABS_AUDIO).musicProvider} |`,
+    `| SFX | ${(r.providers ?? ELEVENLABS_AUDIO).sfxProvider} |`,
+    `| Epidemic: трек / семплів / завантажень | ${epidemicCell(r.providers ?? ELEVENLABS_AUDIO)} |`,
     `| Формати / відео | ${r.formats.map((f) => FORMAT_LABEL[f]).join(", ") || "—"} / ${sec(r.videoSeconds)} (задано ${r.durationSeconds ?? "—"} с) |`,
     `| Витрачено | ${usd(r.cost.usd)} (${r.cost.llmCalls} викликів LLM) |`,
     `| Токени: input / output / cache write / cache read | ${r.cost.tokens.input} / ${r.cost.tokens.output} / ${r.cost.tokens.cacheWrite} / ${r.cost.tokens.cacheRead} |`,
@@ -1941,20 +2081,28 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
     }
   }
 
-  if (!deps.anthropic) {
-    loadRootEnv();
-    if (!process.env.ANTHROPIC_API_KEY || !process.env.ELEVENLABS_API_KEY) {
-      print(
-        "eval: потрібні ANTHROPIC_API_KEY і ELEVENLABS_API_KEY у кореневому .env — eval ходить у платні API.",
-      );
-      return 2;
-    }
-  }
-  // Невалідні ADC_* (зокрема ADC_SFX_MODE / ADC_FILM_REVIEW) — до старту прогону, а не падінням воркера.
+  if (!deps.anthropic) loadRootEnv();
+  // Невалідні ADC_* (зокрема ADC_SFX_MODE / ADC_FILM_REVIEW / ADC_*_PROVIDER) — до старту прогону і до
+  // перевірки ключів, а не падінням воркера.
   try {
     readTuning(args.mode ? { ...process.env, [TUNING_ENV.generationMode]: args.mode } : process.env);
   } catch (err) {
     print(`eval: ${(err as Error).message}`);
+    return 2;
+  }
+  if (!deps.anthropic && (!process.env.ANTHROPIC_API_KEY || !process.env.ELEVENLABS_API_KEY)) {
+    print(
+      "eval: потрібні ANTHROPIC_API_KEY і ELEVENLABS_API_KEY у кореневому .env — eval ходить у платні API.",
+    );
+    return 2;
+  }
+  // Провайдер epidemic без ключа впав би лише на стадії audio — уже після платних етапів.
+  const tuning = currentSoundTuning();
+  if (
+    (tuning.musicProvider === "epidemic" || tuning.sfxProvider === "epidemic") &&
+    !process.env.EPIDEMIC_API_KEY
+  ) {
+    print("eval: ADC_*_PROVIDER=epidemic потребує EPIDEMIC_API_KEY у кореневому .env");
     return 2;
   }
 
@@ -1973,6 +2121,7 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
   // Режим звуку — з env (ADC_SFX_MODE, ADC_FILM_REVIEW): воркер читає його сам на кожен крок.
   const soundMode = currentSoundTuning();
   print(`eval: звук ${soundModeStr(soundMode)}`);
+  print(`eval: провайдери ${providersStr(soundMode)}`);
 
   // Імена кейсів перезапуску — з report.json базового прогону (без префікса «01-»).
   const baseNames = new Map<string, string>();
@@ -2021,7 +2170,10 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
         formats: null,
         language: null,
         start: async (h) => {
-          const jobs = await prepareRerun(h.storage, projectId, stage, now(), soundMode.sfxMode);
+          const jobs = await prepareRerun(h.storage, projectId, stage, now(), soundMode.sfxMode, {
+            music: soundMode.musicProvider,
+            sfx: soundMode.sfxProvider,
+          });
           for (const job of jobs) await h.queue.enqueueStage(job);
         },
       });
@@ -2079,6 +2231,8 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
     baseRun: args.run,
     only: args.only,
     sites: reports,
+    // Лічильник спільний для всіх прогонів (`ADC_EPIDEMIC_DIR`, не DATA_DIR) — читається після прогону.
+    epidemicUsed: await readEpidemicUsed(epidemicDir()),
     summary: summarize(reports),
   };
   await writeFile(path.join(runDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
@@ -2093,5 +2247,6 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
       (s.usdPerDelivered.mean !== null ? `, у середньому ${usd(s.usdPerDelivered.mean)} за відео` : "") +
       `. Звіт: ${path.join(runDir, "report.md")}`,
   );
+  print(`eval: ${epidemicSummaryLine(s.epidemicDownloads, report.epidemicUsed)}`);
   return 0;
 }

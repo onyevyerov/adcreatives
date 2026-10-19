@@ -579,3 +579,48 @@ describe("driver — агентний режим (ADC_GENERATION_MODE=agent)", (
     expect(h.jobsOf("codegen")).toHaveLength(1);
   });
 });
+
+describe("driver — провайдери звуку (ADC_MUSIC_PROVIDER/ADC_SFX_PROVIDER)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("tuning доходить до машини; зміна посеред ревізії не діє — audio{music} і audio{mix} з тими самими", async () => {
+    let provider: "elevenlabs" | "epidemic" = "epidemic";
+    const h = new Harness({
+      tuning: () => ({
+        speculativeRender: false,
+        sfxMode: "designer",
+        filmReview: false,
+        musicProvider: provider,
+        sfxProvider: provider,
+      }),
+      behaviors: {
+        // Перемикач змінився одразу після треку — зведення однаково з провайдерами ревізії.
+        audio: (job) => {
+          if (job.params.phase === "music") provider = "elevenlabs";
+          return undefined;
+        },
+      },
+    });
+    await toStoryboard(h);
+    const s = await h.project();
+    expect(s.project.status).toBe("awaiting_storyboard");
+    expect(h.jobsOf("audio").map((j) => j.params)).toEqual([
+      { phase: "music", musicProvider: "epidemic", sfxProvider: "epidemic" },
+      { phase: "mix", musicProvider: "epidemic", sfxProvider: "epidemic" },
+    ]);
+    expect(s.pipe).toMatchObject({ musicProvider: "epidemic", sfxProvider: "epidemic" });
+  });
+
+  it("без tuning і env — elevenlabs/elevenlabs", async () => {
+    vi.stubEnv("ADC_MUSIC_PROVIDER", "");
+    vi.stubEnv("ADC_SFX_PROVIDER", "");
+    const h = new Harness({ tuning: () => ({ speculativeRender: false }) });
+    await toStoryboard(h);
+    expect(h.jobsOf("audio").length).toBeGreaterThan(0);
+    for (const j of h.jobsOf("audio")) {
+      expect(j.params).toMatchObject({ musicProvider: "elevenlabs", sfxProvider: "elevenlabs" });
+    }
+  });
+});

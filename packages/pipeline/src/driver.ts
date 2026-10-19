@@ -77,14 +77,20 @@ export interface PipelineDriverDeps {
   /** Писати репліку клієнта в стрім (`role: "user"`). Дефолт false — це робить API. */
   echoUserMessages?: boolean;
   /**
-   * Перемикачі (`speculativeRender`, `generationMode`, `sfxMode`, `filmReview`, `reviewMaxRounds`);
-   * дефолт — `readTuning()` з env на кожен крок. Режими генерації і звуку читаються на кожен крок, тож
-   * зміна `ADC_GENERATION_MODE`/`ADC_SFX_MODE` діє з наступного старту режисури (поточна ревізія
-   * доходить тим самим шляхом: обробник `author` не залежить від env, режим звуку — у `pipe.sfxMode`).
+   * Перемикачі (`speculativeRender`, `generationMode`, `sfxMode`, `musicProvider`, `sfxProvider`,
+   * `filmReview`, `reviewMaxRounds`); дефолт — `readTuning()` з env на кожен крок. Режими генерації і
+   * звуку та провайдери читаються на кожен крок, тож зміна `ADC_GENERATION_MODE`/`ADC_SFX_MODE`/
+   * `ADC_MUSIC_PROVIDER`/`ADC_SFX_PROVIDER` діє з наступного старту режисури (поточна ревізія доходить
+   * тим самим шляхом: обробник `author` не залежить від env, режим звуку і провайдери — у `pipe`).
    * Не задане поле — машина бере його з `readTuning()`.
    */
   tuning?: () => Pick<Tuning, "speculativeRender"> &
-    Partial<Pick<Tuning, "generationMode" | "sfxMode" | "filmReview" | "reviewMaxRounds">>;
+    Partial<
+      Pick<
+        Tuning,
+        "generationMode" | "sfxMode" | "musicProvider" | "sfxProvider" | "filmReview" | "reviewMaxRounds"
+      >
+    >;
 }
 
 export interface PipelineDriverImpl extends PipelineDriver {
@@ -260,6 +266,8 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
     if (tun.speculativeRender) ctx.speculativeRender = true;
     if (tun.generationMode === "agent") ctx.generationMode = "agent";
     if (tun.sfxMode !== undefined) ctx.sfxMode = tun.sfxMode;
+    if (tun.musicProvider !== undefined) ctx.musicProvider = tun.musicProvider;
+    if (tun.sfxProvider !== undefined) ctx.sfxProvider = tun.sfxProvider;
     if (tun.filmReview !== undefined) ctx.filmReview = tun.filmReview;
     if (tun.reviewMaxRounds !== undefined) ctx.reviewMaxRounds = tun.reviewMaxRounds;
     if (input.kind === "stage_event") {

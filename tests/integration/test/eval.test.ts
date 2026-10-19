@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -52,6 +52,8 @@ import {
   parseEvalArgs,
   prepareRerun,
   RERUN_STAGES,
+  readEpidemicUsed,
+  readSiteAudio,
   reportMarkdown,
   reviewStats,
   runEvalCli,
@@ -63,12 +65,37 @@ import {
 } from "../src/eval.ts";
 
 let tmp: string;
+const savedEpidemicDir = process.env.ADC_EPIDEMIC_DIR;
 beforeEach(async () => {
   tmp = await mkdtemp(path.join(os.tmpdir(), "adc-eval-"));
+  // Лічильник Epidemic — лише в тимчасовій теці: тести не читають справжній `.data/epidemic`.
+  process.env.ADC_EPIDEMIC_DIR = path.join(tmp, "epidemic");
 });
 afterEach(async () => {
+  if (savedEpidemicDir === undefined) delete process.env.ADC_EPIDEMIC_DIR;
+  else process.env.ADC_EPIDEMIC_DIR = savedEpidemicDir;
   await rm(tmp, { recursive: true, force: true });
 });
+
+/** Тимчасово виставляє env (undefined — видаляє) на час `fn`, потім відкочує. */
+async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  const put = (v: Record<string, string | undefined>) => {
+    for (const [k, value] of Object.entries(v)) {
+      if (value === undefined) delete process.env[k];
+      else process.env[k] = value;
+    }
+  };
+  put(vars);
+  try {
+    return await fn();
+  } finally {
+    put(saved);
+  }
+}
+
+const ELEVEN = { musicProvider: "elevenlabs", sfxProvider: "elevenlabs" } as const;
+const NO_EPIDEMIC: SiteReport["audio"] = { ...ELEVEN, epidemic: null };
 
 describe("pnpm eval — порожній список", () => {
   it("завершується повідомленням «список порожній» без помилки й без ключів API", async () => {
@@ -417,6 +444,7 @@ describe("звіт", () => {
     llmCalls: 6,
     wallSeconds: 300,
     machineSeconds: 240,
+    audio: NO_EPIDEMIC,
     files: [],
     ...over,
   });
@@ -453,11 +481,12 @@ describe("звіт", () => {
       startedAt: "2026-10-06T15:30:00.000Z",
       finishedAt: "2026-10-06T16:00:00.000Z",
       mode: "pipeline",
-      soundMode: { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1 },
+      soundMode: { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1, ...ELEVEN },
       from: null,
       baseRun: null,
       only: false,
       sites,
+      epidemicUsed: null,
       summary: summarize(sites),
     };
     const md = reportMarkdown(report);
@@ -586,6 +615,7 @@ const caseSite = (over: Partial<SiteReport> = {}): SiteReport => ({
   llmCalls: 1,
   wallSeconds: 600,
   machineSeconds: 300,
+  audio: NO_EPIDEMIC,
   files: [],
   ...over,
 });
@@ -975,7 +1005,7 @@ describe("звук і рецензія у звітах", () => {
       since: new Date(0),
       site,
       mode: "pipeline",
-      soundMode: { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1 },
+      soundMode: { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1, ...ELEVEN },
       decode,
     });
     expect(report).toMatchObject({
@@ -1013,11 +1043,12 @@ describe("звук і рецензія у звітах", () => {
       startedAt: "2026-10-15T10:00:00.000Z",
       finishedAt: "2026-10-15T11:00:00.000Z",
       mode: "pipeline",
-      soundMode: { sfxMode: "storyboard", filmReview: false, reviewMaxRounds: 1 },
+      soundMode: { sfxMode: "storyboard", filmReview: false, reviewMaxRounds: 1, ...ELEVEN },
       from: null,
       baseRun: null,
       only: false,
       sites,
+      epidemicUsed: null,
       summary,
     });
     expect(md).toContain("Звук: storyboard, рецензія off.");
@@ -1158,5 +1189,253 @@ describe("pnpm eval --case --mode (стадії-заглушки, без мер�
     } finally {
       restore();
     }
+  });
+});
+
+// ───────────────────────────── Epidemic Sound ─────────────────────────────
+
+describe("Epidemic у eval", () => {
+  const sitesFile = async () => {
+    const file = path.join(tmp, "sites.json");
+    await writeFile(file, JSON.stringify([{ url: "https://parity.example.com/", name: "parity" }]));
+    return file;
+  };
+  const failCrawl: Stage<"crawl"> = async () => {
+    throw new StageError("заглушка", "stub_crawl", "Сайт недоступний (тест).", false);
+  };
+
+  it("невалідний ADC_MUSIC_PROVIDER — код 2 до перевірки ключів API", async () => {
+    const sites = await sitesFile();
+    const lines: string[] = [];
+    const code = await withEnv(
+      { ADC_MUSIC_PROVIDER: "suno", ANTHROPIC_API_KEY: undefined, ELEVENLABS_API_KEY: undefined },
+      () => runEvalCli(["--sites", sites, "--out", path.join(tmp, "runs")], { print: (l) => lines.push(l) }),
+    );
+    expect(code).toBe(2);
+    expect(lines.join("\n")).toContain("ADC_MUSIC_PROVIDER=suno");
+    expect(lines.join("\n")).not.toContain("ANTHROPIC_API_KEY");
+    expect(existsSync(path.join(tmp, "runs"))).toBe(false);
+  });
+
+  it("провайдер epidemic без EPIDEMIC_API_KEY — код 2 до старту", async () => {
+    const sites = await sitesFile();
+    for (const vars of [{ ADC_MUSIC_PROVIDER: "epidemic" }, { ADC_SFX_PROVIDER: "epidemic" }]) {
+      const lines: string[] = [];
+      const code = await withEnv({ ...vars, EPIDEMIC_API_KEY: undefined }, () =>
+        runEvalCli(["--sites", sites, "--out", path.join(tmp, "runs")], {
+          anthropic: createMockAnthropic([]),
+          print: (l) => lines.push(l),
+        }),
+      );
+      expect(code).toBe(2);
+      expect(lines.join("\n")).toContain(
+        "eval: ADC_*_PROVIDER=epidemic потребує EPIDEMIC_API_KEY у кореневому .env",
+      );
+    }
+    expect(existsSync(path.join(tmp, "runs"))).toBe(false);
+  });
+
+  it("провайдери з env — у рядку старту, у звіті прогону й лічильник Epidemic з downloads.json", async () => {
+    const sites = await sitesFile();
+    const runsDir = path.join(tmp, "runs");
+    const lines: string[] = [];
+    await mkdir(path.join(tmp, "epidemic"), { recursive: true });
+    await writeFile(
+      path.join(tmp, "epidemic", "downloads.json"),
+      JSON.stringify({ version: 1, used: 7, events: [] }),
+    );
+    const code = await withEnv(
+      { ADC_MUSIC_PROVIDER: "epidemic", ADC_SFX_PROVIDER: "elevenlabs", EPIDEMIC_API_KEY: "epidemic_test_x" },
+      () =>
+        runEvalCli(["--sites", sites, "--out", runsDir, "--case", "parity"], {
+          anthropic: createMockAnthropic([]),
+          registry: createStageRegistry({ overrides: { crawl: failCrawl } }),
+          print: (l) => lines.push(l),
+        }),
+    );
+    expect(code).toBe(0);
+    expect(lines.join("\n")).toContain("eval: провайдери music=epidemic, sfx=elevenlabs");
+    expect(lines.join("\n")).toContain("Завантажень Epidemic за прогін: 0 (лічильник: 7 з 50)");
+    const [run] = await readdir(runsDir);
+    const runReport = JSON.parse(
+      await readFile(path.join(runsDir, run as string, "report.json"), "utf8"),
+    ) as EvalReport;
+    expect(runReport.soundMode).toMatchObject({ musicProvider: "epidemic", sfxProvider: "elevenlabs" });
+    expect(runReport.epidemicUsed).toBe(7);
+    // Аудіо не дійшло — даних ревізії немає: дефолт elevenlabs і «—».
+    expect(runReport.sites[0]?.audio).toEqual(NO_EPIDEMIC);
+    const md = await readFile(path.join(runsDir, run as string, "report.md"), "utf8");
+    expect(md).toContain("Завантажень Epidemic за прогін: 0 (лічильник: 7 з 50)");
+  });
+
+  it("readEpidemicUsed: немає файлу або він не за схемою — null", async () => {
+    const dir = path.join(tmp, "epidemic");
+    expect(await readEpidemicUsed(dir)).toBeNull();
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "downloads.json"), JSON.stringify({ used: "багато" }));
+    expect(await readEpidemicUsed(dir)).toBeNull();
+    await writeFile(
+      path.join(dir, "downloads.json"),
+      JSON.stringify({
+        version: 1,
+        used: 12,
+        events: [{ ts: "2026-10-19T00:00:00.000Z", kind: "sfx", id: "s1", detail: null }],
+      }),
+    );
+    expect(await readEpidemicUsed(dir)).toBe(12);
+  });
+
+  it("prepareRerun(audio): audioPlanHash = null, провайдери в pipe і в параметрах job", async () => {
+    const storage = new LocalStorage(tmp);
+    await storage.writeJson(
+      projectPaths("p1").project,
+      fixtureProject({
+        id: "p1",
+        status: "delivered",
+        brandkitVersion: 1,
+        branches: { video: "done", audio: "done" },
+        audioPlanHash: "old-plan",
+      }),
+    );
+    const rev = projectPaths("p1").rev(1);
+    await storage.writeJson(rev.storyboard, fixtureStoryboard);
+    await storage.write(rev.scenesIndex, "export default {};\n");
+    await storage.writeJson(
+      rev.pipeline,
+      PipeState.parse({ attempts: {}, fixRounds: {}, qaRounds: 0, templateScenes: [], dirtyScenes: [] }),
+    );
+
+    const [job] = await prepareRerun(storage, "p1", "audio", new Date(), "designer", {
+      music: "elevenlabs",
+      sfx: "epidemic",
+    });
+    expect(job).toMatchObject({
+      stage: "audio",
+      params: { phase: "music", musicProvider: "elevenlabs", sfxProvider: "epidemic" },
+    });
+    const project = await storage.readJson(projectPaths("p1").project, (v) => ProjectState.parse(v));
+    expect(project.audioPlanHash).toBeNull();
+    const pipe = await storage.readJson(rev.pipeline, (v) => PipeState.parse(v));
+    expect(pipe).toMatchObject({ musicProvider: "elevenlabs", sfxProvider: "epidemic" });
+    expect(pipe.outstanding[0]).toMatchObject({ params: { sfxProvider: "epidemic" } });
+
+    // Дефолт — з env (currentSoundTuning); інші етапи теж фіксують провайдери в pipe.
+    await withEnv({ ADC_MUSIC_PROVIDER: "epidemic", ADC_SFX_PROVIDER: undefined }, async () => {
+      const [full] = await prepareRerun(storage, "p1", "audio", new Date(), "storyboard");
+      expect(full).toMatchObject({
+        params: { phase: "full", musicProvider: "epidemic", sfxProvider: "elevenlabs" },
+      });
+      await prepareRerun(storage, "p1", "qa", new Date(), "designer");
+      expect(await storage.readJson(rev.pipeline, (v) => PipeState.parse(v))).toMatchObject({
+        musicProvider: "epidemic",
+        sfxProvider: "elevenlabs",
+      });
+    });
+  });
+
+  it("звіт: провайдери й Epidemic з audio.json і music.json; старі дані — elevenlabs і «—»", async () => {
+    const storage = new LocalStorage(tmp);
+    await storage.writeJson(projectPaths("p1").project, fixtureProject({ id: "p1", status: "delivered" }));
+    const rev = projectPaths("p1").rev(1);
+    // Старий audio.json без providers/epidemic.
+    await storage.writeJson(rev.audio, { music: null, sfx: [], totalFrames: 450 });
+    expect(await readSiteAudio(storage, "p1", 1)).toEqual(NO_EPIDEMIC);
+    // Немає audio.json зовсім — так само.
+    expect(await readSiteAudio(storage, "p2", 1)).toEqual(NO_EPIDEMIC);
+
+    await storage.writeJson(rev.audio, {
+      ...fixtureAudioManifest,
+      music: { ...fixtureAudioManifest.music, planHash: "ph1" },
+      providers: { music: "epidemic", sfx: "elevenlabs" },
+      epidemic: { trackId: "T1", sfx: [], downloads: 2 },
+    });
+    await storage.writeJson(projectPaths("p1").musicMeta("ph1"), {
+      planHash: "ph1",
+      durationMs: 33_000,
+      modelId: "epidemic",
+      provider: "epidemic",
+      method: "catalog",
+      promptUsed: null,
+      briefHash: "b",
+      createdAt: "2026-10-19T00:00:00.000Z",
+      epidemic: {
+        trackId: "T1",
+        title: "Neon Run",
+        artists: ["A"],
+        bpm: 128,
+        targetBpm: 110,
+        tempoWarning: true,
+        versionJobId: "j1",
+        candidatesTried: 1,
+      },
+    });
+    const site = await buildSiteReport(storage, "p1", { name: "01-p", since: new Date(0), wallSeconds: 1 });
+    expect(site.audio).toEqual({
+      musicProvider: "epidemic",
+      sfxProvider: "elevenlabs",
+      epidemic: { trackId: "T1", trackTitle: "Neon Run", sfxCount: 0, downloads: 2, tempoWarning: true },
+    });
+
+    const sfxSite = caseSite({
+      name: "02-b",
+      audio: {
+        musicProvider: "elevenlabs",
+        sfxProvider: "epidemic",
+        epidemic: { trackId: null, trackTitle: null, sfxCount: 9, downloads: 9, tempoWarning: false },
+      },
+    });
+    const sites = [caseSite({ name: "01-p", audio: site.audio }), sfxSite, caseSite({ name: "03-old" })];
+    const summary = summarize(sites);
+    expect(summary.epidemicDownloads).toBe(11);
+    const md = reportMarkdown({
+      run: "r",
+      startedAt: "2026-10-19T10:00:00.000Z",
+      finishedAt: "2026-10-19T11:00:00.000Z",
+      mode: "pipeline",
+      soundMode: { sfxMode: "designer", filmReview: false, reviewMaxRounds: 1, ...ELEVEN },
+      from: "audio",
+      baseRun: "r0",
+      only: false,
+      sites,
+      summary,
+      epidemicUsed: null,
+    });
+    expect(md).toContain("| Музика | SFX | Epidemic: трек / семплів / завантажень |");
+    expect(md).toContain("| epidemic | elevenlabs | Neon Run (T1) ⚠ темп / 0 / 2 |");
+    expect(md).toContain("| elevenlabs | epidemic | — / 9 / 9 |");
+    expect(md).toMatch(/\| 03-old \|.*\| elevenlabs \| elevenlabs \| — \|/);
+    expect(md).toContain("Завантажень Epidemic за прогін: 11 (лічильник: — з 50)");
+
+    const caseReport = await buildCaseReport(storage, "p1", {
+      caseName: "p",
+      run: "r",
+      since: new Date(0),
+      site,
+      mode: "pipeline",
+      soundMode: { sfxMode: "designer", filmReview: false, reviewMaxRounds: 1, ...ELEVEN },
+      decode,
+    });
+    expect(caseReport.providers).toEqual(site.audio);
+    const caseMd = caseReportMarkdown(caseReport);
+    expect(caseMd).toContain("| Музика | epidemic |");
+    expect(caseMd).toContain("| SFX | elevenlabs |");
+    expect(caseMd).toContain("| Epidemic: трек / семплів / завантажень | Neon Run (T1) ⚠ темп / 0 / 2 |");
+  });
+
+  it("eval/sites.epidemic.json валідний: webreportio-parity і profitstore", async () => {
+    const args = parseEvalArgs([]);
+    const sites = await loadSites(path.join(path.dirname(args.sites), "sites.epidemic.json"));
+    const parity = (await loadSites(args.sites)).find((s) => s.name === "webreportio-parity");
+    expect(sites.map((s) => s.name)).toEqual(["webreportio-parity", "profitstore"]);
+    expect(sites[0]).toEqual(parity);
+    expect(sites[1]).toEqual({
+      name: "profitstore",
+      url: "https://profitstore.ua/",
+      text: null,
+      formats: ["landscape"],
+      language: "uk",
+      photos: [],
+      durationSeconds: 25,
+    });
   });
 });

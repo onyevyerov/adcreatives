@@ -238,7 +238,40 @@ export function musicRawWavKey(projectId: string, planHash: string): string {
   return `${projectPaths(projectId).audioDir}/${planHash}/music-raw.wav`;
 }
 
-interface Attempt {
+/**
+ * Кеш-хіт у `audio/<planHash>/`: валідний `music.json` і трек (`music.wav`, якщо трек перевірено,
+ * інакше сирий `music.mp3` / `music-raw.wav`); null — немає або битий `music.json` (генеруємо заново).
+ */
+export async function cachedMusic(
+  storage: Storage,
+  projectId: string,
+  planHash: string,
+): Promise<EnsuredMusic | null> {
+  const paths = projectPaths(projectId);
+  const rawKey = paths.music(planHash);
+  const rawWavKey = musicRawWavKey(projectId, planHash);
+  const wavKey = musicWavKey(projectId, planHash);
+  const metaKey = paths.musicMeta(planHash);
+  if (!(await storage.exists(metaKey))) return null;
+  try {
+    const meta = await storage.readJson(metaKey, (v) => MusicMeta.parse(v));
+    const key =
+      meta.check !== null && (await storage.exists(wavKey))
+        ? wavKey
+        : (await storage.exists(rawKey))
+          ? rawKey
+          : (await storage.exists(rawWavKey))
+            ? rawWavKey
+            : null;
+    if (key) return { planHash, key, meta, cached: true };
+  } catch {
+    // битий music.json — генеруємо заново
+  }
+  return null;
+}
+
+/** Спроба треку: отримані байти, розкодований PCM і перевірка (null — не розкодовано / не перевірено). */
+export interface Attempt {
   music: GeneratedMusic;
   pcm: StereoPcm | null;
   check: MusicTrackCheck | null;
@@ -263,27 +296,8 @@ export async function ensureMusic(
 ): Promise<EnsuredMusic> {
   const logger = deps.logger ?? noopLogger;
   const planHash = musicPlanHash(plan);
-  const paths = projectPaths(projectId);
-  const rawKey = paths.music(planHash);
-  const rawWavKey = musicRawWavKey(projectId, planHash);
-  const wavKey = musicWavKey(projectId, planHash);
-  const metaKey = paths.musicMeta(planHash);
-  if (await deps.storage.exists(metaKey)) {
-    try {
-      const meta = await deps.storage.readJson(metaKey, (v) => MusicMeta.parse(v));
-      const key =
-        meta.check !== null && (await deps.storage.exists(wavKey))
-          ? wavKey
-          : (await deps.storage.exists(rawKey))
-            ? rawKey
-            : (await deps.storage.exists(rawWavKey))
-              ? rawWavKey
-              : null;
-      if (key) return { planHash, key, meta, cached: true };
-    } catch {
-      // битий music.json — генеруємо заново
-    }
-  }
+  const hit = await cachedMusic(deps.storage, projectId, planHash);
+  if (hit) return hit;
 
   const videoMs = planVideoMs(plan);
   const bpm = planBpm(plan);
@@ -344,6 +358,31 @@ export async function ensureMusic(
     attempts: Math.max(1, attempts),
     epidemic: null,
   };
+  return finalizeMusic(deps, projectId, planHash, best, base, bpm, videoMs);
+}
+
+/**
+ * Спільний хвіст `ensureMusic` і провайдера Epidemic: сирий трек найкращої спроби — у `music.mp3`
+ * (PCM-формат — `music-raw.wav`); якщо є PCM, перевірка і темп — вікно відео без провалів
+ * (`chooseWindowOffset`, зсув кратний такту) → `music.wav` (вікно + 1 с хвоста) і `checkTrack` уже
+ * його; `music.json` — `base` + тривалість, перевірка і зсув. Без PCM/перевірки/темпу — лише сирий
+ * трек, `check: null`, `offsetMs: 0`.
+ */
+export async function finalizeMusic(
+  deps: Pick<MusicDeps, "storage" | "logger">,
+  projectId: string,
+  planHash: string,
+  best: Attempt,
+  base: Omit<MusicMeta, "durationMs" | "check" | "offsetMs">,
+  bpm: number | null,
+  videoMs: number,
+): Promise<EnsuredMusic> {
+  const logger = deps.logger ?? noopLogger;
+  const paths = projectPaths(projectId);
+  const rawKey = paths.music(planHash);
+  const rawWavKey = musicRawWavKey(projectId, planHash);
+  const wavKey = musicWavKey(projectId, planHash);
+  const metaKey = paths.musicMeta(planHash);
   const bestRawKey = audioExt(best.music.audio) === "wav" ? rawWavKey : rawKey;
   await deps.storage.write(bestRawKey, best.music.audio);
 

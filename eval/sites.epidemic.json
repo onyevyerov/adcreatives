@@ -1,0 +1,16 @@
+[
+  {
+    "url": "https://webreportio.com/",
+    "name": "webreportio-parity",
+    "formats": ["landscape"],
+    "language": "uk",
+    "durationSeconds": 25
+  },
+  {
+    "url": "https://profitstore.ua/",
+    "name": "profitstore",
+    "formats": ["landscape"],
+    "language": "uk",
+    "durationSeconds": 25
+  }
+]

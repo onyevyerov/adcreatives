@@ -20,11 +20,12 @@ import {
 } from "../src/constants.ts";
 import type { DecodeAudio } from "../src/decode.ts";
 import { classifyElevenLabsError } from "../src/errors.ts";
-import { ensureMusic, generateMusic, type MusicDeps, musicWavKey } from "../src/music.ts";
+import { ensureMusic, finalizeMusic, generateMusic, type MusicDeps, musicWavKey } from "../src/music.ts";
 import type { StereoPcm } from "../src/pcm.ts";
 import { musicPlanHash, normalizeAudioPlan } from "../src/plan.ts";
 import { brandTerms, createSanitizer } from "../src/sanitize.ts";
 import { loadStandardCues } from "../src/sfx.ts";
+import { checkTrack } from "../src/trackCheck.ts";
 import { decodeWav } from "../src/wav.ts";
 import {
   audioStream,
@@ -489,5 +490,65 @@ describe("формат вихідних даних (A1)", () => {
     const again = await music.ensureMusic(d, PROJECT_ID, plan, "b");
     expect(again).toMatchObject({ cached: true, key: res.key });
     expect(client.calls).toHaveLength(1);
+  });
+});
+
+describe("finalizeMusic", () => {
+  const paths = projectPaths(PROJECT_ID);
+  const base = {
+    planHash: "h-final",
+    modelId: "epidemic-catalog",
+    provider: "epidemic" as const,
+    method: "catalog" as const,
+    promptUsed: "term",
+    briefHash: "b",
+    createdAt: "2026-10-19T10:00:00.000Z",
+    attempts: 1,
+    epidemic: null,
+  };
+  const generated = (audio: string) => ({
+    audio: Buffer.from(audio),
+    outputFormat: MUSIC_OUTPUT_FORMAT,
+    method: "catalog" as const,
+    promptUsed: "term",
+    durationMs: 23_000,
+  });
+
+  it("з PCM і перевіркою: вікно відео → music.wav, сирий → music.mp3, music.json з base", async () => {
+    const d = deps(mockElevenLabs());
+    const check = checkTrack(ONE_GAP, 85, { videoMs: 15_000 });
+    const res = await finalizeMusic(
+      d,
+      PROJECT_ID,
+      "h-final",
+      { music: generated("RAW"), pcm: ONE_GAP, check },
+      base,
+      85,
+      15_000,
+    );
+    expect(res).toMatchObject({
+      planHash: "h-final",
+      cached: false,
+      key: musicWavKey(PROJECT_ID, "h-final"),
+    });
+    expect(res.meta).toMatchObject({ ...base, offsetMs: 2_824, durationMs: 16_000, check: { ok: true } });
+    expect((await d.storage.read(paths.music("h-final"))).toString()).toBe("RAW");
+    expect(decodeWav(await d.storage.read(res.key)).left.length).toBe(16 * 44_100);
+    expect(MusicMeta.parse(await d.storage.readJson(paths.musicMeta("h-final")))).toEqual(res.meta);
+  });
+
+  it("без PCM — лише сирий трек, check null, offsetMs 0", async () => {
+    const d = deps(mockElevenLabs());
+    const res = await finalizeMusic(
+      d,
+      PROJECT_ID,
+      "h-final",
+      { music: generated("RAW"), pcm: null, check: null },
+      base,
+      85,
+      15_000,
+    );
+    expect(res.key).toBe(paths.music("h-final"));
+    expect(res.meta).toMatchObject({ ...base, durationMs: 23_000, check: null, offsetMs: 0 });
   });
 });

@@ -1178,6 +1178,8 @@ describe("nextStep — агентний режим (стадія author)", () =>
 
 describe("nextStep — звукорежисер і рецензент (sfxMode: designer)", () => {
   const D = { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1 } as const;
+  /** Провайдери audio за замовчуванням (без ctx і env) — фіксуються в pipe і йдуть у параметри. */
+  const ELEVEN = { musicProvider: "elevenlabs", sfxProvider: "elevenlabs" } as const;
   const advance = (s: MachineState, input: StepInput, over: Partial<StepContext> = {}) => {
     const r = nextStep(s, input, ctx({ ...D, ...over }));
     return { r, s: { project: r.state, pipe: r.pipe } as MachineState };
@@ -1273,11 +1275,11 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
     }
     expect(jobs).toEqual([
       ["codegen", { sceneIds: null, instructions: [] }],
-      ["audio", { phase: "music" }],
+      ["audio", { phase: "music", ...ELEVEN }],
       ["check", { sceneIds: null }],
       ["qa", { sceneIds: null }],
       ["sfx", { sceneIds: null, instructions: [] }],
-      ["audio", { phase: "mix" }],
+      ["audio", { phase: "mix", ...ELEVEN }],
       ["review", { round: 0 }],
     ]);
     // Після QA відеогілка ще не done: її закриває зведення.
@@ -1371,7 +1373,9 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
     ]);
     expect(r.pipe.pendingSfx).toBeNull();
     ({ r, s } = advance(s, done(s, "sfx", SFX)));
-    expect(r.jobs).toEqual([expect.objectContaining({ stage: "audio", params: { phase: "mix" } })]);
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "audio", params: { phase: "mix", ...ELEVEN } }),
+    ]);
     ({ r, s } = advance(s, done(s, "audio", MIXED)));
     expect(r.jobs).toEqual([expect.objectContaining({ stage: "review", params: { round: 1 } })]);
     // Кола вичерпано (reviewMaxRounds: 1): навіть fix → чекпоінт 3.
@@ -1430,7 +1434,9 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
     expect(r.pipe.failedJobs).toEqual([]);
     expect(r.events).toContainEqual(expect.objectContaining({ type: "message", text: t("sfxFallback") }));
     expect(r.events.some((e) => e.type === "error")).toBe(false);
-    expect(r.jobs).toEqual([expect.objectContaining({ stage: "audio", params: { phase: "mix" } })]);
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "audio", params: { phase: "mix", ...ELEVEN } }),
+    ]);
     ({ r, s } = advance(s, done(s, "audio", MIXED)));
     expect(stages(r)).toEqual(["review"]);
 
@@ -1460,9 +1466,11 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
     ({ s } = advance(s, done(s, "sfx", SFX)));
     ({ r, s } = advance(s, failed(s, "audio", true)));
     expect(r.state.status).toBe("failed");
-    expect(r.pipe.failedJobs.map((j) => j.params)).toEqual([{ phase: "mix" }]);
+    expect(r.pipe.failedJobs.map((j) => j.params)).toEqual([{ phase: "mix", ...ELEVEN }]);
     ({ r, s } = advance(s, cmd({ type: "retry" })));
-    expect(r.jobs).toEqual([expect.objectContaining({ stage: "audio", params: { phase: "mix" } })]);
+    expect(r.jobs).toEqual([
+      expect.objectContaining({ stage: "audio", params: { phase: "mix", ...ELEVEN } }),
+    ]);
     ({ r } = advance(s, done(s, "audio", MIXED)));
     expect(stages(r)).toEqual(["review"]);
   });
@@ -1483,7 +1491,7 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
           instructions: [{ sceneId: "s2", instruction: "у другій сцені інший заголовок" }],
         },
       ],
-      ["audio", { phase: "music" }],
+      ["audio", { phase: "music", ...ELEVEN }],
     ]);
     const jobs: unknown[] = [];
     const steps: Array<() => StepInput> = [
@@ -1502,7 +1510,7 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
       ["check", { sceneIds: ["s2"] }],
       ["qa", { sceneIds: ["s2"] }],
       ["sfx", { sceneIds: ["s2"], instructions: [] }],
-      ["audio", { phase: "mix" }],
+      ["audio", { phase: "mix", ...ELEVEN }],
       ["review", { round: 0 }],
     ]);
     expect(r.jobs[0]?.jobId).toBe("p1.review.r2.a1");
@@ -1530,7 +1538,7 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
     const { r, s } = approve(SB);
     expect(r.jobs.map((j) => [j.stage, j.params])).toEqual([
       ["codegen", { sceneIds: null, instructions: [] }],
-      ["audio", { phase: "full" }],
+      ["audio", { phase: "full", ...ELEVEN }],
     ]);
     const v = video(s, SB);
     expect(v.results.flatMap((x) => stages(x))).toEqual(["check", "qa"]);
@@ -1554,9 +1562,51 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
         unverifiedClaims: [],
       });
     vi.stubEnv("ADC_SFX_MODE", "");
-    expect(bare().jobs[1]?.params).toEqual({ phase: "music" });
+    vi.stubEnv("ADC_MUSIC_PROVIDER", "");
+    vi.stubEnv("ADC_SFX_PROVIDER", "");
+    expect(bare().jobs[1]?.params).toEqual({ phase: "music", ...ELEVEN });
     vi.stubEnv("ADC_SFX_MODE", "storyboard");
-    expect(bare().jobs[1]?.params).toEqual({ phase: "full" });
+    expect(bare().jobs[1]?.params).toEqual({ phase: "full", ...ELEVEN });
+  });
+
+  it("провайдери фіксуються на ревізію: audio{music} і audio{mix} несуть ті самі, навіть якщо ctx змінився", () => {
+    const EP = { musicProvider: "epidemic", sfxProvider: "epidemic" } as const;
+    let { r, s } = approve(EP);
+    expect(r.pipe).toMatchObject(EP);
+    expect(r.jobs.find((j) => j.stage === "audio")?.params).toEqual({ phase: "music", ...EP });
+    // Посеред ревізії перемикач змінився — зведення однаково з провайдерами ревізії.
+    ({ s } = advance(s, done(s, "audio", MUSIC), ELEVEN));
+    ({ s } = video(s, ELEVEN));
+    ({ r, s } = advance(s, done(s, "sfx", SFX), ELEVEN));
+    expect(r.jobs.map((j) => [j.stage, j.params])).toEqual([["audio", { phase: "mix", ...EP }]]);
+    expect(s.pipe).toMatchObject(EP);
+  });
+
+  it("провайдери: без ctx — з env (ADC_MUSIC_PROVIDER/ADC_SFX_PROVIDER, дефолт elevenlabs)", () => {
+    const bare = (mode: "designer" | "storyboard") =>
+      nextStep(state("awaiting_script"), cmd({ type: "approve", rev: null }), {
+        now: NOW,
+        sfxMode: mode,
+        unverifiedClaims: [],
+      });
+    vi.stubEnv("ADC_MUSIC_PROVIDER", "");
+    vi.stubEnv("ADC_SFX_PROVIDER", "");
+    expect(bare("designer").jobs[1]?.params).toEqual({
+      phase: "music",
+      musicProvider: "elevenlabs",
+      sfxProvider: "elevenlabs",
+    });
+    vi.stubEnv("ADC_MUSIC_PROVIDER", "epidemic");
+    const full = bare("storyboard");
+    expect(full.jobs[1]?.params).toEqual({
+      phase: "full",
+      musicProvider: "epidemic",
+      sfxProvider: "elevenlabs",
+    });
+    expect(full.pipe).toMatchObject({ musicProvider: "epidemic", sfxProvider: "elevenlabs" });
+    // pipeline.json до Epidemic (без полів) — ElevenLabs.
+    const { musicProvider: _m, sfxProvider: _s, ...old } = emptyPipe();
+    expect(PipeState.parse(old)).toMatchObject({ musicProvider: "elevenlabs", sfxProvider: "elevenlabs" });
   });
 });
 

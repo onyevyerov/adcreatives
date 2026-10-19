@@ -100,6 +100,14 @@ export interface StepContext {
    * Не задано — `readTuning().sfxMode` (`ADC_SFX_MODE`, дефолт designer).
    */
   sfxMode?: Tuning["sfxMode"];
+  /**
+   * `Tuning.musicProvider`/`sfxProvider`: хто дає музику і SFX (`elevenlabs` | `epidemic`).
+   * Як `sfxMode`, читаються на старті режисури й фіксуються в `pipe` до кінця ревізії: audio{music} і
+   * audio{mix} однієї ревізії несуть ті самі. Не задано — `readTuning()` (`ADC_MUSIC_PROVIDER`,
+   * `ADC_SFX_PROVIDER`, дефолт elevenlabs).
+   */
+  musicProvider?: Tuning["musicProvider"];
+  sfxProvider?: Tuning["sfxProvider"];
   /** `Tuning.filmReview`: рецензія фільму після зведення (лише в режимі designer). Не задано — з env. */
   filmReview?: boolean;
   /** `Tuning.reviewMaxRounds`: скільки кіл «рецензія → правки» до чекпоінта 3. Не задано — з env. */
@@ -367,12 +375,19 @@ function startDirecting(
   d.project.branches = { video: "running", audio: "running" };
   d.pipe.videoPhase = "build";
   d.pipe.sfxMode = sfxMode;
+  d.pipe.musicProvider = d.ctx.musicProvider ?? readTuning().musicProvider;
+  d.pipe.sfxProvider = d.ctx.sfxProvider ?? readTuning().sfxProvider;
   d.pipe.musicDone = false;
   d.pipe.sfxDone = false;
   d.progress(stage, t("directingStarted"));
   d.enqueue(stage, { sceneIds, instructions });
   // designer: трек паралельно з кодом, зведення — після звукорежисера.
-  d.enqueue("audio", { phase: sfxMode === "designer" ? "music" : "full" });
+  d.enqueue("audio", audioParams(d, sfxMode === "designer" ? "music" : "full"));
+}
+
+/** Параметри audio: фаза + провайдери ревізії з `pipe` (не з ctx/env — їх зміна посеред ревізії не діє). */
+function audioParams(d: Draft, phase: "music" | "mix" | "full"): StageParamsMap["audio"] {
+  return { phase, musicProvider: d.pipe.musicProvider, sfxProvider: d.pipe.sfxProvider };
 }
 
 /** Чи писав сцени цієї ревізії агент (стадія `author` уже ставилась у цій ревізії). */
@@ -887,7 +902,7 @@ function onSfxDone(d: Draft): void {
 /** Зведення — коли є і трек (audio{music}), і план звуку (sfx); ставить його та подія, що прийшла другою. */
 function maybeMix(d: Draft): void {
   if (!d.pipe.musicDone || !d.pipe.sfxDone) return;
-  d.enqueue("audio", { phase: "mix" });
+  d.enqueue("audio", audioParams(d, "mix"));
 }
 
 function onAudioDone(d: Draft, ev: StageDoneOk<"audio">, job: JobRecord): void {
