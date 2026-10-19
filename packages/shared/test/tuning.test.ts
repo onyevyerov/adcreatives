@@ -21,7 +21,22 @@ describe("readTuning", () => {
       sfxMode: "designer",
       filmReview: true,
       reviewMaxRounds: 1,
+      musicProvider: "elevenlabs",
+      sfxProvider: "elevenlabs",
     } satisfies Tuning);
+  });
+
+  it("провайдери музики і SFX — незалежні перемикачі, дефолт elevenlabs", () => {
+    expect(readTuning({})).toMatchObject({ musicProvider: "elevenlabs", sfxProvider: "elevenlabs" });
+    expect(readTuning({ ADC_MUSIC_PROVIDER: "epidemic" })).toMatchObject({
+      musicProvider: "epidemic",
+      sfxProvider: "elevenlabs",
+    });
+    expect(readTuning({ ADC_SFX_PROVIDER: "epidemic", ADC_MUSIC_PROVIDER: "elevenlabs" })).toMatchObject({
+      musicProvider: "elevenlabs",
+      sfxProvider: "epidemic",
+    });
+    expect(readTuning({ ADC_MUSIC_PROVIDER: " " }).musicProvider).toBe("elevenlabs");
   });
 
   it("звукорежисер і рецензент — через env, відкат без деплою", () => {
@@ -100,6 +115,8 @@ describe("readTuning", () => {
     ["ADC_AUTHOR_TOKEN_BUDGET", "100000"],
     ["ADC_AUTHOR_MAX_ITERATIONS", "100"],
     ["ADC_AUTHOR_MAX_MINUTES", "2"],
+    ["ADC_MUSIC_PROVIDER", "suno"],
+    ["ADC_SFX_PROVIDER", "Epidemic"],
   ])("невалідне %s=%s — помилка, не тихий дефолт", (name, value) => {
     expect(() => readTuning({ [name]: value })).toThrow(TuningError);
     expect(() => readTuning({ [name]: value })).toThrow(name);

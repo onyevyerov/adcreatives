@@ -46,6 +46,11 @@ export function priceElevenLabs(prices: Prices, kind: "music" | "sfx", seconds: 
   return { usd: round((seconds / 60) * perMinute), unitPrices: { perMinute } };
 }
 
+/** Epidemic Sound: безкоштовний тариф (ліміт — 50 завантажень, лічиться окремо), ціни в конфігу немає. */
+export function priceEpidemic(): Priced {
+  return { usd: 0, unitPrices: {} };
+}
+
 export function priceRemotion(prices: Prices, renders: number): Priced {
   return {
     usd: round(renders * prices.remotion.perRender),

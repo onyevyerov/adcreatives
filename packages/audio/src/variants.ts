@@ -69,3 +69,24 @@ export function chooseVariants(
     return entry;
   });
 }
+
+/**
+ * Номери варіантів (1-based) для розміщень з cue, у тому ж порядку (розміщення без cue пропускаються):
+ * по колу з `poolSize(cue)` варіантів, лічильник — на cue. Для провайдера без готової бібліотеки семплів
+ * (Epidemic) стадія просить лише ці варіанти. Крок 0 — проста ротація без `PER_SCENE_CUES`.
+ */
+export function variantIndices(
+  placements: readonly EventPlacement[],
+  poolSize: (cue: SoundCue) => number,
+): Array<{ cue: SoundCue; variant: number }> {
+  const rotation = new Map<SoundCue, number>();
+  const out: Array<{ cue: SoundCue; variant: number }> = [];
+  for (const p of placements) {
+    if (p.cue === null) continue;
+    const cue = p.cue;
+    const n = rotation.get(cue) ?? 0;
+    rotation.set(cue, n + 1);
+    out.push({ cue, variant: (n % Math.max(1, poolSize(cue))) + 1 });
+  }
+  return out;
+}

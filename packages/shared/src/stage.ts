@@ -5,7 +5,7 @@ import type { Llm } from "./llm/client.ts";
 import type { PromptLoader } from "./llm/prompts.ts";
 import type { Logger } from "./logger.ts";
 import type { FactKind } from "./schemas/brandkit.ts";
-import type { Format, RunSource } from "./schemas/common.ts";
+import type { AudioProvider, Format, RunSource } from "./schemas/common.ts";
 import type { CostPhase, StageName } from "./schemas/project.ts";
 import type { QaReport } from "./schemas/qa.ts";
 import type { FilmReview, ReviewIssue } from "./schemas/review.ts";
@@ -37,9 +37,9 @@ export interface StageParamsMap {
   review: { round: number };
   /**
    * music — план + трек + прогрів семплів, без зведення; mix — зведення за sfx-plan;
-   * full — як було (режим storyboard). Відсутнє поле = full.
+   * full — як було (режим storyboard). Відсутнє поле = full. Відсутній провайдер = `readTuning()` у стадії.
    */
-  audio: { phase?: "music" | "mix" | "full" };
+  audio: { phase?: "music" | "mix" | "full"; musicProvider?: AudioProvider; sfxProvider?: AudioProvider };
   /** speculative — рендер до затвердження розкадровки: збій не міняє статус, успіх не робить видачу. */
   render: { format: Format; speculative?: boolean };
 }

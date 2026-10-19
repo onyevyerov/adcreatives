@@ -221,6 +221,8 @@ export interface EnsuredMusic {
   meta: MusicMeta;
   /** true — трек узято з кешу за хешем плану (без виклику API). */
   cached: boolean;
+  /** Завантажень Epidemic, витрачених цим викликом; ElevenLabs не ставить. */
+  downloads?: number;
 }
 
 /**
@@ -334,11 +336,13 @@ export async function ensureMusic(
   const base = {
     planHash,
     modelId: MUSIC_MODEL_ID,
+    provider: "elevenlabs" as const,
     method: best.music.method,
     promptUsed: best.music.promptUsed,
     briefHash,
     createdAt: (deps.now ?? (() => new Date()))().toISOString(),
     attempts: Math.max(1, attempts),
+    epidemic: null,
   };
   const bestRawKey = audioExt(best.music.audio) === "wav" ? rawWavKey : rawKey;
   await deps.storage.write(bestRawKey, best.music.audio);

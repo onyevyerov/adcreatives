@@ -64,6 +64,8 @@ export function buildAudioManifest(input: ManifestInput): AudioManifest {
       volume: SFX_VOLUME,
     })),
     totalFrames: timeline.totalFrames,
+    providers: { music: "elevenlabs", sfx: "elevenlabs" },
+    epidemic: null,
   };
 }
 

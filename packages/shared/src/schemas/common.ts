@@ -9,6 +9,10 @@ import { z } from "zod";
  * - min/max/довжини API не гарантує — SDK прибирає їх зі схеми, а перевіряє Zod після відповіді.
  */
 
+/** Провайдер музики чи SFX (`ADC_MUSIC_PROVIDER`, `ADC_SFX_PROVIDER`): генерація ElevenLabs або каталог Epidemic Sound. */
+export const AudioProvider = z.enum(["elevenlabs", "epidemic"]);
+export type AudioProvider = z.infer<typeof AudioProvider>;
+
 export const FORMATS = ["vertical", "square", "landscape"] as const;
 export const Format = z.enum(FORMATS);
 export type Format = z.infer<typeof Format>;

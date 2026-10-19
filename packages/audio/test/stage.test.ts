@@ -211,6 +211,8 @@ describe("audioStage", () => {
         { cue: "cup-clink", src: "sfx/cup-clink.mp3", durationMs: 800, volume: 0.6 },
       ],
       totalFrames: 450,
+      providers: { music: "elevenlabs", sfx: "elevenlabs" },
+      epidemic: null,
     });
     expect(plan.key).toBe("A minor");
     const soundtrack = decodeWav(await storage.read(rev.publicFile("soundtrack.wav")));
@@ -556,6 +558,8 @@ describe("computeAudioPlacements", () => {
         { cue: "riser", src: "sfx/riser.mp3", durationMs: 1_500, volume: 0.6 },
       ],
       totalFrames: 450,
+      providers: { music: "elevenlabs", sfx: "elevenlabs" },
+      epidemic: null,
     };
     const placements = computeAudioPlacements(storyboard, manifest);
     expect(placements).toEqual([

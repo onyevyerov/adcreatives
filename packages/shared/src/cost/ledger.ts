@@ -4,7 +4,7 @@ import { CostEvent, type TokenUnitsInput } from "../schemas/cost.ts";
 import type { CostPhase, CostStage } from "../schemas/project.ts";
 import { projectPaths, sharedPaths } from "../storage/paths.ts";
 import type { Storage } from "../storage/Storage.ts";
-import { type Priced, priceAnthropic, priceElevenLabs, priceRemotion } from "./prices.ts";
+import { type Priced, priceAnthropic, priceElevenLabs, priceEpidemic, priceRemotion } from "./prices.ts";
 
 /** Максимальний розмір рядка журналу: append до 4 КБ атомарний на POSIX. */
 export const MAX_COST_LINE_BYTES = 4096;
@@ -39,6 +39,12 @@ export type CostInput =
     })
   | (CostInputBase & {
       provider: "elevenlabs";
+      kind: "music" | "sfx";
+      model: string;
+      seconds: number;
+    })
+  | (CostInputBase & {
+      provider: "epidemic";
       kind: "music" | "sfx";
       model: string;
       seconds: number;
@@ -86,6 +92,8 @@ export function priceInput(
         units: { seconds: input.seconds },
         model: input.model,
       };
+    case "epidemic":
+      return { ...priceEpidemic(), units: { seconds: input.seconds }, model: input.model };
     case "remotion":
       return {
         ...priceRemotion(prices, input.renders),
