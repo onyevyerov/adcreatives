@@ -1,5 +1,6 @@
 import {
   AudioPlan,
+  type AudioProvider,
   type BrandKit,
   computeTimeline,
   framesToMs,
@@ -350,6 +351,21 @@ export function musicPlanHash(plan: AudioPlan): string {
   return inputsHash({
     modelId: MUSIC_MODEL_ID,
     outputFormat: MUSIC_OUTPUT_FORMAT,
+    compositionPlan: toCompositionPlan(plan),
+    promptFallback: plan.promptFallback,
+    trackMs: planTrackMs(plan),
+  });
+}
+
+/**
+ * Хеш плану музики з урахуванням провайдера: для `elevenlabs` — побайтно `musicPlanHash` (кеш не
+ * скидається); для `epidemic` — окремий простір ключів (без моделі й формату ElevenLabs), щоб трек
+ * одного провайдера не підхопився замість іншого.
+ */
+export function musicPlanHashFor(provider: AudioProvider, plan: AudioPlan): string {
+  if (provider === "elevenlabs") return musicPlanHash(plan);
+  return inputsHash({
+    provider,
     compositionPlan: toCompositionPlan(plan),
     promptFallback: plan.promptFallback,
     trackMs: planTrackMs(plan),

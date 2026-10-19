@@ -5,6 +5,7 @@ import { computeChunkLayout } from "../src/chunks.ts";
 import {
   audioPlanVars,
   musicPlanHash,
+  musicPlanHashFor,
   normalizeAudioPlan,
   planBpm,
   planMatchesLayout,
@@ -360,5 +361,31 @@ describe("normalizeAudioPlan", () => {
     expect(prompt.user).toContain("Track duration: 23000 ms");
     expect(prompt.user).toContain('"no stop in the first N seconds": 15');
     expect(prompt.system).toMatch(/no breakdown, no fill, no stop in the first N seconds/);
+  });
+});
+
+describe("musicPlanHashFor", () => {
+  const layout = computeChunkLayout(fixtureStoryboard);
+  const plan = normalizeAudioPlan(draftFor(layout), {
+    layout,
+    storyboard: fixtureStoryboard,
+    sanitizer,
+    standardCues,
+  });
+
+  it("musicPlanHash фікстури зафіксовано: ключі кешу ElevenLabs не змінюються", () => {
+    // Значення обчислено до появи Epidemic; змінилось — це баг, а не привід оновити очікування.
+    expect(musicPlanHash(plan)).toBe("3fcfb6b332e83235");
+    expect(musicPlanHashFor("elevenlabs", plan)).toBe("3fcfb6b332e83235");
+  });
+
+  it("epidemic — інший простір ключів, стабільний і чутливий до плану", () => {
+    const h = musicPlanHashFor("epidemic", plan);
+    expect(h).toMatch(/^[0-9a-f]{16}$/);
+    expect(h).not.toBe(musicPlanHash(plan));
+    expect(musicPlanHashFor("epidemic", structuredClone(plan))).toBe(h);
+    const changed = structuredClone(plan);
+    changed.promptFallback = "something else, instrumental";
+    expect(musicPlanHashFor("epidemic", changed)).not.toBe(h);
   });
 });
