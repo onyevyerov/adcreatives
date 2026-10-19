@@ -1,6 +1,7 @@
 import { aggregateCosts, type StatsReport, type StatsRow, statsToCsv } from "@adc/shared";
 import { Hono } from "hono";
 import type { ApiDeps } from "../deps.ts";
+import type { AppEnv } from "../session.ts";
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -110,8 +111,8 @@ ${fullCost}
 `;
 }
 
-export function statsRoutes(deps: ApiDeps): Hono {
-  const app = new Hono();
+export function statsRoutes(deps: ApiDeps): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
   const report = () =>
     aggregateCosts({
       storage: deps.storage,

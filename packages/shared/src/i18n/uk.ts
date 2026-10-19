@@ -62,6 +62,11 @@ export const I18N_KEYS = [
   "reviewFailed",
   "reviewScore",
   "reviewWarnings",
+  "insufficientCredits",
+  "insufficientCreditsFormats",
+  "chargedRevision",
+  "chargedFormats",
+  "refundedFailure",
 ] as const;
 export type I18nKey = (typeof I18N_KEYS)[number];
 
@@ -135,6 +140,13 @@ export const uk: Record<I18nKey, string> = {
   reviewFailed: "Рецензію пропущено",
   reviewScore: "Оцінка рецензента: {score}/10 — {summary}",
   reviewWarnings: "Зауваження рецензента ({count}):",
+  insufficientCredits:
+    "Не вистачає кредитів: потрібно {need}, у вас {have}. Поповніть баланс у кабінеті — і я продовжу.",
+  insufficientCreditsFormats:
+    "Не вистачає кредитів на додаткові формати: потрібно {need}, у вас {have}. Поповніть баланс або лишіть один формат.",
+  chargedRevision: "Списано {credits} кредитів за правку. Залишок: {balance}.",
+  chargedFormats: "Списано {credits} кредитів за додаткові формати ({count}). Залишок: {balance}.",
+  refundedFailure: "Не вдалося завершити ролик — {credits} кредитів повернуто на баланс.",
 };
 
 /** Підставляє {name} у шаблон. */

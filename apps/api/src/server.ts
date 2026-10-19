@@ -1,11 +1,24 @@
-import { createConsoleLogger, loadRootEnv, storageFromEnv } from "@adc/shared";
+import {
+  createAccountStore,
+  createConsoleLogger,
+  createOutboxMailer,
+  createRedisLock,
+  createSessionStore,
+  createStubPayment,
+  createTokenStore,
+  loadRootEnv,
+  storageFromEnv,
+} from "@adc/shared";
 import { createBullQueue } from "@adc/shared/bullmq";
 import { serve } from "@hono/node-server";
 import { Redis } from "ioredis";
 import { createApp } from "./app.ts";
 import { configFromEnv } from "./config.ts";
 
-/** Точка входу: `pnpm --filter @adc/api start` (PORT, APP_PASSWORD, REDIS_URL, DATA_DIR, COST_TARGET_USD). */
+/**
+ * Точка входу: `pnpm --filter @adc/api start`
+ * (PORT, APP_PASSWORD, REDIS_URL, DATA_DIR, COST_TARGET_USD, ADMIN_EMAILS, APP_URL).
+ */
 loadRootEnv();
 const logger = createConsoleLogger({ service: "api" });
 const config = configFromEnv();
@@ -22,10 +35,20 @@ const queue = createBullQueue({ connection: connect("bullmq") });
 const storage = storageFromEnv();
 const port = Number(process.env.PORT) || 3000;
 
-if (!config.appPassword)
-  logger.warn("APP_PASSWORD порожній — API без авторизації (лише для локальної розробки)");
+if (!config.appPassword) logger.warn("APP_PASSWORD порожній — staging-gate вимкнено, доступ лише за сесіями");
 
-const app = createApp({ storage, queue, redis, config, logger });
+const app = createApp({
+  storage,
+  queue,
+  redis,
+  config,
+  logger,
+  accounts: createAccountStore({ storage, lock: createRedisLock(redis) }),
+  sessions: createSessionStore(redis),
+  tokens: createTokenStore(redis),
+  mailer: createOutboxMailer({ storage, logger }),
+  payments: createStubPayment(config.appUrl),
+});
 const server = serve({ fetch: app.fetch, port }, (info) => {
   logger.info("API запущено", { port: info.port, dataDir: storage.root });
 });

@@ -1,6 +1,14 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { costTargetUsd, loadPrices, type Prices, type Resolver } from "@adc/shared";
+import {
+  type CreditsConfig,
+  costTargetUsd,
+  defaultCredits,
+  loadCredits,
+  loadPrices,
+  type Prices,
+  type Resolver,
+} from "@adc/shared";
 
 /** Тека зі статичною сторінкою чату (`apps/api/public`). */
 export const DEFAULT_PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -26,6 +34,20 @@ export interface ApiConfig {
   /** Скільки XREAD BLOCK чекає нових подій перед keep-alive коментарем SSE, мс. */
   sseBlockMs: number;
   now: () => Date;
+  /** ADMIN_EMAILS: кома, trim, lowercase. Роль обчислюється з e-mail на кожен запит. */
+  adminEmails: string[];
+  /** APP_URL — база для посилань у листах і checkout; дефолт http://localhost:${PORT}. */
+  appUrl: string;
+  /** `config/credits.json` (ціни в кредитах, пакети поповнення). */
+  credits: CreditsConfig;
+}
+
+/** `ADMIN_EMAILS`: адреси через кому → trim, lowercase, без порожніх. */
+export function parseAdminEmails(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.length > 0);
 }
 
 function safeLoadPrices(): Prices | null {
@@ -44,6 +66,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     publicDir: DEFAULT_PUBLIC_DIR,
     sseBlockMs: 15_000,
     now: () => new Date(),
+    adminEmails: parseAdminEmails(env.ADMIN_EMAILS),
+    appUrl: (env.APP_URL || `http://localhost:${Number(env.PORT) || 3000}`).replace(/\/+$/, ""),
+    // Без валідного config/credits.json API не стартує: ціни — частина контракту з клієнтом.
+    credits: loadCredits(),
   };
 }
 
@@ -55,6 +81,9 @@ export function defaultConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
     publicDir: DEFAULT_PUBLIC_DIR,
     sseBlockMs: 15_000,
     now: () => new Date(),
+    adminEmails: ["admin@example.com"],
+    appUrl: "http://localhost:3000",
+    credits: defaultCredits(),
     ...overrides,
   };
 }
