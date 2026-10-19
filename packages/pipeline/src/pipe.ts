@@ -1,4 +1,4 @@
-import { emptyCounters, PipelineCounters, ReviewIssue, StageName } from "@adc/shared";
+import { AudioProvider, emptyCounters, PipelineCounters, ReviewIssue, StageName } from "@adc/shared";
 import { z } from "zod";
 
 /**
@@ -52,6 +52,12 @@ export const PipeState = PipelineCounters.extend({
    * для pipeline.json ревізій, розпочатих до B4 (їхній audio вже поставлено без фази).
    */
   sfxMode: z.enum(["storyboard", "designer"]).default("storyboard"),
+  /**
+   * Провайдери музики і SFX ревізії, зафіксовані на старті режисури (`Tuning.musicProvider/sfxProvider`),
+   * як `sfxMode`: audio{music} і audio{mix} однієї ревізії несуть ті самі. Старі pipeline.json — ElevenLabs.
+   */
+  musicProvider: AudioProvider.default("elevenlabs"),
+  sfxProvider: AudioProvider.default("elevenlabs"),
   /** audio{music} завершено (трек і план готові, можна зводити). */
   musicDone: z.boolean().default(false),
   /** Останній sfx ревізії завершено (або впав — тоді зведення за розкадровкою). */

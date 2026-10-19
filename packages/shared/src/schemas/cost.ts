@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Format, IsoDate, RunSource } from "./common.ts";
 import { CostPhase, CostStage, ProjectStatus } from "./project.ts";
 
-export const Provider = z.enum(["anthropic", "elevenlabs", "remotion"]);
+export const Provider = z.enum(["anthropic", "elevenlabs", "remotion", "epidemic"]);
 export type Provider = z.infer<typeof Provider>;
 
 export const TokenUnits = z.object({
@@ -34,7 +34,7 @@ export const CostEvent = z.object({
   phase: CostPhase,
   source: RunSource,
   provider: Provider,
-  /** Модель Anthropic, model_id ElevenLabs або "remotion". */
+  /** Модель Anthropic, model_id ElevenLabs, "remotion" або "epidemic-catalog". */
   model: z.string(),
   promptName: z.string().nullable(),
   promptHash: z.string().nullable(),

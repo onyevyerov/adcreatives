@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AudioProvider } from "./common.ts";
 
 /**
  * Чанк композиції музики. Межі чанків = межі сцен за `computeTimeline`;
@@ -77,7 +78,10 @@ export const MusicMeta = z.object({
   planHash: z.string(),
   durationMs: z.number().int(),
   modelId: z.string(),
-  method: z.enum(["composeDetailed", "compose"]),
+  /** Звідки трек; старі `music.json` без поля — ElevenLabs. */
+  provider: AudioProvider.default("elevenlabs"),
+  /** catalog — трек з каталогу Epidemic. */
+  method: z.enum(["composeDetailed", "compose", "catalog"]),
   /** Промпт, який реально пішов (із заміною, якщо API запропонував). */
   promptUsed: z.string().nullable(),
   briefHash: z.string(),
@@ -88,5 +92,22 @@ export const MusicMeta = z.object({
   attempts: z.number().int().min(1).default(1),
   /** Зсув вікна відео в сирому треку (кратний такту), мс; `music.wav` уже обрізаний на нього. */
   offsetMs: z.number().int().min(0).default(0),
+  /** Лише provider=epidemic. */
+  epidemic: z
+    .object({
+      trackId: z.string(),
+      title: z.string(),
+      artists: z.array(z.string()),
+      /** Темп треку за каталогом і темп розкадровки, під який його підібрано. */
+      bpm: z.number().nullable(),
+      targetBpm: z.number(),
+      /** Темп кандидата поза допуском ±10 — узято найближчий (попередження у звіт). */
+      tempoWarning: z.boolean(),
+      versionJobId: z.string().nullable(),
+      /** Скільки кандидатів перевірено (1 — перший пройшов checkTrack). */
+      candidatesTried: z.number().int().min(1),
+    })
+    .nullable()
+    .default(null),
 });
 export type MusicMeta = z.infer<typeof MusicMeta>;

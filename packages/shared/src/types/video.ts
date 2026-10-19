@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { BrandKit, FontFile } from "../schemas/brandkit.ts";
-import { Focal, type Format } from "../schemas/common.ts";
+import { AudioProvider, Focal, type Format } from "../schemas/common.ts";
 import type { Scene, Storyboard } from "../schemas/storyboard.ts";
 
 /**
@@ -57,6 +57,22 @@ export const AudioManifest = z.object({
   ),
   /** Тривалість відео, під яку зібрано маніфест. */
   totalFrames: z.number().int(),
+  /** Хто дав музику і SFX цієї ревізії; старі маніфести — ElevenLabs. */
+  providers: z
+    .object({ music: AudioProvider, sfx: AudioProvider })
+    .default({ music: "elevenlabs", sfx: "elevenlabs" }),
+  /** Що взято з Epidemic у цій ревізії (для звіту eval); null — Epidemic не використовувався. */
+  epidemic: z
+    .object({
+      trackId: z.string().nullable(),
+      sfx: z.array(
+        z.object({ cue: z.string(), variant: z.number().int(), id: z.string(), title: z.string() }),
+      ),
+      /** Завантажень Epidemic, витрачених цією стадією (не з кешу). */
+      downloads: z.number().int().min(0),
+    })
+    .nullable()
+    .default(null),
 });
 export type AudioManifest = z.infer<typeof AudioManifest>;
 

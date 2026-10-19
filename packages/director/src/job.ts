@@ -219,6 +219,8 @@ export async function prepareJob(opts: PrepareJobOptions): Promise<PreparedJob> 
       mix: null,
       sfx: [],
       totalFrames: computeTimeline(storyboard).totalFrames,
+      providers: { music: "elevenlabs", sfx: "elevenlabs" },
+      epidemic: null,
     } satisfies AudioManifest);
   // Поточна версія, відхилена AST-guard, у реєстр не йде, навіть якщо на диску лишився старий файл.
   const rejected = rejectedScenes(await readLedger(storage, projectId, rev));

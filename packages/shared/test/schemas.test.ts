@@ -420,6 +420,55 @@ describe("Крок 0 «якість відео»: сумісність зі ст
     ).toThrow();
   });
 
+  it("тест Epidemic: старі music.json і audio.json без провайдерів — elevenlabs", () => {
+    const oldMusic = {
+      planHash: "p",
+      durationMs: 29_000,
+      modelId: "music_v2_5",
+      method: "composeDetailed",
+      promptUsed: null,
+      briefHash: "b",
+      createdAt: AT,
+    };
+    expect(MusicMeta.parse(oldMusic)).toMatchObject({ provider: "elevenlabs", epidemic: null });
+    const epidemic = {
+      trackId: "t1",
+      title: "Track",
+      artists: ["Artist"],
+      bpm: 92,
+      targetBpm: 90,
+      tempoWarning: false,
+      versionJobId: "job-1",
+      candidatesTried: 1,
+    };
+    expect(MusicMeta.parse({ ...oldMusic, provider: "epidemic", method: "catalog", epidemic })).toMatchObject(
+      { provider: "epidemic", method: "catalog", epidemic },
+    );
+    expect(() => MusicMeta.parse({ ...oldMusic, provider: "suno" })).toThrow();
+    expect(() =>
+      MusicMeta.parse({ ...oldMusic, provider: "epidemic", epidemic: { ...epidemic, candidatesTried: 0 } }),
+    ).toThrow();
+
+    const { providers: _p, epidemic: _e, ...oldManifest } = fixtureAudioManifest;
+    expect(AudioManifest.parse(oldManifest)).toMatchObject({
+      providers: { music: "elevenlabs", sfx: "elevenlabs" },
+      epidemic: null,
+    });
+    const used = {
+      trackId: null,
+      sfx: [{ cue: "whoosh", variant: 1, id: "s1", title: "Whoosh" }],
+      downloads: 3,
+    };
+    expect(
+      AudioManifest.parse({
+        ...oldManifest,
+        providers: { music: "elevenlabs", sfx: "epidemic" },
+        epidemic: used,
+      }),
+    ).toMatchObject({ providers: { music: "elevenlabs", sfx: "epidemic" }, epidemic: used });
+    expect(() => AudioManifest.parse({ ...oldManifest, epidemic: { ...used, downloads: -1 } })).toThrow();
+  });
+
   it("старий audio.json без mix і audio-plan.json без key", () => {
     const { mix: _mix, ...oldManifest } = fixtureAudioManifest;
     expect(AudioManifest.parse(oldManifest).mix).toBeNull();

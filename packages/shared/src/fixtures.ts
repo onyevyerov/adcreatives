@@ -326,6 +326,8 @@ export const fixtureAudioManifest: AudioManifest = {
     { cue: "pop", src: "sfx/pop.mp3", durationMs: 300, volume: 0.6 },
   ],
   totalFrames: 450,
+  providers: { music: "elevenlabs", sfx: "elevenlabs" },
+  epidemic: null,
 };
 
 export function fixtureProject(overrides: Partial<ProjectState> = {}): ProjectState {

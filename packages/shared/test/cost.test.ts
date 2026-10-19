@@ -8,6 +8,7 @@ import {
   loadPrices,
   priceAnthropic,
   priceElevenLabs,
+  priceEpidemic,
   priceRemotion,
   UnknownPriceError,
 } from "../src/cost/prices.ts";
@@ -94,6 +95,32 @@ describe("ledger", () => {
     expect(events[1]?.units).toEqual({ seconds: 16 });
     expect((await readCosts(s, null)).length).toBe(1);
     expect(sumUsd(events)).toBeCloseTo(0.024 + 0.04 + 0.01);
+  });
+
+  it("epidemic: безкоштовний тариф — usd 0, рядок валідний за CostEvent", async () => {
+    expect(priceEpidemic()).toEqual({ usd: 0, unitPrices: {} });
+    const s = tmpStorage();
+    const rec = createCostRecorder(s, prices, ctx({ stage: "audio" }));
+    const event = await rec.record({
+      provider: "epidemic",
+      kind: "music",
+      model: "epidemic-catalog",
+      seconds: 33,
+      detail: "music:epidemic:t1",
+    });
+    expect(event).toMatchObject({
+      provider: "epidemic",
+      model: "epidemic-catalog",
+      units: { seconds: 33 },
+      unitPrices: {},
+      usd: 0,
+      exact: true,
+      promptName: null,
+    });
+    await rec.record({ provider: "epidemic", kind: "sfx", model: "epidemic-catalog", seconds: 0.8 });
+    const events = await readCosts(s, "p1");
+    expect(events.map((e) => e.provider)).toEqual(["epidemic", "epidemic"]);
+    expect(sumUsd(events)).toBe(0);
   });
 
   it("skips broken lines and rejects invalid events", async () => {

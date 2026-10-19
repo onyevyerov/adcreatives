@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MIN_TASK_BUDGET } from "./llm/client.ts";
 import { Effort } from "./llm/prompts.ts";
+import { AudioProvider } from "./schemas/common.ts";
 
 /**
  * Перемикачі вартості й якості генерації (env воркера). Дефолти — погоджена конфігурація:
@@ -35,6 +36,10 @@ export const Tuning = z.object({
   filmReview: z.boolean().default(true),
   /** Кола рецензія → правки → рецензія. */
   reviewMaxRounds: z.number().int().min(0).max(2).default(1),
+  /** Хто дає музику: генерація ElevenLabs або трек з каталогу Epidemic Sound (тест, лише прототип). */
+  musicProvider: AudioProvider.default("elevenlabs"),
+  /** Хто дає SFX: генерація ElevenLabs або семпли з каталогу Epidemic Sound. */
+  sfxProvider: AudioProvider.default("elevenlabs"),
 });
 export type Tuning = z.infer<typeof Tuning>;
 
@@ -57,6 +62,8 @@ export const TUNING_ENV: Record<keyof Tuning, string> = {
   sfxMode: "ADC_SFX_MODE",
   filmReview: "ADC_FILM_REVIEW",
   reviewMaxRounds: "ADC_REVIEW_MAX_ROUNDS",
+  musicProvider: "ADC_MUSIC_PROVIDER",
+  sfxProvider: "ADC_SFX_PROVIDER",
 };
 
 const NUMBER_FIELDS = new Set<keyof Tuning>([
