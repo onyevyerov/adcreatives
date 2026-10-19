@@ -1,5 +1,6 @@
 import {
   type AudioManifest,
+  type AudioProvider,
   computeSfxPlacements,
   computeTimeline,
   msToFrames,
@@ -30,6 +31,10 @@ export interface ManifestInput {
     truePeakDbtp?: number | null;
     masterGainDb?: number | null;
   } | null;
+  /** Хто дав музику і SFX ревізії; дефолт — обидва ElevenLabs. */
+  providers?: { music: AudioProvider; sfx: AudioProvider };
+  /** Що взято з Epidemic; ігнорується (null), якщо обидва провайдери — ElevenLabs. */
+  epidemic?: AudioManifest["epidemic"];
 }
 
 /**
@@ -38,6 +43,8 @@ export interface ManifestInput {
  */
 export function buildAudioManifest(input: ManifestInput): AudioManifest {
   const timeline = computeTimeline(input.storyboard);
+  const providers = input.providers ?? { music: "elevenlabs", sfx: "elevenlabs" };
+  const usesEpidemic = providers.music === "epidemic" || providers.sfx === "epidemic";
   return {
     music: input.music
       ? {
@@ -64,8 +71,8 @@ export function buildAudioManifest(input: ManifestInput): AudioManifest {
       volume: SFX_VOLUME,
     })),
     totalFrames: timeline.totalFrames,
-    providers: { music: "elevenlabs", sfx: "elevenlabs" },
-    epidemic: null,
+    providers: { music: providers.music, sfx: providers.sfx },
+    epidemic: usesEpidemic ? (input.epidemic ?? null) : null,
   };
 }
 
