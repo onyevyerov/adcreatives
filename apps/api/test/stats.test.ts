@@ -1,7 +1,10 @@
 import { type CostEvent, type CostStage, projectPaths, type StatsReport } from "@adc/shared";
 import { fixtureProject } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
-import { setup } from "./helpers.ts";
+import { seedUser, setup } from "./helpers.ts";
+
+/** Статистика — лише для адміністратора: користувач за замовчуванням з `adminEmails`. */
+const ADMIN = { user: { email: "admin@example.com", admin: true } };
 
 function cost(projectId: string, usd: number, stage: CostStage, phase: CostEvent["phase"]): CostEvent {
   return {
@@ -30,7 +33,7 @@ function cost(projectId: string, usd: number, stage: CostStage, phase: CostEvent
 
 /** Фікстура: дешевий доставлений проєкт, дорогий (понад ціль) і покинутий. */
 async function seedStats() {
-  const env = await setup({ costTargetUsd: 3.5 });
+  const env = await setup({ costTargetUsd: 3.5 }, ADMIN);
   const seed = async (id: string, createdAt: string, delivered: boolean, events: CostEvent[]) => {
     const paths = projectPaths(id);
     await env.storage.writeJson(
@@ -67,7 +70,7 @@ async function seedStats() {
 describe("stats", () => {
   it("GET /api/stats — рядки, позначка понад ціль, підсумок", async () => {
     const env = await seedStats();
-    const res = await env.app.request("/api/stats");
+    const res = await env.request("/api/stats");
     expect(res.status).toBe(200);
     const report = (await res.json()) as StatsReport;
     expect(report.rows.map((r) => r.projectId)).toEqual(["abandoned", "pricey", "cheap"]);
@@ -88,7 +91,7 @@ describe("stats", () => {
 
   it("GET /api/stats.csv — та сама таблиця в CSV", async () => {
     const env = await seedStats();
-    const res = await env.app.request("/api/stats.csv");
+    const res = await env.request("/api/stats.csv");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/csv");
     const lines = (await res.text()).trim().split("\n");
@@ -99,7 +102,7 @@ describe("stats", () => {
 
   it("GET /stats — HTML-таблиця, дорогі рядки позначені", async () => {
     const env = await seedStats();
-    const res = await env.app.request("/stats");
+    const res = await env.request("/stats");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     const html = await res.text();
@@ -111,15 +114,15 @@ describe("stats", () => {
   });
 
   it("порожня статистика і ціль із конфігу", async () => {
-    const env = await setup({ costTargetUsd: 5 });
-    const report = (await (await env.app.request("/api/stats")).json()) as StatsReport;
+    const env = await setup({ costTargetUsd: 5 }, ADMIN);
+    const report = (await (await env.request("/api/stats")).json()) as StatsReport;
     expect(report.rows).toEqual([]);
     expect(report.summary.targetUsd).toBe(5);
-    expect(await (await env.app.request("/stats")).text()).toContain("Ще немає проєктів.");
+    expect(await (await env.request("/stats")).text()).toContain("Ще немає проєктів.");
   });
 
   it("HTML екранується", async () => {
-    const env = await setup();
+    const env = await setup({}, ADMIN);
     await env.storage.writeJson(
       projectPaths("xss").project,
       fixtureProject({
@@ -127,8 +130,46 @@ describe("stats", () => {
         input: { kind: "site", url: "https://x.example.com/<script>alert(1)</script>", manualText: null },
       }),
     );
-    const html = await (await env.app.request("/stats")).text();
+    const html = await (await env.request("/stats")).text();
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;");
+  });
+});
+
+describe("stats — лише для адміністратора", () => {
+  it("анонім: JSON/CSV → 401 JSON, /stats → 401 текстом", async () => {
+    const env = await setup({}, { user: null });
+    for (const route of ["/api/stats", "/api/stats.csv"]) {
+      const res = await env.app.request(route);
+      expect(res.status, route).toBe(401);
+      expect(await res.json()).toEqual({ error: "unauthorized", message: "Потрібно увійти." });
+    }
+    const page = await env.app.request("/stats");
+    expect(page.status).toBe(401);
+    expect(page.headers.get("content-type")).toContain("text/plain");
+    expect(await page.text()).toBe("Потрібно увійти.");
+  });
+
+  it("не-admin: JSON/CSV → 403 forbidden, /stats → 403 HTML без даних", async () => {
+    const env = await seedStats();
+    const plain = await seedUser(env, { email: "plain@example.com" });
+    for (const route of ["/api/stats", "/api/stats.csv"]) {
+      const res = await plain.request(route);
+      expect(res.status, route).toBe(403);
+      expect(await res.json()).toEqual({ error: "forbidden", message: "Лише для адміністратора." });
+    }
+    const page = await plain.request("/stats");
+    expect(page.status).toBe(403);
+    expect(page.headers.get("content-type")).toContain("text/html");
+    const html = await page.text();
+    expect(html).toContain("Лише для адміністратора");
+    expect(html).not.toContain("pricey");
+  });
+
+  it("admin → 200 на всіх трьох", async () => {
+    const env = await seedStats();
+    for (const route of ["/api/stats", "/api/stats.csv", "/stats"]) {
+      expect((await env.request(route)).status, route).toBe(200);
+    }
   });
 });

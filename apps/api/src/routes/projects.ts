@@ -4,9 +4,12 @@ import {
   appendEvent,
   assertPublicHttpUrl,
   classifySource,
+  InsufficientCreditsError,
   makeCommandJobId,
+  noopLogger,
   normalizeInputUrl,
   type PipelineCommand,
+  type PublicUser,
   readCosts,
   readTrace,
   sumUsd,
@@ -21,15 +24,17 @@ import { z } from "zod";
 import { MAX_MANUAL_TEXT_CHARS, MAX_MESSAGE_CHARS, MAX_UPLOAD_BODY_BYTES } from "../config.ts";
 import type { ApiDeps, ApiError } from "../deps.ts";
 import {
+  canSee,
   type IntakeFile,
   intakeKey,
   isProjectId,
   listProjectIds,
   projectExists,
+  projectOwner,
   readIntake,
   readProject,
 } from "../intake.ts";
-import type { AppEnv } from "../session.ts";
+import { type AppEnv, requireUser } from "../session.ts";
 import {
   collectFiles,
   fieldString,
@@ -50,8 +55,10 @@ const UNSAFE_REASON_TEXT: Record<UnsafeUrlReason, string> = {
   dns: "такий сайт не знайдено",
 };
 
-const fail = (c: Context, status: 400 | 403 | 404 | 413 | 422, error: string, message: string) =>
+const fail = (c: Context, status: 400 | 401 | 402 | 403 | 404 | 413 | 422, error: string, message: string) =>
   c.json<ApiError>({ error, message }, status);
+
+const notFound = (c: Context) => fail(c, 404, "not_found", "Проєкт не знайдено.");
 
 const CommandId = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/);
 
@@ -96,8 +103,16 @@ async function readJsonBody(c: Context): Promise<unknown> {
   return null;
 }
 
+/** Користувач сесії; маршрути нижче стоять за `requireUser()`, тож null тут — помилка монтування. */
+function currentUser(c: Context<AppEnv>): PublicUser {
+  const user = c.get("user");
+  if (!user) throw new Error("projectsRoutes: немає користувача — requireUser() не спрацював");
+  return user;
+}
+
 export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
-  const { storage, queue, redis, config } = deps;
+  const { storage, queue, redis, config, accounts } = deps;
+  const logger = deps.logger ?? noopLogger;
   const app = new Hono<AppEnv>();
   const uploadLimit = bodyLimit({
     maxSize: MAX_UPLOAD_BODY_BYTES,
@@ -114,10 +129,21 @@ export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
   const echoUser = (projectId: string, text: string) =>
     appendEvent(redis, projectId, { type: "message", at: config.now().toISOString(), role: "user", text });
 
-  // Перевірка ID і наявності проєкту для всіх маршрутів /:id/*.
+  /**
+   * Проєкт існує і поточний користувач його бачить. Чужий і неіснуючий — однаково false,
+   * щоб відповідь (404) не видавала існування чужого проєкту.
+   */
+  const visible = async (c: Context<AppEnv>, id: string | undefined): Promise<boolean> => {
+    if (!id || !(await projectExists(storage, id))) return false;
+    return canSee(currentUser(c), await projectOwner(storage, id));
+  };
+
+  // Усе під /api/projects — лише для користувачів із сесією.
+  app.use("*", requireUser());
+
+  // Перевірка ID, наявності й доступу для всіх маршрутів /:id/*.
   app.use("/:id/*", async (c, next) => {
-    const id = c.req.param("id");
-    if (!id || !(await projectExists(storage, id))) return fail(c, 404, "not_found", "Проєкт не знайдено.");
+    if (!(await visible(c, c.req.param("id")))) return notFound(c);
     return next();
   });
 
@@ -166,35 +192,96 @@ export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
       throw err;
     }
 
+    const user = currentUser(c);
     const projectId = nanoid();
     const commandId = nanoid();
     const issuedAt = config.now().toISOString();
-    const photos = await saveUploads(storage, projectId, files);
-    const intake: IntakeFile = {
-      projectId,
-      createdAt: issuedAt,
-      origin: "chat",
-      input: { kind: url ? "site" : "manual", url, manualText },
-      photos,
-      startCommandId: commandId,
-    };
-    await storage.writeJson(intakeKey(projectId), intake);
-    const echo = [url ?? manualText ?? "", photos.length > 0 ? `Фото: ${photos.length}` : ""]
-      .filter(Boolean)
-      .join("\n");
-    await echoUser(projectId, echo);
-    await enqueueCommand({ projectId, commandId, issuedAt, type: "start" });
-    return c.json({ id: projectId, chatUrl: `/?project=${projectId}` }, 201);
+    const price = config.credits.prices.video;
+
+    // Списання — до будь-якого запису: без кредитів не з'являється ні тека проєкту, ні джоба.
+    let balance: number;
+    try {
+      const { entry } = await accounts.apply(user.id, {
+        id: `video:${projectId}`,
+        kind: "charge",
+        credits: -price,
+        ref: { projectId },
+        note: "Відео",
+      });
+      balance = entry.balanceAfter;
+    } catch (err) {
+      if (err instanceof InsufficientCreditsError) {
+        return c.json(
+          {
+            error: "insufficient_credits",
+            message: t("insufficientCredits", { need: err.required, have: err.available }),
+            required: err.required,
+            available: err.available,
+          },
+          402,
+        );
+      }
+      throw err;
+    }
+
+    try {
+      const photos = await saveUploads(storage, projectId, files);
+      const intake: IntakeFile = {
+        projectId,
+        createdAt: issuedAt,
+        origin: "chat",
+        input: { kind: url ? "site" : "manual", url, manualText },
+        photos,
+        startCommandId: commandId,
+        ownerId: user.id,
+      };
+      await storage.writeJson(intakeKey(projectId), intake);
+      await accounts.addProject(user.id, projectId, issuedAt);
+      const echo = [url ?? manualText ?? "", photos.length > 0 ? `Фото: ${photos.length}` : ""]
+        .filter(Boolean)
+        .join("\n");
+      await echoUser(projectId, echo);
+      await enqueueCommand({ projectId, commandId, issuedAt, type: "start" });
+    } catch (err) {
+      // Проєкт не стартував — повертаємо списане (best-effort: збій повернення лише логуємо).
+      if (price > 0) {
+        await accounts
+          .apply(user.id, {
+            id: `refund:${projectId}`,
+            kind: "refund",
+            credits: price,
+            ref: { projectId },
+            note: "Повернення: проєкт не створено",
+          })
+          .catch((refundErr: unknown) =>
+            logger.error("не вдалося повернути кредити", {
+              projectId,
+              userId: user.id,
+              error: String(refundErr),
+            }),
+          );
+      }
+      throw err;
+    }
+    return c.json({ id: projectId, chatUrl: `/?project=${projectId}`, balance }, 201);
   });
 
   app.get("/", async (c) => {
+    const user = currentUser(c);
+    const all = user.isAdmin && c.req.query("all") === "1";
+    const ids = all ? await listProjectIds(storage) : await accounts.listProjectIds(user.id);
     const out = [];
-    for (const id of await listProjectIds(storage)) {
+    for (const id of ids) {
+      if (!isProjectId(id)) continue;
       const project = await readProject(storage, id);
       const intake = project ? null : await readIntake(storage, id);
+      // Неіснуючі (або биті) id з індексу пропускаються.
       if (!project && !intake) continue;
+      const ownerId = await projectOwner(storage, id);
+      if (!canSee(user, ownerId)) continue;
       out.push({
         id,
+        ownerId,
         createdAt: project?.createdAt ?? intake?.createdAt ?? null,
         status: project?.status ?? "intake",
         site: (project?.input ?? intake?.input)?.url ?? null,
@@ -209,10 +296,11 @@ export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
 
   app.get("/:id", async (c) => {
     const id = c.req.param("id");
-    if (!isProjectId(id)) return fail(c, 404, "not_found", "Проєкт не знайдено.");
+    if (!isProjectId(id)) return notFound(c);
     const project = await readProject(storage, id);
     const intake = await readIntake(storage, id);
-    if (!project && !intake) return fail(c, 404, "not_found", "Проєкт не знайдено.");
+    if (!project && !intake) return notFound(c);
+    if (!canSee(currentUser(c), await projectOwner(storage, id))) return notFound(c);
     return c.json({
       id,
       status: project?.status ?? "intake",

@@ -2,13 +2,16 @@ import { makeCommandJobId, type PipelineJob, projectPaths, readEvents, t } from 
 import { fixtureProject } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { IntakeFile, intakeKey } from "../src/intake.ts";
-import { form, json, NOW, photo, setup } from "./helpers.ts";
+import { type Env, form, json, NOW, photo, setup } from "./helpers.ts";
 
 const commands = (pipeline: PipelineJob[]) =>
   pipeline.flatMap((j) => (j.kind === "command" ? [j.command] : []));
 
-async function createProject(env: Awaited<ReturnType<typeof setup>>, fields = {}) {
-  const res = await env.app.request("/api/projects", {
+/** Користувач із запасом кредитів на кілька стартів проєкту. */
+const funded = () => setup({}, { user: { credits: 100 } });
+
+async function createProject(env: Env, fields = {}) {
+  const res = await env.request("/api/projects", {
     method: "POST",
     body: form({ url: "https://zerno.example.com", ...fields }),
   });
@@ -18,15 +21,16 @@ async function createProject(env: Awaited<ReturnType<typeof setup>>, fields = {}
 
 describe("POST /api/projects", () => {
   it("створює проєкт з URL і фото: intake.json, uploads/, команда start, ехо в чат", async () => {
-    const env = await setup();
-    const res = await env.app.request("/api/projects", {
+    const env = await funded();
+    const res = await env.request("/api/projects", {
       method: "POST",
       body: form({ url: "zerno.example.com/menu", photos: [photo("кава 1.jpg"), photo("b.HEIC", 64)] }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { id: string; chatUrl: string };
+    const body = (await res.json()) as { id: string; chatUrl: string; balance: number };
     expect(body.id).toMatch(/^[A-Za-z0-9_-]{21}$/);
     expect(body.chatUrl).toBe(`/?project=${body.id}`);
+    expect(body.balance).toBe(100 - env.config.credits.prices.video);
 
     const intake = await env.storage.readJson(intakeKey(body.id), (v) => IntakeFile.parse(v));
     expect(intake).toMatchObject({
@@ -59,8 +63,8 @@ describe("POST /api/projects", () => {
   });
 
   it("ручний режим: лише текст → input.kind = manual", async () => {
-    const env = await setup();
-    const res = await env.app.request("/api/projects", {
+    const env = await funded();
+    const res = await env.request("/api/projects", {
       method: "POST",
       body: form({ manualText: "Кав'ярня «Зерно», Львів. Капучино 65 грн." }),
     });
@@ -76,8 +80,8 @@ describe("POST /api/projects", () => {
   });
 
   it("приймає JSON без фото", async () => {
-    const env = await setup();
-    const res = await env.app.request("/api/projects", json({ url: "https://zerno.example.com/" }));
+    const env = await funded();
+    const res = await env.request("/api/projects", json({ url: "https://zerno.example.com/" }));
     expect(res.status).toBe(201);
   });
 
@@ -87,8 +91,8 @@ describe("POST /api/projects", () => {
     ["https://rozetka.com.ua/ua/shop/zerno/", "marketplace"],
     ["https://www.amazon.de/dp/B000", "marketplace"],
   ])("соцмережа/маркетплейс %s → дружня відмова, краулер не стартує", async (url, kind) => {
-    const env = await setup();
-    const res = await env.app.request("/api/projects", { method: "POST", body: form({ url }) });
+    const env = await funded();
+    const res = await env.request("/api/projects", { method: "POST", body: form({ url }) });
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error: string; kind: string; message: string };
     expect(body).toEqual({ error: "unsupported_source", kind, message: t("needSiteOrManual") });
@@ -108,8 +112,8 @@ describe("POST /api/projects", () => {
     ["ftp://example.com/file", "protocol"],
     ["https://user:pass@example.com/", "credentials"],
   ])("небезпечна адреса %s → 422 (%s)", async (url, reason) => {
-    const env = await setup();
-    const res = await env.app.request("/api/projects", { method: "POST", body: form({ url }) });
+    const env = await funded();
+    const res = await env.request("/api/projects", { method: "POST", body: form({ url }) });
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error: string; reason: string; message: string };
     expect(body.error).toBe("unsafe_url");
@@ -120,16 +124,16 @@ describe("POST /api/projects", () => {
   });
 
   it("порожній запит → 400", async () => {
-    const env = await setup();
-    const res = await env.app.request("/api/projects", { method: "POST", body: form({ url: "  " }) });
+    const env = await funded();
+    const res = await env.request("/api/projects", { method: "POST", body: form({ url: "  " }) });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toBe("empty_input");
   });
 
   it("понад 10 фото → 400, нічого не створено", async () => {
-    const env = await setup();
+    const env = await funded();
     const photos = Array.from({ length: 11 }, (_, i) => photo(`p${i}.jpg`));
-    const res = await env.app.request("/api/projects", {
+    const res = await env.request("/api/projects", {
       method: "POST",
       body: form({ url: "https://zerno.example.com", photos }),
     });
@@ -139,7 +143,7 @@ describe("POST /api/projects", () => {
   });
 
   it("порожня частина input file ігнорується", async () => {
-    const env = await setup();
+    const env = await funded();
     const id = await createProject(env, { photos: new File([], "", { type: "application/octet-stream" }) });
     const intake = await env.storage.readJson(intakeKey(id), (v) => IntakeFile.parse(v));
     expect(intake.photos).toEqual([]);
@@ -148,10 +152,10 @@ describe("POST /api/projects", () => {
 
 describe("GET /api/projects[/:id]", () => {
   it("до project.json віддає стан intake, після — стан оркестратора; список і trace", async () => {
-    const env = await setup();
+    const env = await funded();
     const id = await createProject(env);
 
-    let res = await env.app.request(`/api/projects/${id}`);
+    let res = await env.request(`/api/projects/${id}`);
     expect(res.status).toBe(200);
     let body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({ id, status: "intake", project: null, totalUsd: 0 });
@@ -162,12 +166,12 @@ describe("GET /api/projects[/:id]", () => {
       projectPaths(id).project,
       fixtureProject({ id, status: "awaiting_brand", createdAt: NOW.toISOString() }),
     );
-    res = await env.app.request(`/api/projects/${id}`);
+    res = await env.request(`/api/projects/${id}`);
     body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe("awaiting_brand");
     expect(body.project).toMatchObject({ id, status: "awaiting_brand" });
 
-    res = await env.app.request("/api/projects");
+    res = await env.request("/api/projects");
     const list = (await res.json()) as { projects: Array<{ id: string; status: string }> };
     expect(list.projects).toEqual([
       expect.objectContaining({ id, status: "awaiting_brand", chatUrl: `/?project=${id}` }),
@@ -189,7 +193,7 @@ describe("GET /api/projects[/:id]", () => {
         prompts: [],
       }),
     );
-    res = await env.app.request(`/api/projects/${id}/trace`);
+    res = await env.request(`/api/projects/${id}/trace`);
     expect(res.status).toBe(200);
     const trace = (await res.json()) as { totalMs: number; entries: unknown[] };
     expect(trace.totalMs).toBe(1500);
@@ -197,19 +201,19 @@ describe("GET /api/projects[/:id]", () => {
   });
 
   it("неіснуючий або некоректний ID → 404", async () => {
-    const env = await setup();
-    expect((await env.app.request("/api/projects/nope")).status).toBe(404);
-    expect((await env.app.request("/api/projects/a.b")).status).toBe(404);
-    expect((await env.app.request("/api/projects/nope/trace")).status).toBe(404);
-    expect((await env.app.request("/api/projects/nope/messages", json({ text: "x" }))).status).toBe(404);
+    const env = await funded();
+    expect((await env.request("/api/projects/nope")).status).toBe(404);
+    expect((await env.request("/api/projects/a.b")).status).toBe(404);
+    expect((await env.request("/api/projects/nope/trace")).status).toBe(404);
+    expect((await env.request("/api/projects/nope/messages", json({ text: "x" }))).status).toBe(404);
   });
 });
 
 describe("messages, commands, uploads", () => {
   it("повідомлення → user_message у черзі + ехо в стрім", async () => {
-    const env = await setup();
+    const env = await funded();
     const id = await createProject(env);
-    const res = await env.app.request(`/api/projects/${id}/messages`, json({ text: "  Зробіть 16:9  " }));
+    const res = await env.request(`/api/projects/${id}/messages`, json({ text: "  Зробіть 16:9  " }));
     expect(res.status).toBe(202);
     const body = (await res.json()) as { commandId: string; messageId: string; eventId: string };
     const cmd = commands(env.queue.pipeline).at(-1);
@@ -217,16 +221,16 @@ describe("messages, commands, uploads", () => {
     const events = await readEvents(env.redis, id);
     expect(events.at(-1)).toMatchObject({ id: body.eventId, event: { role: "user", text: "Зробіть 16:9" } });
 
-    expect((await env.app.request(`/api/projects/${id}/messages`, json({ text: "   " }))).status).toBe(400);
-    expect(
-      (await env.app.request(`/api/projects/${id}/messages`, json({ text: "x".repeat(4001) }))).status,
-    ).toBe(400);
+    expect((await env.request(`/api/projects/${id}/messages`, json({ text: "   " }))).status).toBe(400);
+    expect((await env.request(`/api/projects/${id}/messages`, json({ text: "x".repeat(4001) }))).status).toBe(
+      400,
+    );
   });
 
   it("команди approve | set_logo | retry | restart_confirmed з jobId за commandId", async () => {
-    const env = await setup();
+    const env = await funded();
     const id = await createProject(env);
-    const send = (body: unknown) => env.app.request(`/api/projects/${id}/commands`, json(body));
+    const send = (body: unknown) => env.request(`/api/projects/${id}/commands`, json(body));
 
     expect((await send({ type: "approve", rev: 2 })).status).toBe(202);
     expect((await send({ type: "approve" })).status).toBe(202);
@@ -250,9 +254,9 @@ describe("messages, commands, uploads", () => {
   });
 
   it("невідомі або некоректні команди → 400", async () => {
-    const env = await setup();
+    const env = await funded();
     const id = await createProject(env);
-    const send = (body: unknown) => env.app.request(`/api/projects/${id}/commands`, json(body));
+    const send = (body: unknown) => env.request(`/api/projects/${id}/commands`, json(body));
     for (const body of [
       { type: "start" },
       { type: "user_message", text: "x" },
@@ -271,9 +275,9 @@ describe("messages, commands, uploads", () => {
   });
 
   it("uploads → файли в uploads/ і photos_added з ключами", async () => {
-    const env = await setup();
+    const env = await funded();
     const id = await createProject(env);
-    const res = await env.app.request(`/api/projects/${id}/uploads`, {
+    const res = await env.request(`/api/projects/${id}/uploads`, {
       method: "POST",
       body: form({ photos: [photo("../../evil.jpg"), photo("IMG_0001.HEIC")] }),
     });
@@ -288,7 +292,7 @@ describe("messages, commands, uploads", () => {
     const cmd = commands(env.queue.pipeline).at(-1);
     expect(cmd).toEqual(expect.objectContaining({ type: "photos_added", files: body.files }));
 
-    const empty = await env.app.request(`/api/projects/${id}/uploads`, { method: "POST", body: form({}) });
+    const empty = await env.request(`/api/projects/${id}/uploads`, { method: "POST", body: form({}) });
     expect(empty.status).toBe(400);
   });
 });
