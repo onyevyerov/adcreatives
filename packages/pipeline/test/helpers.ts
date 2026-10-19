@@ -64,10 +64,16 @@ export interface HarnessOptions {
   echoUserMessages?: boolean;
   /**
    * Перемикачі драйвера (`generationMode: "agent"` — сцени пише стадія author; `sfxMode`, `filmReview`,
-   * `reviewMaxRounds` — звукорежисер і рецензент). Не задані поля машина бере з env.
+   * `reviewMaxRounds` — звукорежисер і рецензент; `musicProvider`, `sfxProvider` — хто дає музику і SFX).
+   * Не задані поля машина бере з env.
    */
   tuning?: () => Pick<Tuning, "speculativeRender"> &
-    Partial<Pick<Tuning, "generationMode" | "sfxMode" | "filmReview" | "reviewMaxRounds">>;
+    Partial<
+      Pick<
+        Tuning,
+        "generationMode" | "sfxMode" | "musicProvider" | "sfxProvider" | "filmReview" | "reviewMaxRounds"
+      >
+    >;
   /** Зауваження, які фейковий `review` пише в `review.json` (n — номер виклику стадії). */
   reviewIssues?: (n: number) => ReviewIssue[];
 }
