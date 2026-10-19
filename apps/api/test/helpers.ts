@@ -1,12 +1,30 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { LocalStorage, MemoryQueue, type Resolver } from "@adc/shared";
+import {
+  type AccountStore,
+  createAccountStore,
+  createMemoryLock,
+  createOutboxMailer,
+  createSessionStore,
+  createStubPayment,
+  createTokenStore,
+  LocalStorage,
+  type Mailer,
+  MemoryQueue,
+  type PaymentProvider,
+  type PublicUser,
+  type Resolver,
+  type SessionStore,
+  type TokenStore,
+} from "@adc/shared";
+import type { Hono } from "hono";
 import type { Redis } from "ioredis";
 import RedisMock from "ioredis-mock";
 import { onTestFinished } from "vitest";
 import { createApp } from "../src/app.ts";
 import { type ApiConfig, defaultConfig } from "../src/config.ts";
+import { type AppEnv, isAdminEmail, SESSION_COOKIE, toPublic } from "../src/session.ts";
 
 export const NOW = new Date("2026-10-06T10:00:00.000Z");
 
@@ -17,7 +35,57 @@ export const fakeResolver: Resolver = async (host) => {
   return ["93.184.216.34"];
 };
 
-export async function setup(overrides: Partial<ApiConfig> = {}) {
+export type RequestFn = (path: string, init?: RequestInit) => Promise<Response>;
+
+export interface SeedUserInput {
+  email?: string;
+  name?: string;
+  admin?: boolean;
+  activated?: boolean;
+  credits?: number;
+}
+
+export interface Env {
+  app: Hono<AppEnv>;
+  storage: LocalStorage;
+  queue: MemoryQueue;
+  redis: Redis;
+  config: ApiConfig;
+  root: string;
+  dataDir: string;
+  accounts: AccountStore;
+  sessions: SessionStore;
+  tokens: TokenStore;
+  mailer: Mailer;
+  payments: PaymentProvider;
+  /** Користувач за замовчуванням (активований, із сесією); null — анонім. */
+  user: PublicUser | null;
+  /** `adc_session=<token>` користувача за замовчуванням; null — анонім. */
+  cookie: string | null;
+  /** `app.request` з cookie сесії користувача за замовчуванням (анонім — без Cookie). */
+  request: RequestFn;
+}
+
+/** Запит до застосунку з `Cookie: <cookie>` (дописується до наявного заголовка Cookie). */
+function requestWith(app: Hono<AppEnv>, cookie: string | null): RequestFn {
+  return async (path, init = {}) => {
+    if (!cookie) return app.request(path, init);
+    const headers = new Headers(init.headers);
+    const prev = headers.get("cookie");
+    headers.set("cookie", prev ? `${prev}; ${cookie}` : cookie);
+    return app.request(path, { ...init, headers });
+  };
+}
+
+/**
+ * Тестове оточення API. `opts.user` за замовчуванням — `{ email: "user@example.com", name: "Тест" }`:
+ * активований, із сесією (`env.request` підмішує cookie). `opts.user === null` — анонім.
+ * `env.app.request` лишається для анонімних перевірок.
+ */
+export async function setup(
+  overrides: Partial<ApiConfig> = {},
+  opts: { user?: SeedUserInput | null } = {},
+): Promise<Env> {
   const root = mkdtempSync(path.join(tmpdir(), "adc-api-"));
   const dataDir = path.join(root, "data");
   const storage = new LocalStorage(dataDir);
@@ -27,9 +95,63 @@ export async function setup(overrides: Partial<ApiConfig> = {}) {
   await redis.flushall();
   onTestFinished(() => redis.disconnect());
   const config = defaultConfig({ resolve: fakeResolver, sseBlockMs: 100, now: () => NOW, ...overrides });
-  const app = createApp({ storage, queue, redis, config });
-  return { app, storage, queue, redis, config, root, dataDir };
+  const accounts = createAccountStore({ storage, lock: createMemoryLock(), now: config.now });
+  const sessions = createSessionStore(redis);
+  const tokens = createTokenStore(redis);
+  const mailer = createOutboxMailer({ storage, now: config.now });
+  const payments = createStubPayment(config.appUrl);
+  const app = createApp({ storage, queue, redis, config, accounts, sessions, tokens, mailer, payments });
+  const env: Env = {
+    app,
+    storage,
+    queue,
+    redis,
+    config,
+    root,
+    dataDir,
+    accounts,
+    sessions,
+    tokens,
+    mailer,
+    payments,
+    user: null,
+    cookie: null,
+    request: requestWith(app, null),
+  };
+  if (opts.user !== null) {
+    const seeded = await seedUser(env, { email: "user@example.com", name: "Тест", ...opts.user });
+    env.user = seeded.user;
+    env.cookie = seeded.cookie;
+    env.request = seeded.request;
+  }
+  return env;
 }
+
+/**
+ * Створює користувача напряму через `accounts` (+ `bonus:seed:<uid>` на `credits`) і сесію.
+ * `admin` — лише через `adminEmails` конфігу: e-mail дописується туди, якщо його там немає.
+ */
+export async function seedUser(
+  env: Env,
+  u: SeedUserInput & { email: string },
+): Promise<{ user: PublicUser; cookie: string; request: RequestFn }> {
+  if (u.admin && !isAdminEmail(env.config, u.email))
+    env.config.adminEmails.push(u.email.trim().toLowerCase());
+  let user = await env.accounts.createUser({
+    email: u.email,
+    name: u.name ?? "Тест",
+    password: SEED_PASSWORD,
+  });
+  if (u.activated !== false)
+    user = await env.accounts.updateUser(user.id, { activatedAt: env.config.now().toISOString() });
+  if (u.credits)
+    await env.accounts.apply(user.id, { id: `bonus:seed:${user.id}`, kind: "bonus", credits: u.credits });
+  const cookie = `${SESSION_COOKIE}=${await env.sessions.create(user.id)}`;
+  return { user: toPublic(user, env.config.adminEmails), cookie, request: requestWith(env.app, cookie) };
+}
+
+/** Пароль, з яким `seedUser` створює користувачів. */
+export const SEED_PASSWORD = "password123";
 
 export function basic(password: string, user = "team"): string {
   return `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`;

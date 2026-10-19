@@ -4,6 +4,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import type { Context } from "hono";
 import type { ApiDeps } from "../deps.ts";
+import type { AppEnv } from "../session.ts";
 
 export const FILES_PREFIX = "/files/";
 
@@ -87,7 +88,7 @@ const SECURITY_HEADERS = {
 
 /** `GET /files/*` — файли лише всередині DATA_DIR. */
 export function filesHandler(deps: ApiDeps) {
-  return async (c: Context) => {
+  return async (c: Context<AppEnv>) => {
     const pathname = new URL(c.req.url).pathname;
     const key = pathname.startsWith(FILES_PREFIX) ? decodeFileKey(pathname.slice(FILES_PREFIX.length)) : null;
     if (!key) return c.text("Недопустимий шлях", 400);

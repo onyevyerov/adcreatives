@@ -23,6 +23,7 @@ import {
   CheckReport,
   ClaimsReport,
   CostEvent,
+  IntakeFile,
   intentHasEdits,
   MusicMeta,
   normalizeFormats,
@@ -642,6 +643,23 @@ describe("Крок 0 «прогалини якості»: сумісність �
     const design = fixtureSiteData.design;
     if (!design) throw new Error("fixtureSiteData без design");
     roundTrip(SiteData, { ...fixtureSiteData, design: { ...design, fontFaces: [face] } });
+  });
+});
+
+describe("Крок 0 «акаунти»: ownerId адитивний", () => {
+  it("старі project.json та intake.json без ownerId парсяться, новий ownerId зберігається", () => {
+    const { ownerId: _absent, ...oldProject } = fixtureProject();
+    expect(ProjectState.parse(oldProject).ownerId).toBeUndefined();
+    expect(ProjectState.parse({ ...oldProject, ownerId: "u_owner001" }).ownerId).toBe("u_owner001");
+    const oldIntake = {
+      projectId: "p1",
+      createdAt: AT,
+      input: { kind: "site", url: "https://zerno.example.com/", manualText: null },
+    };
+    const intake = IntakeFile.parse(oldIntake);
+    expect(intake.ownerId).toBeUndefined();
+    expect(intake.photos).toEqual([]);
+    expect(IntakeFile.parse({ ...oldIntake, ownerId: "u_owner001" }).ownerId).toBe("u_owner001");
   });
 });
 

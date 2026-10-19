@@ -4,12 +4,14 @@ import {
   type ChatIntent,
   type Checkpoint,
   type CostStage,
+  type CreditPrices,
   checkpointOf,
   type FactKind,
   type Format,
   intentHasEdits,
   isBusy,
   type Language,
+  type LedgerEntry,
   makeJobId,
   type NextStepResult,
   normalizeFormats,
@@ -114,6 +116,11 @@ export interface StepContext {
   reviewMaxRounds?: number;
   /** Зауваження `review.json` щойно завершеної рецензії (драйвер читає на подію `review`). */
   reviewIssues?: ReviewIssue[];
+  /**
+   * Білінг власника проєкту: ціни і баланс (оптимістичний, знятий драйвером до кроку).
+   * null/не задано — проєкт без власника (eval, тести, старі), кредити не списуються.
+   */
+  billing?: { prices: CreditPrices; balance: number } | null;
 }
 
 export type GenerationMode = "pipeline" | "agent";
@@ -129,7 +136,14 @@ export type Effect =
   /** Подія `cost` після стадії. */
   | { type: "cost"; stage: CostStage; rev: number; durationMs: number }
   /** Видача: відео + постер кожного формату і розбивка витрат. */
-  | { type: "delivery"; rev: number; formats: Format[] };
+  | { type: "delivery"; rev: number; formats: Format[] }
+  /**
+   * Списати кредити власника (`key` — ключ ідемпотентності леджера). Драйвер виконує його
+   * до запису стану й постановки джоб; нестача кредитів відкидає весь крок.
+   */
+  | { type: "charge"; key: string; credits: number; note: string; ref: LedgerEntry["ref"] }
+  /** Повернути кредити власнику (`credits` > 0); виконується так само до запису стану. */
+  | { type: "refund"; key: string; credits: number; note: string; ref: LedgerEntry["ref"] };
 
 export interface StepResult extends NextStepResult {
   pipe: PipeState;

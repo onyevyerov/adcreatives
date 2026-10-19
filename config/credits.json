@@ -1,0 +1,13 @@
+{
+  "checkedAt": "2026-10-19",
+  "currency": "credits",
+  "creditsPerUsd": 1,
+  "prices": { "video": 10, "revision": 3, "extraFormat": 2 },
+  "packages": [
+    { "id": "starter", "credits": 10, "priceUsd": 10, "label": "Старт" },
+    { "id": "standard", "credits": 25, "priceUsd": 25, "label": "Кілька роликів" },
+    { "id": "pro", "credits": 60, "priceUsd": 60, "label": "Серія" }
+  ],
+  "custom": { "min": 5, "max": 500 },
+  "signupBonus": 0
+}

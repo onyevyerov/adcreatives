@@ -29,6 +29,7 @@ import {
   readIntake,
   readProject,
 } from "../intake.ts";
+import type { AppEnv } from "../session.ts";
 import {
   collectFiles,
   fieldString,
@@ -95,9 +96,9 @@ async function readJsonBody(c: Context): Promise<unknown> {
   return null;
 }
 
-export function projectsRoutes(deps: ApiDeps): Hono {
+export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
   const { storage, queue, redis, config } = deps;
-  const app = new Hono();
+  const app = new Hono<AppEnv>();
   const uploadLimit = bodyLimit({
     maxSize: MAX_UPLOAD_BODY_BYTES,
     onError: (c) => fail(c, 413, "body_too_large", "Забагато даних за раз: до 10 фото по 25 МБ."),

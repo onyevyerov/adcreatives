@@ -1,8 +1,10 @@
 import {
+  type AccountStore,
   type AnthropicLike,
   type BrandKitFile,
   type ChatIntent,
   type CostPhase,
+  type CreditPrices,
   createCostRecorder,
   createLlm,
   type Emitter,
@@ -91,6 +93,11 @@ export interface PipelineDriverDeps {
         "generationMode" | "sfxMode" | "musicProvider" | "sfxProvider" | "filmReview" | "reviewMaxRounds"
       >
     >;
+  /**
+   * Кредитний білінг власників проєктів (`AccountStore` + ціни з `config/credits.json`).
+   * Не задано — кредити не списуються (eval, тести); проєкти без `ownerId` — теж.
+   */
+  billing?: { store: AccountStore; prices: CreditPrices };
 }
 
 export interface PipelineDriverImpl extends PipelineDriver {
@@ -127,6 +134,8 @@ export function createInitialProject(input: {
   origin?: RunSource;
   formats?: Format[];
   now?: Date;
+  /** Власник (`IntakeFile.ownerId`); не задано — проєкт без білінгу. */
+  ownerId?: string;
 }): ProjectState {
   const at = (input.now ?? new Date()).toISOString();
   return ProjectState.parse({
@@ -155,6 +164,7 @@ export function createInitialProject(input: {
     restartRequested: false,
     firstDeliveredAt: null,
     deliveredAt: null,
+    ...(input.ownerId !== undefined ? { ownerId: input.ownerId } : {}),
   });
 }
 
@@ -311,6 +321,9 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
     switch (effect.type) {
       case "cost":
         return; // пораховано в stageCostEvents до запису стану
+      case "charge":
+      case "refund":
+        return; // виконується в step() до запису стану
       case "checkpoint": {
         let events: StepResult["events"];
         if (effect.checkpoint === "brand") events = await buildBrandCheckpoint(storage, project, effect.rev);

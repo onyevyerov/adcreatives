@@ -162,6 +162,8 @@ export const ProjectState = z.object({
   restartRequested: z.boolean(),
   firstDeliveredAt: IsoDate.nullable(),
   deliveredAt: IsoDate.nullable(),
+  /** Власник проєкту (User.id). Відсутнє — проєкт без білінгу: eval, тести, старі проєкти. */
+  ownerId: z.string().optional(),
 });
 export type ProjectState = z.infer<typeof ProjectState>;
 
@@ -180,6 +182,8 @@ export const IntakeFile = z.object({
   photos: z.array(z.string()).default([]),
   /** commandId команди `start`, поставленої разом із цим файлом. */
   startCommandId: z.string().optional(),
+  /** Власник проєкту (User.id). Відсутнє — проєкт без білінгу: eval, тести, старі проєкти. */
+  ownerId: z.string().optional(),
 });
 export type IntakeFile = z.infer<typeof IntakeFile>;
 
