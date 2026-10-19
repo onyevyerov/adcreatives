@@ -1,12 +1,15 @@
 # Сервер: те саме демо за Caddy з HTTPS для APP_DOMAIN.
 #   docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
-# Потрібно в .env: APP_DOMAIN (DNS → сервер), APP_PASSWORD (не порожній — демо в інтернеті), ключі API.
+# Потрібно в .env: APP_DOMAIN (DNS → сервер), ключі API, ADMIN_EMAILS (адміністратори).
+# APP_URL за замовчуванням — https://${APP_DOMAIN}; APP_PASSWORD — опційний Basic-gate поверх акаунтів.
 services:
   api:
     # Назовні — лише через Caddy.
     ports: !reset []
     environment:
-      APP_PASSWORD: ${APP_PASSWORD:?APP_PASSWORD порожній — на сервері пароль обов'язковий}
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      APP_URL: ${APP_URL:-https://${APP_DOMAIN}}
 
   caddy:
     image: caddy:2-alpine

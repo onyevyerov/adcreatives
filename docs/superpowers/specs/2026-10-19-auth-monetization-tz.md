@@ -797,9 +797,31 @@ B4 — єдиний, хто торкається pipeline; B2 — єдиний, 
 
 | Блок | Коміт | Що зроблено |
 |---|---|---|
-| Крок 0 | — | — |
-| B1 | — | — |
-| B2 | — | — |
-| B3 | — | — |
-| B4 | — | — |
-| B5 | — | — |
+| Крок 0 | `da7eca7` (PR #42) | lock у `@adc/shared` (pipeline — ре-експорт); `ownerId?` у `ProjectState`/`IntakeFile`; `accounts/**`: схеми, шляхи, scrypt, `AccountStore` з ідемпотентним леджером під `lock:user`, outbox-mailer, заглушка оплати, сесії й токени в Redis, `loadCredits`; `config/credits.json`; i18n; каркас API (`ApiDeps`/`ApiConfig`, `session.ts`, порожні роутери); типи оркестратора; тести shared/session |
+| B1 | `029135b` (PR #43) | `/api/auth/*`: register/activate/resend/login/logout/forgot/reset/me, Google 501; ковзний rate-limit 10/15 хв за `ip\|email`; enumeration-safe 202; dummy-scrypt для неіснуючого e-mail; токени 24 год / 1 год |
+| B2 | `b894533` (PR #43) | ownership (`ownerId` в intake, однаковий 404 для чужого/неіснуючого), scoping `/files/*`, `/stats` і `/api/stats*` — лише admin, списання `video:<id>` до створення проєкту (402 з `required/available`), best-effort refund при збої старту, `GET /api/projects` — свої (admin `?all=1`); старі API-тести мігровано на сесії |
+| B3 | `dbdb58e` (PR #43) | кабінет (профіль, зміна пароля з інвалідацією сесій, транзакції з пагінацією), поповнення (пакети/custom, заглушка checkout, ідемпотентний `confirm`), admin (користувачі, коригування, транзакції, outbox) |
+| B4 | `aa795bd` (PR #43) | машина: `revision:<id>:r<n>` після першої видачі, `format:<id>:<f>` на ЧП3, `refund:<id>` при non-retryable збої до першої видачі (крім `crawl`); драйвер виконує charge/refund до enqueue і запису стану, `InsufficientCreditsError` → відмова в чат і крок відкидається; worker отримує `billing` |
+| Інтеграція хвилі 1 | `1f1b905` (PR #43) | `session.test.ts`: `auth/me` з cookie замість 404 порожнього роутера Кроку 0 |
+| B5 | цей PR | `.env.example` (`ADMIN_EMAILS`, `APP_URL`, `APP_PASSWORD` — опційний gate); `docker-compose.server.yml` (`APP_PASSWORD` опційний, прокинуті `ADMIN_EMAILS`, `APP_URL` з дефолтом `https://${APP_DOMAIN}`); README — розділ «Користувачі, кредити, адмін» (env, curl-шлях, чеклист розділу 11), оновлені «Запуск у Docker» і «Деплой» |
+
+**Свідомі відхилення від тексту ТЗ:**
+
+- B1: власний текст 202 для `resend`; `weak_password` у `reset` перевіряється до споживання токена (слабкий пароль не «спалює» посилання).
+- B2: при ціні відео 0 пишеться charge на 0 кредитів (слід у леджері); `/api/projects/:id/trace` теж під перевіркою власника.
+- B3: `nextBefore` ≠ null лише коли далі справді є записи; власний текст 402 для admin-коригування нижче нуля.
+- B4: оптимістичний баланс у `ctx.billing` повертає вже оплачені ключі поточного кроку (повтор після збою запису не відмовляє); при відмові правки вибрані формати відкочуються; нульова ціна — без ефекту.
+- B5: `APP_URL` у `docker-compose.server.yml` за замовчуванням `https://${APP_DOMAIN}` (у ТЗ — лише «прокинути»), щоб посилання в листах на сервері не вели на `localhost`. Окремої env-таблиці в README не було — додано таблицю трьох нових/змінених змінних у розділі «Користувачі, кредити, адмін».
+
+- B5: `tests/integration/test/infra.test.ts` (поза картою володіння B5) перевіряв стару вимогу
+  `${APP_PASSWORD:?…}` — оновлено під опційний пароль, `ADMIN_EMAILS` і `APP_URL`; інакше критерій приймання B5
+  суперечив би тесту.
+
+**Перевірки (B5, macOS):** `docker compose -f docker-compose.yml -f docker-compose.server.yml config` з порожнім
+`APP_PASSWORD` проходить; `pnpm typecheck`, `pnpm lint` — чисті; smoke розділу 6: shared 51 ✓, api 559 ✓,
+pipeline billing/machine/driver 128 ✓. Фінальний `pnpm test` — усі unit-пакети зелені; `@adc/integration` —
+68 ✓ / 1 ✗: `eval-run.test.ts` «`--from render` перезапускає рендер…» падає так само й на `0c9126d` (до хвилі
+auth) — наявна червона зі списку розділу 7 (там позначена для Windows, відтворюється і на macOS), не чіпали.
+
+**Ручний прохід розділу 11** — ще не виконано; робить власник після злиття в `main` (чеклист — у README,
+«Користувачі, кредити, адмін») і дописує сюди результат.
