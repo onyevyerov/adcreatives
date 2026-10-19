@@ -46,6 +46,31 @@ export function variantPool(cue: SoundCue, variants: readonly PreparedEntry[]): 
 }
 
 /**
+ * Номер варіанта (1-based, позиція в пулі з `poolSize(cue)` варіантів) для кожного розміщення в тому ж
+ * порядку; розміщення без cue — null. Лічильник — на cue; для `PER_SCENE_CUES` він крокує раз на сцену
+ * (усі події cue у сцені — один варіант, навіть якщо події сусідньої сцени перемежовуються з ними).
+ */
+function rotate(
+  placements: readonly EventPlacement[],
+  poolSize: (cue: SoundCue) => number,
+): Array<number | null> {
+  const rotation = new Map<SoundCue, number>();
+  const byScene = new Map<string, number>();
+  return placements.map((p) => {
+    if (p.cue === null) return null;
+    const cue = p.cue;
+    const sceneKey = `${cue}:${p.sceneId}`;
+    const kept = PER_SCENE_CUES.has(cue) ? byScene.get(sceneKey) : undefined;
+    if (kept !== undefined) return kept;
+    const n = rotation.get(cue) ?? 0;
+    rotation.set(cue, n + 1);
+    const variant = (n % Math.max(1, poolSize(cue))) + 1;
+    if (PER_SCENE_CUES.has(cue)) byScene.set(sceneKey, variant);
+    return variant;
+  });
+}
+
+/**
  * Варіант семпла для кожного розміщення (у тому ж порядку): по колу з `variantPool`, лічильник —
  * на cue; для `PER_SCENE_CUES` лічильник крокує раз на сцену (усі події cue у сцені — один варіант).
  * Кожне розміщення має cue, для якого в `library` є хоча б один варіант.
@@ -54,39 +79,36 @@ export function chooseVariants(
   placements: readonly EventPlacement[],
   library: ReadonlyMap<SoundCue, PreparedEntry[]>,
 ): PreparedEntry[] {
-  const rotation = new Map<SoundCue, number>();
-  const byScene = new Map<string, PreparedEntry>();
-  return placements.map((p) => {
-    const cue = p.cue as SoundCue;
-    const sceneKey = `${cue}:${p.sceneId}`;
-    const kept = PER_SCENE_CUES.has(cue) ? byScene.get(sceneKey) : undefined;
-    if (kept) return kept;
-    const pool = variantPool(cue, library.get(cue) ?? []);
-    const n = rotation.get(cue) ?? 0;
-    rotation.set(cue, n + 1);
-    const entry = pool[n % pool.length] as PreparedEntry;
-    if (PER_SCENE_CUES.has(cue)) byScene.set(sceneKey, entry);
-    return entry;
+  const pools = new Map<SoundCue, readonly PreparedEntry[]>();
+  const poolOf = (cue: SoundCue) => {
+    let pool = pools.get(cue);
+    if (!pool) {
+      pool = variantPool(cue, library.get(cue) ?? []);
+      pools.set(cue, pool);
+    }
+    return pool;
+  };
+  const indices = rotate(placements, (cue) => poolOf(cue).length);
+  return placements.map((p, i) => {
+    const variant = indices[i] ?? null;
+    return (variant === null ? undefined : poolOf(p.cue as SoundCue)[variant - 1]) as PreparedEntry;
   });
 }
 
 /**
  * Номери варіантів (1-based) для розміщень з cue, у тому ж порядку (розміщення без cue пропускаються):
- * по колу з `poolSize(cue)` варіантів, лічильник — на cue. Для провайдера без готової бібліотеки семплів
- * (Epidemic) стадія просить лише ці варіанти. Крок 0 — проста ротація без `PER_SCENE_CUES`.
+ * та сама ротація, що в `chooseVariants`, але по пулу з `poolSize(cue)` варіантів. Для провайдера без
+ * готової бібліотеки семплів (Epidemic) стадія вираховує, що прозвучить, і просить лише ці варіанти.
  */
 export function variantIndices(
   placements: readonly EventPlacement[],
   poolSize: (cue: SoundCue) => number,
 ): Array<{ cue: SoundCue; variant: number }> {
-  const rotation = new Map<SoundCue, number>();
+  const indices = rotate(placements, poolSize);
   const out: Array<{ cue: SoundCue; variant: number }> = [];
-  for (const p of placements) {
-    if (p.cue === null) continue;
-    const cue = p.cue;
-    const n = rotation.get(cue) ?? 0;
-    rotation.set(cue, n + 1);
-    out.push({ cue, variant: (n % Math.max(1, poolSize(cue))) + 1 });
-  }
+  placements.forEach((p, i) => {
+    const variant = indices[i];
+    if (p.cue !== null && variant != null) out.push({ cue: p.cue, variant });
+  });
   return out;
 }

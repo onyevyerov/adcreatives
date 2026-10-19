@@ -2,7 +2,13 @@ import type { EventPlacement, SoundCue } from "@adc/shared";
 import { describe, expect, it } from "vitest";
 import { createStereo } from "../src/pcm.ts";
 import type { SampleAnalysis } from "../src/samples.ts";
-import { chooseVariants, type PreparedEntry, prepareLibrary, variantPool } from "../src/variants.ts";
+import {
+  chooseVariants,
+  type PreparedEntry,
+  prepareLibrary,
+  variantIndices,
+  variantPool,
+} from "../src/variants.ts";
 import { fakeLibrary } from "./fakeSfx.ts";
 
 /** Вибір варіантів семплів для подій (A5): тональні — лише строєні, pop/ding — один на сцену. */
@@ -109,5 +115,70 @@ describe("chooseVariants", () => {
       variantsOf(chooseVariants(placements, prepared)),
     );
     expect(variantsOf(chooseVariants(placements, prepared))).toEqual([1, 1, 2, 1]);
+  });
+});
+
+describe("variantIndices", () => {
+  it("та сама ротація, що в chooseVariants: pop/ding — один варіант на сцену, решта — по колу", () => {
+    const placements = [
+      at("s1", "pop"),
+      at("s1", "whoosh"),
+      at("s1", "pop"),
+      at("s2", "pop"),
+      at("s1", "pop"),
+      at("s2", "whoosh"),
+      at("s3", "pop"),
+      at("s3", "whoosh"),
+      at("s4", "pop"),
+    ];
+    expect(variantIndices(placements, () => 3)).toEqual([
+      { cue: "pop", variant: 1 },
+      { cue: "whoosh", variant: 1 },
+      { cue: "pop", variant: 1 },
+      { cue: "pop", variant: 2 },
+      { cue: "pop", variant: 1 },
+      { cue: "whoosh", variant: 2 },
+      { cue: "pop", variant: 3 },
+      { cue: "whoosh", variant: 3 },
+      { cue: "pop", variant: 1 },
+    ]);
+  });
+
+  it("розміщення без cue пропускаються; пул на cue; порожній пул — варіант 1", () => {
+    const silent: EventPlacement = { ...at("s1", "pop"), cue: null };
+    const placements = [
+      at("s1", "whoosh"),
+      silent,
+      at("s1", "whoosh"),
+      at("s1", "click"),
+      at("s1", "whoosh"),
+    ];
+    const pool = (cue: SoundCue) => (cue === "whoosh" ? 2 : 0);
+    expect(variantIndices(placements, pool)).toEqual([
+      { cue: "whoosh", variant: 1 },
+      { cue: "whoosh", variant: 2 },
+      { cue: "click", variant: 1 },
+      { cue: "whoosh", variant: 1 },
+    ]);
+  });
+
+  it("chooseVariants = variantIndices по відфільтрованому пулу (позиція в пулі, не номер варіанта)", () => {
+    const library = new Map<SoundCue, PreparedEntry[]>([
+      ["pop", [entry("pop", 1, null), entry("pop", 2, 466), entry("pop", 3, 554)]],
+      ["whoosh", [entry("whoosh", 1, null), entry("whoosh", 2, null)]],
+    ]);
+    const placements = [
+      at("s1", "pop"),
+      at("s1", "whoosh"),
+      at("s2", "pop"),
+      at("s1", "whoosh"),
+      at("s3", "pop"),
+    ];
+    const pools = new Map([...library].map(([cue, v]) => [cue, variantPool(cue, v)]));
+    const expected = variantIndices(placements, (cue) => pools.get(cue)?.length ?? 0).map(
+      ({ cue, variant }) => pools.get(cue)?.[variant - 1],
+    );
+    expect(chooseVariants(placements, library)).toEqual(expected);
+    expect(variantsOf(chooseVariants(placements, library))).toEqual([2, 1, 3, 2, 2]);
   });
 });
