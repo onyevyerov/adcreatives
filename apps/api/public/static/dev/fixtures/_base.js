@@ -421,7 +421,7 @@ export function accountFixture(patch = {}, base = initialState("start", null)) {
   /** @type {UiState} */
   const s = {
     ...base,
-    account: { ...base.account, me: ME, meStatus: "ready", projectCount: PROJECTS.length },
+    account: { ...base.account, me: ME, meStatus: "ready", projectCount: PROJECTS.length, prices: PRICES },
     cabinet: {
       ...base.cabinet,
       history: { ...base.cabinet.history, entries: HISTORY },
