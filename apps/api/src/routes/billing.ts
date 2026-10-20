@@ -19,6 +19,14 @@ const TOPUP_NOT_FOUND = "Поповнення не знайдено.";
 export function billingRoutes(deps: ApiDeps): Hono<AppEnv> {
   const { accounts, payments, config } = deps;
   const app = new Hono<AppEnv>();
+
+  // Публічний: гість на старті бачить ціни. Зареєстровано до requireUser — Hono віддає відповідь
+  // тут і не доходить до middleware нижче; усі наступні маршрути — лише з сесією.
+  app.get("/packages", (c) => {
+    const { creditsPerUsd, prices, packages, custom } = config.credits;
+    return c.json({ creditsPerUsd, prices, packages, custom });
+  });
+
   app.use("*", requireUser());
 
   const userId = (c: Context<AppEnv>) => {
@@ -26,11 +34,6 @@ export function billingRoutes(deps: ApiDeps): Hono<AppEnv> {
     if (!user) throw new Error("requireUser пропустив аноніма");
     return user.id;
   };
-
-  app.get("/packages", (c) => {
-    const { creditsPerUsd, prices, packages, custom } = config.credits;
-    return c.json({ creditsPerUsd, prices, packages, custom });
-  });
 
   app.post("/topups", async (c) => {
     const uid = userId(c);

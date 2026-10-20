@@ -1,6 +1,6 @@
 import { defaultCredits, type TopUp } from "@adc/shared";
 import { describe, expect, it } from "vitest";
-import { json, NOW, seedUser, setup } from "./helpers.ts";
+import { basic, json, NOW, seedUser, setup } from "./helpers.ts";
 
 type Created = { topup: TopUp; checkoutUrl: string };
 
@@ -14,10 +14,9 @@ function ticking() {
 }
 
 describe("/api/billing — доступ", () => {
-  it("анонім → 401", async () => {
+  it("анонім → 401 на поповненнях", async () => {
     const env = await setup({}, { user: null });
     const calls: [string, RequestInit?][] = [
-      ["/api/billing/packages"],
       ["/api/billing/topups", json({ packageId: "starter" })],
       ["/api/billing/topups"],
       ["/api/billing/topups/t_x"],
@@ -38,6 +37,26 @@ describe("пакети", () => {
     expect(res.status).toBe(200);
     const { creditsPerUsd, prices, packages, custom } = env.config.credits;
     expect(await res.json()).toEqual({ creditsPerUsd, prices, packages, custom });
+  });
+
+  it("GET /packages публічний: анонім → 200 з цінами", async () => {
+    const env = await setup({}, { user: null });
+    const res = await env.request("/api/billing/packages");
+    expect(res.status).toBe(200);
+    const { creditsPerUsd, prices, packages, custom } = env.config.credits;
+    expect(await res.json()).toEqual({ creditsPerUsd, prices, packages, custom });
+  });
+
+  it("GET /packages за командним паролем: без Basic → 401 гейту, з Basic → 200", async () => {
+    const env = await setup({ appPassword: "s3cret" }, { user: null });
+    expect((await env.request("/api/billing/packages")).status).toBe(401);
+    const res = await env.request("/api/billing/packages", { headers: { Authorization: basic("s3cret") } });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { prices: unknown }).prices).toEqual(env.config.credits.prices);
+    // Поповнення під тим самим гейтом без сесії — як і раніше 401 unauthorized.
+    const topups = await env.request("/api/billing/topups", { headers: { Authorization: basic("s3cret") } });
+    expect(topups.status).toBe(401);
+    expect(((await topups.json()) as { error: string }).error).toBe("unauthorized");
   });
 });
 

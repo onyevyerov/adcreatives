@@ -17,7 +17,7 @@ import * as realApi from "../../public/static/js/data/account-api.js";
 import type { Backend } from "../../public/static/js/data/actions.js";
 import { createActions } from "../../public/static/js/data/actions.js";
 import { ApiError, api, NETWORK_MESSAGE, setUnauthorizedHandler } from "../../public/static/js/data/api.js";
-import { initialState } from "../../public/static/js/initial.js";
+import { authState, initialState } from "../../public/static/js/initial.js";
 import { CREDIT_TEMPLATES, parseCreditMessage } from "../../public/static/js/lib/credit-messages.js";
 import {
   closingPackage,
@@ -189,10 +189,17 @@ function fakeApi(...answers: (Me | number)[]) {
   });
   const logout = vi.fn(async () => null);
   const listProjects = vi.fn(async () => ({ projects: PROJECTS }));
-  return { ...all, me, logout, listProjects } as unknown as AccountApi & {
+  const packages = vi.fn(async () => ({
+    creditsPerUsd: 1,
+    prices: PRICES,
+    packages: PACKAGES,
+    custom: { min: 5, max: 500 },
+  }));
+  return { ...all, me, logout, listProjects, packages } as unknown as AccountApi & {
     me: typeof me;
     logout: typeof logout;
     listProjects: typeof listProjects;
+    packages: typeof packages;
   };
 }
 
@@ -775,7 +782,13 @@ describe("createAccountActions", () => {
     await expect(api("/api/projects/p1")).rejects.toBeInstanceOf(ApiError);
     const s = store.getState();
     expect(s.session).toBe("401");
-    expect(s.auth).toMatchObject({ view: "login", context: "session", email: "", busy: false });
+    expect(s.auth).toMatchObject({
+      view: "login",
+      context: "session",
+      email: "",
+      busy: false,
+      message: null,
+    });
     expect(s.account).toMatchObject({ meStatus: "anon", me: null });
     expect(log.at(-1)).toBe("stop");
   });
@@ -912,7 +925,13 @@ describe("createAccountActions", () => {
     history.replaceState(null, "", "/?auth=activate&token=tok1");
     const a = make({ query: "auth=activate&token=tok1" });
     expect(location.search).toBe("");
-    expect(a.store.getState().auth).toMatchObject({ view: "activating", token: "tok1", context: null });
+    expect(a.store.getState().auth).toMatchObject({
+      view: "activating",
+      token: "tok1",
+      context: null,
+      error: null,
+      message: null,
+    });
     expect(fn("submitAuth")).toHaveBeenCalledOnce();
     a.actions.dispose();
     history.replaceState(null, "", "/?auth=reset&token=tok2");
@@ -1020,6 +1039,45 @@ describe("createAccountActions", () => {
     expect(s.account.flash).toBe(LOGOUT_FLASH);
   });
 
+  it("prices: ready → з me; гість → з публічних packages; збій → null без модалки", async () => {
+    const ready = make({ answers: [{ ...ME, prices: { video: 11, revision: 4, extraFormat: 3 } }] });
+    expect(ready.store.getState().account.prices).toBeNull();
+    await ready.actions.meReady;
+    expect(ready.store.getState().account.prices).toEqual({ video: 11, revision: 4, extraFormat: 3 });
+    expect(ready.accountApi.packages).not.toHaveBeenCalled();
+    // Вихід: ціни лишаються, перезавантажуються з packages.
+    await ready.actions.logout();
+    await vi.waitFor(() => expect(ready.accountApi.packages).toHaveBeenCalledOnce());
+    expect(ready.store.getState().account.prices).toEqual(PRICES);
+    ready.actions.dispose();
+
+    const guest = make({ answers: [401] });
+    await guest.actions.meReady;
+    await vi.waitFor(() => expect(guest.store.getState().account.prices).toEqual(PRICES));
+    expect(guest.accountApi.packages).toHaveBeenCalledOnce();
+    guest.actions.dispose();
+
+    const broken = make({ answers: [401] });
+    broken.accountApi.packages.mockRejectedValue(new ApiError("x", 0, "network", null));
+    await broken.actions.meReady;
+    await vi.waitFor(() => expect(broken.accountApi.packages).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    expect(broken.store.getState().account.prices).toBeNull();
+    expect(fn("openAuth")).not.toHaveBeenCalled();
+  });
+
+  it("401 від /api/billing/packages (старий бекенд) не йде в unauthorized-логіку", async () => {
+    const { actions, store } = make({ answers: [401] });
+    await actions.meReady;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json(401, { error: "unauthorized", message: "Потрібно увійти." })),
+    );
+    await expect(api("/api/billing/packages")).rejects.toBeInstanceOf(ApiError);
+    expect(fn("openAuth")).not.toHaveBeenCalled();
+    expect(store.getState().session).toBeNull();
+  });
+
   it("?mock=1 — фейковий me (Олена, 12) без мережі", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
@@ -1031,6 +1089,7 @@ describe("createAccountActions", () => {
       meStatus: "ready",
       me: { balance: 12 },
       projectCount: 4,
+      prices: PRICES,
     });
     expect(store.getState().account.me?.user.email).toBe("olena@zerno.example.com");
     await actions.refreshMe();
@@ -1126,6 +1185,34 @@ describe("data/actions.js", () => {
     expect(lost.getState().session).toBe("404");
     expect(lost.getState().ui.notice).toBeNull();
     a2.dispose();
+  });
+});
+
+describe("initial.js · authState", () => {
+  it("усі поля AuthState з дефолтами; patch перекриває", () => {
+    expect(authState("login")).toEqual({
+      view: "login",
+      context: null,
+      name: "",
+      email: "",
+      password: "",
+      showPassword: false,
+      token: null,
+      busy: false,
+      error: null,
+      message: null,
+      resent: false,
+      cooldownUntil: null,
+      bonus: 0,
+      fails: 0,
+    });
+    expect(
+      authState("login", "header", { error: "invalid_credentials", message: "Невірний e-mail або пароль." }),
+    ).toMatchObject({
+      context: "header",
+      error: "invalid_credentials",
+      message: "Невірний e-mail або пароль.",
+    });
   });
 });
 

@@ -132,7 +132,9 @@
  * на старті (вихід); `pending` — відкладений старт гостя; `autostart` — рядок «Починаю ролик…»;
  * `projectCount` — кількість проєктів для «Мої проєкти · N» (`null` — ще невідомо): ядро вантажить
  * `listProjects()`, коли `me` стає ready, і після успішного `createProject`; B9 може оновлювати
- * його з довжини `cabinet.projects.rows`.
+ * його з довжини `cabinet.projects.rows`;
+ * `prices` — **єдине джерело цін для view** (і для гостя): ready → `me.prices`; гість → тихий
+ * публічний `GET /api/billing/packages`; збій — `null` (view ховає ціну). Після виходу лишаються.
  * @typedef {{
  *   me: Me | null,
  *   meStatus: "loading" | "ready" | "anon",
@@ -140,7 +142,8 @@
  *   flash: string | null,
  *   pending: PendingStart | null,
  *   autostart: { host: string | null, charged: number, after: number, photosLost: boolean } | null,
- *   projectCount: number | null
+ *   projectCount: number | null,
+ *   prices: CreditPrices | null
  * }} AccountState
  */
 
@@ -154,10 +157,12 @@
  * `POST activate`) або на `view: "reset"` з `token` (новий пароль → `submitAuth()`).
  * Коли `route === "project" && session === "401"`, B1 модалку не показує: ту саму форму малює
  * сцена (B12, `mountAuthForm(el, ctx, { layout: "stage" })`) за цим самим станом (context `session`).
+ * `message` — текст сервера (`message` з тіла відповіді) для поточного `error`; `null` — view бере
+ * копірайт UI з кадру Референсу (`network`, `empty`, `bad_email`, `empty_name` тощо).
  * @typedef {{
  *   view: AuthView, context: "start" | "header" | "checkout" | "session" | null,
  *   name: string, email: string, password: string, showPassword: boolean,
- *   token: string | null, busy: boolean, error: AuthError | null, resent: boolean,
+ *   token: string | null, busy: boolean, error: AuthError | null, message: string | null, resent: boolean,
  *   cooldownUntil: number | null, bonus: number, fails: number
  * } | null} AuthState
  */

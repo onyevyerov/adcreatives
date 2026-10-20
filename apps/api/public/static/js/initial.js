@@ -75,6 +75,7 @@ export function initialAccount() {
     pending: null,
     autostart: null,
     projectCount: null,
+    prices: null,
   };
 }
 
@@ -96,6 +97,7 @@ export function authState(view, context = null, patch = {}) {
     token: null,
     busy: false,
     error: null,
+    message: null,
     resent: false,
     cooldownUntil: null,
     bonus: 0,
