@@ -154,10 +154,12 @@
  * `POST activate`) або на `view: "reset"` з `token` (новий пароль → `submitAuth()`).
  * Коли `route === "project" && session === "401"`, B1 модалку не показує: ту саму форму малює
  * сцена (B12, `mountAuthForm(el, ctx, { layout: "stage" })`) за цим самим станом (context `session`).
+ * `message` — текст сервера (`message` з тіла відповіді) для поточного `error`; `null` — view бере
+ * копірайт UI з кадру Референсу (`network`, `empty`, `bad_email`, `empty_name` тощо).
  * @typedef {{
  *   view: AuthView, context: "start" | "header" | "checkout" | "session" | null,
  *   name: string, email: string, password: string, showPassword: boolean,
- *   token: string | null, busy: boolean, error: AuthError | null, resent: boolean,
+ *   token: string | null, busy: boolean, error: AuthError | null, message: string | null, resent: boolean,
  *   cooldownUntil: number | null, bonus: number, fails: number
  * } | null} AuthState
  */
