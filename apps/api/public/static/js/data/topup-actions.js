@@ -11,7 +11,9 @@
  *   `POST /api/billing/topups` → чек `/?checkout=<id>`.
  * - `continueTopup(id)` — незавершене поповнення → його чек.
  * Незавершені поповнення (`GET /api/billing/topups`, статус pending) вантажаться на вході в
- * «Баланс» (`deps.onRoute`); у `?mock=1` мережі немає.
+ * «Баланс» (`deps.onRoute`); у `?mock=1` мережі немає. На вході в будь-який розділ кабінету —
+ * раз на користувача `loadHistory()` (B9), якщо історія ще порожня: з неї мета «Історія · N» і
+ * вітальний бонус на «Балансі».
  * `cabinet.backTo` — звідки прийшли: `openTopup` ставить його сам; будь-який інший вхід у кабінет
  * з проєкту — `{kind:"project", retry:null}` (лише «← до host», без банера), з решти маршрутів — `null`.
  */
@@ -151,8 +153,28 @@ export const topupActions = (store, deps) => {
     }
   }
 
+  /** Для кого вже просили історію (раз на користувача): мета «Історія · N» і вітальний бонус. */
+  let historyFor = /** @type {string | null} */ (null);
+  function ensureHistory() {
+    const s = store.getState();
+    const uid = s.account.me?.user.id ?? null;
+    const h = s.cabinet.history;
+    if (deps.offline || uid === null || uid === historyFor || h.entries.length > 0 || h.loading) return;
+    historyFor = uid;
+    try {
+      void deps
+        .actions()
+        .loadHistory()
+        ?.catch((err) => console.warn("[topup] loadHistory", err));
+    } catch (err) {
+      console.warn("[topup] loadHistory", err);
+    }
+  }
+
   deps.onRoute((r) => {
-    if (r.route === "cabinet" && r.section === "balance") void loadPending();
+    if (r.route !== "cabinet") return;
+    ensureHistory();
+    if (r.section === "balance") void loadPending();
   });
 
   return {

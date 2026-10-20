@@ -68,6 +68,8 @@ const assistant = (text: string) => ({
 function setup(state: UiState, opts: { offline?: boolean; api?: Partial<AccountApi> } = {}) {
   const store = createStore(state);
   const routes: ((r: Route) => void)[] = [];
+  // Тіло loadHistory — B9; тут лише факт виклику.
+  const loadHistory = vi.fn(async () => {});
   const navigate = vi.fn((to: Route) => {
     store.setState((s) =>
       to.route === "cabinet"
@@ -88,7 +90,7 @@ function setup(state: UiState, opts: { offline?: boolean; api?: Partial<AccountA
   const deps = {
     params: new URLSearchParams(),
     api: api as unknown as AccountApi,
-    actions: () => ({ navigate }) as unknown as Actions,
+    actions: () => ({ navigate, loadHistory }) as unknown as Actions,
     backend: { start: vi.fn(), stop: vi.fn() },
     offline: opts.offline ?? false,
     onRoute: (fn: (r: Route) => void) => {
@@ -99,7 +101,7 @@ function setup(state: UiState, opts: { offline?: boolean; api?: Partial<AccountA
   const enter = (r: Route) => {
     for (const fn of routes) fn(r);
   };
-  return { store, actions, api, navigate, enter };
+  return { store, actions, api, navigate, enter, loadHistory };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -358,6 +360,66 @@ describe("submitTopup", () => {
     const { actions, api } = setup(cabinet(), { offline: true });
     await actions.submitTopup();
     expect(api.createTopUp).not.toHaveBeenCalled();
+  });
+});
+
+describe("історія для мети «Історія · N» і бонусу", () => {
+  const empty = (patch: Partial<UiState["cabinet"]["history"]> = {}) => {
+    const s = cabinet();
+    return { ...s, cabinet: { ...s.cabinet, history: { ...s.cabinet.history, entries: [], ...patch } } };
+  };
+
+  it("вхід у будь-який розділ кабінету з порожньою історією — loadHistory один раз", () => {
+    const { enter, loadHistory } = setup(empty());
+    enter({ route: "cabinet", section: "profile" });
+    enter({ route: "cabinet", section: "balance" });
+    enter({ route: "cabinet", section: "history" });
+    expect(loadHistory).toHaveBeenCalledTimes(1);
+    expect(loadHistory).toHaveBeenCalledWith();
+  });
+
+  it("інший користувач після виходу — знову", () => {
+    const { enter, loadHistory, store } = setup(empty());
+    enter({ route: "cabinet", section: "balance" });
+    store.setState((s) => ({
+      account: { ...s.account, me: { ...meOf(OLENA, 3), user: { ...OLENA, id: "u_other001" } } },
+    }));
+    enter({ route: "cabinet", section: "balance" });
+    expect(loadHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it("не просимо: історія вже є, вантажиться, ?mock=1, інший маршрут, гість", () => {
+    const a = setup(cabinet());
+    a.enter({ route: "cabinet", section: "balance" });
+    expect(a.loadHistory).not.toHaveBeenCalled();
+
+    const b = setup(empty({ loading: true }));
+    b.enter({ route: "cabinet", section: "balance" });
+    expect(b.loadHistory).not.toHaveBeenCalled();
+
+    const c = setup(empty(), { offline: true });
+    c.enter({ route: "cabinet", section: "balance" });
+    expect(c.loadHistory).not.toHaveBeenCalled();
+
+    const d = setup(empty());
+    d.enter({ route: "start" });
+    d.enter({ route: "checkout", id: "t_1" });
+    expect(d.loadHistory).not.toHaveBeenCalled();
+
+    const s = empty();
+    const e = setup({ ...s, account: { ...s.account, me: null, meStatus: "anon" } });
+    e.enter({ route: "cabinet", section: "balance" });
+    expect(e.loadHistory).not.toHaveBeenCalled();
+  });
+
+  it("збій loadHistory не валить вхід", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { enter, loadHistory, api } = setup(empty());
+    loadHistory.mockRejectedValueOnce(new Error("boom"));
+    enter({ route: "cabinet", section: "balance" });
+    await flush();
+    expect(api.listTopUps).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
   });
 });
 

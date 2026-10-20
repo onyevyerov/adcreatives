@@ -40,6 +40,16 @@ const sections = vi.hoisted(() => {
 vi.mock("../../public/static/js/views/cab-history.js", () => ({ mount: sections.history.mount }));
 vi.mock("../../public/static/js/views/cab-projects.js", () => ({ mount: sections.projects.mount }));
 vi.mock("../../public/static/js/views/cab-profile.js", () => ({ mount: sections.profile.mount }));
+/** Дії B9 — мок: B7 лише просить історію (тіло loadHistory робить B9). */
+const loadHistory = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("../../public/static/js/data/cabinet-actions.js", () => ({
+  cabinetActions: () => ({
+    loadHistory,
+    loadProjects: async () => {},
+    toggleProjectCredits: () => {},
+    openProject: () => {},
+  }),
+}));
 
 const { mainKind, mount, navMeta, SECTIONS } = await import("../../public/static/js/views/cabinet.js");
 
@@ -91,6 +101,7 @@ const fetchStub = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchStub);
   fetchStub.mockClear();
+  loadHistory.mockClear();
   for (const s of Object.values(sections)) {
     s.mount.mockClear();
     s.update.mockClear();
@@ -316,6 +327,8 @@ describe("кабінет у сторінці", () => {
       "Незавершене поповнення · Кілька роликів",
     );
     expect(calls).toContain("GET /api/billing/topups");
+    // Історія для мети «Історія · N» — через loadHistory (B9), один раз.
+    expect(loadHistory).toHaveBeenCalledTimes(1);
     main?.querySelector<HTMLButtonElement>(".cab-bal__continue")?.click();
     expect(a.store.getState().route).toBe("checkout");
     expect(location.search).toBe("?checkout=t_9q4m");
@@ -360,5 +373,6 @@ describe("кабінет у сторінці", () => {
     a.actions.selectPackage("pro");
     await a.actions.submitTopup();
     expect(fetchStub).not.toHaveBeenCalled();
+    expect(loadHistory).not.toHaveBeenCalled();
   });
 });
