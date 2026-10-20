@@ -6,7 +6,7 @@
  * `n1-register-filled` — крок F1 (Референс `#F`).
  */
 import { authState, initialState } from "../../js/initial.js";
-import { meOf, OLENA } from "./_base.js";
+import { meOf, OLENA, PRICES } from "./_base.js";
 
 /** @typedef {import("../../js/contracts.js").UiState} UiState */
 /** @typedef {NonNullable<import("../../js/contracts.js").AuthState>} Auth */
@@ -41,6 +41,7 @@ function authFixture(view, patch = {}, o = {}) {
       meStatus: signedIn ? "ready" : "anon",
       pending: o.pending === false ? null : PENDING,
       projectCount: signedIn ? 0 : null,
+      prices: PRICES,
     },
     auth: authState(view, o.pending === false ? null : "start", patch),
   };

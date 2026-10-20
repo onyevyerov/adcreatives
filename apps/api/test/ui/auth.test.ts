@@ -87,7 +87,14 @@ function harness(state: UiState, o: { me?: Me | null; layout?: "modal" | "stage"
   const me = o.me === undefined ? ME : o.me;
   const core = {
     refreshMe: vi.fn(async () => {
-      store.setState((s) => ({ account: { ...s.account, me, meStatus: me ? "ready" : "anon" } }));
+      store.setState((s) => ({
+        account: {
+          ...s.account,
+          me,
+          meStatus: me ? "ready" : "anon",
+          prices: me?.prices ?? s.account.prices,
+        },
+      }));
     }),
     navigate: vi.fn(),
     startPending: vi.fn(async () => {}),
@@ -745,6 +752,21 @@ describe("посилання з листа", () => {
     button("Поповнити").click();
     expect(store.getState().auth).toBeNull();
     expect(core.openTopup).toHaveBeenCalledWith({ from: "start" });
+  });
+
+  it("ціни невідомі (account.prices null) → без картки нестачі; «Почати ролик» → startPending", async () => {
+    savePending(PENDING, []);
+    const { store, actions, core } = harness(guestState("activating", { token: "t" }, null), { me: null });
+    await actions.submitAuth();
+    await flush();
+    expect(store.getState().account.prices).toBeNull();
+    expect(store.getState().auth?.view).toBe("activated");
+    expect(visible($(".au-short"))).toBe(false);
+    button("Почати ролик").click();
+    await flush();
+    expect(store.getState().auth).toBeNull();
+    expect(core.startPending).toHaveBeenCalledOnce();
+    expect(core.openTopup).not.toHaveBeenCalled();
   });
 
   it("invalid_token → activateInvalid → e-mail → resend", async () => {

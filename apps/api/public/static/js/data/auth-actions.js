@@ -222,7 +222,8 @@ export const authActions = (store, deps) => {
     const s = store.getState();
     if (!s.auth || my !== seq) return;
     const me = s.account.me;
-    if (s.account.pending && me && me.balance >= me.prices.video) {
+    const price = s.account.prices?.video;
+    if (s.account.pending && me && price !== undefined && me.balance >= price) {
       seq++;
       store.setState({ auth: null });
       await deps.actions().startPending();
@@ -307,8 +308,9 @@ export const authActions = (store, deps) => {
     if (a.view === "activated") {
       const me = s.account.me;
       const pending = s.account.pending;
+      const price = s.account.prices?.video;
       all.closeAuth();
-      if (pending && me && me.balance < me.prices.video) return all.openTopup({ from: "start" });
+      if (pending && me && price !== undefined && me.balance < price) return all.openTopup({ from: "start" });
       if (pending) return void all.startPending();
       if (s.route !== "start") all.navigate({ route: "start" });
     }

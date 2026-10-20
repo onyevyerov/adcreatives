@@ -182,8 +182,9 @@ export function authModel(s, now = Date.now()) {
   const pendingHost = pending ? hostOf(pending.url) : null;
   const me = s.account.me;
   const balance = me?.balance ?? 0;
-  const need = me?.prices.video ?? 0;
-  const short = v === "activated" && pending !== null && balance < need;
+  // Ціна ролика — account.prices (єдине джерело для view); невідома — картки нестачі немає.
+  const need = s.account.prices?.video ?? null;
+  const short = v === "activated" && pending !== null && need !== null && balance < need;
 
   /** @type {{ before: string, host: string, after: string } | null} */
   let context = null;
@@ -260,7 +261,10 @@ export function authModel(s, now = Date.now()) {
           bonus: a.bonus > 0 ? `+${a.bonus} · вітальний бонус нараховано` : null,
         }
       : null,
-    shortage: short ? { host: pendingHost, need: formatCredits(need), have: formatCredits(balance) } : null,
+    shortage:
+      short && need !== null
+        ? { host: pendingHost, need: formatCredits(need), have: formatCredits(balance) }
+        : null,
     submit: submit ? { label: submit, busy: a.busy, disabled: a.busy || err === "rate_limited" } : null,
     links,
     google: c.google ? { message: err === "google" ? (a.message ?? GOOGLE_TEXT) : null } : null,
