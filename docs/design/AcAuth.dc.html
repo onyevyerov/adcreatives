@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<form onSubmit="{{ submit }}" novalidate="" aria-label="{{ title }}" style="display:flex; flex-direction:column; gap:{{ gap }}; width:100%; font-family:'Onest',sans-serif; color:#151412;">
+  <div style="display:flex; flex-direction:column; gap:{{ headGap }};">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+      <span style="display:flex; align-items:center; gap:10px; color:{{ eyebrowColor }}; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><sc-if value="{{ eyebrowDot }}"><span style="width:7px; height:7px; border-radius:50%; background:{{ eyebrowColor }};"></span></sc-if>{{ eyebrow }}</span>
+      <sc-if value="{{ showClose }}"><button type="button" onClick="{{ close }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A; text-decoration-color:currentColor;">Закрити</button></sc-if>
+    </div>
+    <h1 style="margin:0; font:300 {{ titleSize }}/1.04 'Unbounded',sans-serif; letter-spacing:-0.05em; text-wrap:balance;">{{ title }}<sc-if value="{{ titleDot }}"><span style="color:#D4402A;">.</span></sc-if></h1>
+    <sc-if value="{{ hasLead }}"><p style="margin:0; max-width:520px; color:#3A3833; font:400 {{ leadSize }}/1.55 'Onest',sans-serif; text-wrap:pretty;">{{ lead }}</p></sc-if>
+    <sc-if value="{{ hasContext }}"><p style="margin:0; display:flex; align-items:baseline; gap:8px; color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif;"><span style="flex:none; width:7px; height:7px; border-radius:50%; background:#151412; transform:translateY(-1px);"></span><span>{{ contextA }}<span style="font:400 12.5px/1 'JetBrains Mono',monospace; color:#151412;">{{ contextHost }}</span>{{ contextB }}</span></p></sc-if>
+  </div>
+
+  <sc-if value="{{ showSeg }}">
+    <div role="tablist" style="display:inline-flex; align-self:flex-start; padding:3px; border:1px solid rgba(21,20,18,.16); border-radius:999px;">
+      <button type="button" role="tab" aria-selected="{{ segLoginSel }}" onClick="{{ toLogin }}" style="height:34px; padding:0 16px; border:0; border-radius:999px; background:{{ segLoginBg }}; color:{{ segLoginFg }}; font:500 13.5px/1 'Onest',sans-serif; cursor:pointer; transition:background-color .2s, color .2s;">Вхід</button>
+      <button type="button" role="tab" aria-selected="{{ segRegSel }}" onClick="{{ toRegister }}" style="height:34px; padding:0 16px; border:0; border-radius:999px; background:{{ segRegBg }}; color:{{ segRegFg }}; font:500 13.5px/1 'Onest',sans-serif; cursor:pointer; transition:background-color .2s, color .2s;">Реєстрація</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasFields }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex; flex-direction:column; gap:{{ fieldGap }};">
+      <sc-if value="{{ showName }}">
+        <label style="display:flex; flex-direction:column; gap:8px;"><span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Ім’я</span>
+          <input name="name" type="text" autocomplete="name" maxlength="80" value="{{ name }}" onChange="{{ onName }}" placeholder="Олена Коваль" style="width:100%; height:{{ fh }}; padding:{{ fpad }}; border:{{ fborder }}; border-bottom:{{ fbb }}; border-radius:{{ frad }}; background:{{ fbg }}; color:#151412; font:{{ ffont }}; letter-spacing:{{ fls }}; transition:border-color .2s;" style-hover="border-color:#151412;" style-focus="border-color:#151412; outline:none;"></label>
+      </sc-if>
+      <sc-if value="{{ showEmail }}">
+        <label style="display:flex; flex-direction:column; gap:8px;"><span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">E-mail</span>
+          <input name="email" type="email" inputmode="email" autocomplete="{{ emailAc }}" autocapitalize="off" spellcheck="false" value="{{ email }}" onChange="{{ onEmail }}" placeholder="you@business.ua" aria-invalid="{{ emailInvalid }}" aria-describedby="ac-auth-err" style="width:100%; height:{{ fh }}; padding:{{ fpad }}; border:{{ fborder }}; border-bottom:{{ fbbErr }}; border-radius:{{ frad }}; background:{{ fbg }}; color:#151412; font:{{ ffont }}; letter-spacing:{{ fls }}; transition:border-color .2s;" style-hover="border-color:#151412;" style-focus="border-color:#151412; outline:none;"></label>
+      </sc-if>
+      <sc-if value="{{ showPassword }}">
+        <label style="display:flex; flex-direction:column; gap:8px;"><span style="display:flex; justify-content:space-between; gap:12px; color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span>{{ pwLabel }}</span><sc-if value="{{ showPwHint }}"><span style="text-transform:none; letter-spacing:0; font:400 11.5px/1.2 'JetBrains Mono',monospace; color:{{ pwHintColor }};">{{ pwHint }}</span></sc-if></span>
+          <span style="position:relative; display:block;">
+            <input name="password" type="{{ pwType }}" autocomplete="{{ pwAc }}" minlength="8" maxlength="128" value="{{ password }}" onChange="{{ onPassword }}" placeholder="{{ pwPlaceholder }}" aria-invalid="{{ pwInvalid }}" aria-describedby="ac-auth-err" style="width:100%; height:{{ fh }}; padding:{{ fpadPw }}; border:{{ fborder }}; border-bottom:{{ fbbPw }}; border-radius:{{ frad }}; background:{{ fbg }}; color:#151412; font:{{ ffont }}; letter-spacing:{{ fls }}; transition:border-color .2s;" style-hover="border-color:#151412;" style-focus="border-color:#151412; outline:none;">
+            <button type="button" onClick="{{ togglePw }}" aria-pressed="{{ pwShownStr }}" style="position:absolute; right:{{ pwBtnRight }}; bottom:{{ pwBtnBottom }}; height:30px; padding:0 4px; border:0; background:none; color:#3A3833; font:500 11.5px/1 'JetBrains Mono',monospace; cursor:pointer;" style-hover="color:#151412;">{{ pwToggleLabel }}</button>
+          </span>
+        </label>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasErr }}"><p id="ac-auth-err" role="alert" style="margin:0; color:#B8331F; font:400 13.5px/1.5 'Onest',sans-serif;">{{ errText }}<sc-if value="{{ errUiMark }}"><span style="margin-left:8px; color:#6E6A63; font:500 10px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">копірайт UI</span></sc-if></p></sc-if>
+  <sc-if value="{{ hasInfo }}"><p role="status" style="margin:0; color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif;">{{ infoText }}</p></sc-if>
+
+  <sc-if value="{{ showCheckEmail }}">
+    <div style="display:flex; flex-direction:column; gap:14px; padding:{{ boxPad }}; border-top:1px solid rgba(21,20,18,.10); border-bottom:1px solid rgba(21,20,18,.10);">
+      <span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Адреса</span>
+      <span style="font:400 {{ checkMailSize }}/1.3 'JetBrains Mono',monospace; overflow-wrap:anywhere;">{{ email }}</span>
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 22px;">
+        <button type="button" onClick="{{ resend }}" disabled="{{ resendDisabled }}" style="height:34px; padding:0 16px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 13.5px/1 'Onest',sans-serif; opacity:{{ resendOpacity }}; cursor:{{ resendCursor }};" style-hover="border-color:#151412;">{{ resendLabel }}</button>
+        <button type="button" onClick="{{ otherEmail }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A; text-decoration-color:currentColor;">Інша адреса</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showSpinner }}">
+    <div role="status" style="display:flex; align-items:center; gap:12px; color:#6E6A63; font:400 12.5px/1.4 'JetBrains Mono',monospace;"><span style="width:12px; height:12px; border-radius:50%; border:1.5px solid rgba(21,20,18,.15); border-top-color:#D4402A; animation:adcSpin .8s linear infinite;"></span>{{ spinnerText }}</div>
+  </sc-if>
+
+  <sc-if value="{{ showBalance }}">
+    <div style="display:flex; flex-direction:column; gap:10px; padding:{{ boxPad }}; border-top:1px solid rgba(21,20,18,.10);">
+      <span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Баланс</span>
+      <span style="display:flex; align-items:baseline; gap:10px;"><span style="font:200 {{ balSize }}/0.9 'Unbounded',sans-serif; letter-spacing:-0.06em; font-variant-numeric:tabular-nums;">{{ balNum }}</span><span style="color:#6E6A63; font:400 13px/1 'JetBrains Mono',monospace;">{{ balWord }}</span></span>
+      <sc-if value="{{ hasBonus }}"><span style="font:400 12.5px/1.4 'JetBrains Mono',monospace; color:#3A3833;">+{{ bonus }} · вітальний бонус нараховано</span></sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showN6 }}">
+    <div style="display:flex; flex-direction:column; gap:12px; padding:{{ n6Pad }}; border:1px solid #151412; border-radius:14px; background:#FCFBF8;">
+      <span style="display:flex; align-items:center; gap:9px; font:500 10.5px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:8px; height:8px; transform:rotate(45deg); background:#D4402A;"></span>Не вистачає на ролик</span>
+      <span style="font:400 14.5px/1.55 'Onest',sans-serif;">Для ролика <span style="font:400 12.5px 'JetBrains Mono',monospace;">{{ pendingUrl }}</span> потрібно {{ needText }}, у вас {{ haveText }}. Поповніть — і ролик почнеться сам.</span>
+      <span style="color:#6E6A63; font:500 10px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">копірайт UI</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showSubmit }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:14px 22px;">
+      <button type="{{ submitType }}" onClick="{{ submitClick }}" disabled="{{ submitDisabled }}" style="display:inline-flex; align-items:center; justify-content:center; gap:{{ btnGap }}; height:{{ btnH }}; padding:{{ btnPad }}; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 {{ btnFont }}/1 'Onest',sans-serif; white-space:nowrap; opacity:{{ submitOpacity }}; cursor:{{ submitCursor }}; transition:background-color .2s; width:{{ btnW }};" style-hover="background:#D4402A;"><sc-if value="{{ busy }}"><span style="width:12px; height:12px; border-radius:50%; border:1.5px solid rgba(245,243,238,.3); border-top-color:#F5F3EE; animation:adcSpin .8s linear infinite;"></span></sc-if>{{ submitLabel }}<sc-if value="{{ submitArrow }}"><span aria-hidden="true">→</span></sc-if></button>
+      <sc-for list="{{ links }}" as="l" hint-placeholder-count="1">
+        <button type="button" onClick="{{ l.onClick }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A; text-decoration-color:currentColor;">{{ l.label }}</button>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showGoogle }}">
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="display:flex; align-items:center; gap:14px; color:#6E6A63; font:500 10.5px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="flex:1; height:1px; background:rgba(21,20,18,.10);"></span>або<span style="flex:1; height:1px; background:rgba(21,20,18,.10);"></span></div>
+      <button type="button" onClick="{{ google }}" style="height:{{ gH }}; padding:0 18px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 14px/1 'Onest',sans-serif; cursor:pointer; transition:border-color .2s;" style-hover="border-color:#151412;">Увійти через Google</button>
+      <sc-if value="{{ googleMsg }}"><p role="status" style="margin:0; display:flex; align-items:center; gap:8px; color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif;"><span style="width:7px; height:7px; border-radius:50%; background:#6E6A63;"></span>Вхід через Google ще не підключено.</p></sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showMailLink }}">
+    <button type="button" onClick="{{ openMail }}" style="align-self:flex-start; display:inline-flex; align-items:center; gap:8px; height:30px; padding:0 12px; border:1px dashed rgba(21,20,18,.25); border-radius:999px; background:transparent; color:#3A3833; font:500 11.5px/1 'JetBrains Mono',monospace; cursor:pointer;" style-hover="border-color:#151412; color:#151412;">прототип · відкрити лист ↗</button>
+  </sc-if>
+</form>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:480,&quot;height&quot;:760},&quot;app&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;object&quot;},&quot;layout&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;card&quot;,&quot;split&quot;,&quot;moment&quot;],&quot;default&quot;:&quot;card&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const app = this.props.app || {};
+    const a = app.auth || { view: 'login' };
+    const act = app.act || (() => {});
+    const f = app.fmt || { cr: (n) => n + ' кредитів' };
+    const layout = this.props.layout || 'card';
+    const big = layout !== 'card';
+    const cardB = layout === 'cardB';
+    const mob = !!app.mobile;
+    const v = a.view || 'login';
+    const pending = app.pendingUrl || '';
+    const ERR = {
+      invalid_credentials: ['Невірний e-mail або пароль.', false],
+      not_activated: ['Акаунт ще не активовано — перевірте пошту.', false],
+      rate_limited: ['Забагато спроб. Спробуйте за 15 хвилин.', false],
+      weak_password: ['Пароль — від 8 до 128 символів.', false],
+      network: ['Немає з’єднання. Перевірте інтернет — дані у формі збережені.', true],
+      empty: ['Заповніть e-mail і пароль.', true],
+      bad_email: ['Схоже, в адресі помилка.', true],
+      empty_name: ['Вкажіть ім’я — до 80 символів.', true],
+      invalid_token: ['Посилання недійсне або застаріло.', false],
+    };
+    const errKey = a.err && a.err !== 'google' ? a.err : null;
+    const err = errKey ? ERR[errKey] : null;
+    const pwLen = (a.password || '').length;
+    const C = {
+      login: { eb: 'Вхід', title: 'Вхід', fields: ['email', 'password'], submit: a.busy ? 'Входжу…' : 'Увійти', seg: true, google: true, links: [['Забули пароль?', () => act('authView', 'forgot')]] },
+      register: { eb: 'Реєстрація', title: 'Новий акаунт', fields: ['name', 'email', 'password'], submit: a.busy ? 'Створюю…' : 'Створити акаунт', seg: true, google: true, lead: 'Після реєстрації надішлю лист з посиланням для активації.' },
+      check: { eb: 'Лист надіслано', title: 'Перевірте пошту', dot: true, lead: 'Якщо адреса вільна, ми надіслали лист для активації.', check: true, mail: true, sub: 'Посилання дійсне 24 години.' },
+      activating: { eb: 'Активація', title: 'Перевіряю посилання', spinner: 'Активую акаунт…' },
+      activated: { eb: 'Акаунт активовано', title: 'Вхід виконано', bal: true },
+      activateInvalid: { eb: 'Активація', ebDanger: true, title: 'Посилання недійсне або застаріло', fields: ['email'], submit: a.busy ? 'Надсилаю…' : 'Надіслати лист ще раз', lead: 'Вкажіть адресу — надішлю нове посилання для активації.', links: [['До входу', () => act('authView', 'login')]] },
+      forgot: { eb: 'Скидання пароля', title: 'Забули пароль?', fields: ['email'], submit: a.busy ? 'Надсилаю…' : 'Надіслати посилання', lead: 'Надішлю лист з посиланням для нового пароля.', links: [['← До входу', () => act('authView', 'login')]] },
+      forgotSent: { eb: 'Лист надіслано', title: 'Перевірте пошту', dot: true, lead: 'Якщо акаунт існує, ми надіслали лист для скидання пароля.', check: true, mail: true, sub: 'Посилання дійсне 1 годину.', noResendCooldown: true },
+      reset: { eb: 'Скидання пароля', title: 'Новий пароль', fields: ['password'], pwNew: true, submit: a.busy ? 'Зберігаю…' : 'Зберегти й увійти', lead: 'Після збереження я завершу всі інші сесії цього акаунта.' },
+      resetInvalid: { eb: 'Скидання пароля', ebDanger: true, title: 'Посилання недійсне або застаріло', lead: 'Посилання для скидання діє 1 годину і лише один раз.', submit: 'Надіслати нове посилання', submitAct: () => act('authView', 'forgot') },
+      resetDone: { eb: 'Пароль змінено', title: 'Вхід виконано', lead: 'Новий пароль збережено. Інші сесії завершено.', submit: 'До кабінету', submitAct: () => act('cab', 'balance'), links: [['На старт', () => act('home')]] },
+    };
+    const c = C[v] || C.login;
+    const fields = c.fields || [];
+    const isReg = v === 'register' || c.pwNew;
+    const bal = app.balance ?? 0;
+    const need = (app.P && app.P.video) || 10;
+    const showN6 = v === 'activated' && !!pending && bal < need;
+    if (v === 'activated') {
+      c.submit = showN6 ? 'Поповнити' : pending ? 'Почати ролик' : 'На старт';
+      c.submitAct = showN6 ? () => act('openTopup', { from: 'start' }) : pending ? () => act('startSubmit') : () => act('home');
+      c.links = [['До кабінету', () => act('cab', 'balance')]];
+    }
+    if (a.context === '401' && v === 'login') {
+      c.eb = 'Сесія завершилась';
+      c.seg = false;
+      c.title = 'Увійдіть ще раз';
+    }
+    let lead = c.lead || '';
+    let ctx = null;
+    if (a.context === '401' && v === 'login') ctx = ['Після входу відкрию ', app.ws ? app.ws.host : 'проєкт', ' на тому ж місці.'];
+    else if (a.context === 'checkout' && (v === 'login' || v === 'register')) ctx = ['Після входу відкрию оплату ', (app.checkout && app.checkout.id) || 't_9q4m', '.'];
+    else if (pending && (v === 'login' || v === 'register')) ctx = ['Ролик для ', pending, ' почнеться після входу.'];
+    else if (pending && v === 'check') ctx = ['Після активації почну ролик для ', pending, '.'];
+    let info = '';
+    if (a.resent) info = v === 'activateInvalid' ? 'Якщо адреса чекає на активацію, новий лист уже в дорозі.' : 'Лист надіслано ще раз.';
+    if (errKey === 'not_activated' && a.resent) info = 'Лист надіслано ще раз — перевірте пошту.';
+    const cd = a.cooldown || 0;
+    const links = (c.links || []).map(([label, fn]) => ({ label, onClick: fn }));
+    if (errKey === 'not_activated' && !a.resent) links.unshift({ label: 'Надіслати лист ще раз', onClick: () => act('authResend') });
+    const rate = errKey === 'rate_limited';
+    const filledOk = true;
+    const hint = isReg ? (pwLen === 0 ? 'від 8 до 128 символів' : pwLen < 8 ? 'ще ' + (8 - pwLen) + ' ' + (8 - pwLen === 1 ? 'символ' : 8 - pwLen < 5 ? 'символи' : 'символів') : '✓ достатньо') : '';
+    const fbase = big
+      ? { fh: '52px', fpad: '0 0 8px', fborder: '0', fbb: '1.5px solid #151412', frad: '0', fbg: 'transparent', ffont: (mob ? 400 + ' 20px/1.2' : '400 24px/1.2') + " 'Onest',sans-serif", fls: '-0.01em', fpadPw: '0 96px 8px 0', pwBtnRight: '0', pwBtnBottom: '12px' }
+      : { fh: '48px', fpad: '0 14px', fborder: '1px solid rgba(21,20,18,.16)', fbb: '1px solid rgba(21,20,18,.16)', frad: '14px', fbg: '#FCFBF8', ffont: "400 15px/1.2 'Onest',sans-serif", fls: '0', fpadPw: '0 92px 0 14px', pwBtnRight: '10px', pwBtnBottom: '9px' };
+    const errLine = big ? '1.5px solid #B8331F' : '1px solid rgba(184,51,31,.55)';
+    const emailErr = ['invalid_credentials', 'bad_email', 'empty'].includes(errKey);
+    const pwErr = ['invalid_credentials', 'weak_password', 'empty'].includes(errKey);
+    const titleSize = cardB ? (mob ? '36px' : '44px') : big ? (mob ? '40px' : '64px') : mob ? '32px' : '28px';
+    return {
+      gap: cardB ? '28px' : big ? (mob ? '24px' : '32px') : '20px',
+      headGap: cardB ? '14px' : big ? '18px' : '10px',
+      eyebrow: c.eb,
+      eyebrowColor: c.ebDanger ? '#B8331F' : '#6E6A63',
+      eyebrowDot: !!c.ebDanger,
+      showClose: (layout === 'card' || cardB) && !mob && a.context !== '401' && !['activating'].includes(v),
+      close: () => act('authClose'),
+      title: c.title,
+      titleDot: !!c.dot,
+      titleSize,
+      hasLead: !!lead,
+      lead,
+      leadSize: cardB ? '16px' : big ? '18px' : '14.5px',
+      hasContext: !!ctx,
+      contextA: ctx ? ctx[0] : '',
+      contextHost: ctx ? ctx[1] : '',
+      contextB: ctx ? ctx[2] : '',
+      showSeg: !!c.seg,
+      segLoginSel: v === 'login' ? 'true' : 'false',
+      segRegSel: v === 'register' ? 'true' : 'false',
+      segLoginBg: v === 'login' ? '#151412' : 'transparent',
+      segLoginFg: v === 'login' ? '#F5F3EE' : '#151412',
+      segRegBg: v === 'register' ? '#151412' : 'transparent',
+      segRegFg: v === 'register' ? '#F5F3EE' : '#151412',
+      toLogin: () => act('authView', 'login'),
+      toRegister: () => act('authView', 'register'),
+      hasFields: fields.length > 0,
+      fieldGap: big ? '28px' : '16px',
+      showName: fields.includes('name'),
+      showEmail: fields.includes('email'),
+      showPassword: fields.includes('password'),
+      name: a.name || '',
+      email: a.email || '',
+      password: a.password || '',
+      onName: (e) => act('authField', { k: 'name', v: e.target.value }),
+      onEmail: (e) => act('authField', { k: 'email', v: e.target.value }),
+      onPassword: (e) => act('authField', { k: 'password', v: e.target.value }),
+      emailAc: v === 'register' ? 'email' : 'username',
+      emailInvalid: emailErr ? 'true' : 'false',
+      pwInvalid: pwErr ? 'true' : 'false',
+      pwLabel: c.pwNew ? 'Новий пароль' : 'Пароль',
+      pwType: a.showPw ? 'text' : 'password',
+      pwAc: isReg ? 'new-password' : 'current-password',
+      pwPlaceholder: isReg ? 'від 8 символів' : '',
+      pwShownStr: a.showPw ? 'true' : 'false',
+      pwToggleLabel: a.showPw ? 'Сховати' : 'Показати',
+      togglePw: () => act('authField', { k: 'showPw', v: !a.showPw }),
+      showPwHint: isReg,
+      pwHint: hint,
+      pwHintColor: pwLen >= 8 ? '#151412' : '#6E6A63',
+      ...fbase,
+      fbbErr: emailErr ? errLine : fbase.fbb,
+      fbbPw: pwErr ? errLine : fbase.fbb,
+      hasErr: !!err,
+      errText: err ? err[0] : '',
+      errUiMark: !!(err && err[1]),
+      hasInfo: !!info,
+      infoText: info,
+      showCheckEmail: !!c.check,
+      boxPad: big ? '20px 0' : '16px 0',
+      checkMailSize: big ? (mob ? '15px' : '18px') : '14px',
+      resend: () => act('authResend'),
+      resendDisabled: !c.noResendCooldown && cd > 0,
+      resendOpacity: !c.noResendCooldown && cd > 0 ? 0.45 : 1,
+      resendCursor: !c.noResendCooldown && cd > 0 ? 'not-allowed' : 'pointer',
+      resendLabel: c.noResendCooldown ? 'Надіслати ще раз' : cd > 0 ? 'Надіслати ще раз · 0:' + String(cd).padStart(2, '0') : 'Надіслати ще раз',
+      otherEmail: () => act('authView', v === 'forgotSent' ? 'forgot' : 'register'),
+      showSpinner: !!c.spinner,
+      spinnerText: c.spinner || '',
+      showBalance: !!c.bal,
+      balSize: big ? (mob ? '72px' : '112px') : '64px',
+      balNum: app.fmt ? app.fmt.num(bal) : String(bal),
+      balWord: app.fmt ? app.fmt.word(bal) : 'кредитів',
+      hasBonus: (a.bonus || 0) > 0,
+      bonus: a.bonus || 0,
+      showN6,
+      n6Pad: big ? '18px 20px' : '14px 16px',
+      pendingUrl: pending,
+      needText: f.cr(need),
+      haveText: f.cr(bal),
+      showSubmit: !!c.submit,
+      submitType: c.submitAct ? 'button' : 'submit',
+      submitClick: c.submitAct || undefined,
+      submitLabel: c.submit || '',
+      submitArrow: !a.busy,
+      busy: !!a.busy,
+      submitDisabled: !!a.busy || rate,
+      submitOpacity: a.busy || rate ? 0.45 : 1,
+      submitCursor: a.busy || rate ? 'not-allowed' : 'pointer',
+      btnH: big ? '52px' : '40px',
+      btnPad: big ? '0 22px 0 26px' : '0 18px 0 20px',
+      btnGap: big ? '14px' : '10px',
+      btnFont: big ? '15px' : '14px',
+      btnW: mob ? '100%' : 'auto',
+      links,
+      showGoogle: !!c.google,
+      gH: big ? '52px' : '40px',
+      google: () => act('authGoogle'),
+      googleMsg: a.err === 'google',
+      showMailLink: !!c.mail && app.proto !== false,
+      openMail: () => act('openMail'),
+      submit: (e) => { e.preventDefault(); if (!c.submitAct && filledOk) act('authSubmit'); },
+    };
+  }
+}
+</script>
+</body>
+</html>

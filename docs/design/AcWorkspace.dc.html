@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display:grid; grid-template-columns:minmax(300px,380px) minmax(0,1fr); grid-template-rows:56px auto minmax(0,1fr); height:100%; min-width:1024px; overflow:hidden; background:#F5F3EE; color:#151412; font-family:'Onest',sans-serif;">
+  <div style="grid-column:1 / -1; min-width:0;"><dc-import name="AcTopbar" app="{{ app }}" hint-size="100%,56px"></dc-import></div>
+
+  <div style="grid-column:1 / -1; min-width:0; padding:14px 24px 30px; background:#F5F3EE; border-bottom:1px solid rgba(21,20,18,.10);">
+    <div style="display:flex; padding-bottom:10px; font:500 10.5px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap;">
+      <sc-for list="{{ segs }}" as="s" hint-placeholder-count="6"><span style="flex:{{ s.flex }} 1 0; min-width:0; overflow:hidden; text-overflow:ellipsis; color:{{ s.color }};"><span style="color:{{ s.numColor }};">{{ s.num }}</span> {{ s.label }}</span></sc-for>
+    </div>
+    <div style="position:relative; height:12px; background:repeating-linear-gradient(90deg, rgba(21,20,18,.2) 0 1px, transparent 1px 8px);">
+      <div style="position:absolute; left:0; top:0; bottom:0; width:{{ passed }}; background:repeating-linear-gradient(90deg, #151412 0 1px, transparent 1px 8px); transition:width .7s cubic-bezier(.2,.8,.2,1);"></div>
+      <sc-for list="{{ diamonds }}" as="d" hint-placeholder-count="3"><span style="position:absolute; left:{{ d.left }}; top:50%; width:11px; height:11px; transform:translate(-50%,-50%) rotate(45deg); background:{{ d.bg }}; border:1.5px solid {{ d.border }}; animation:{{ d.anim }};"></span></sc-for>
+      <sc-if value="{{ hasPlayhead }}"><div style="position:absolute; top:-5px; bottom:-5px; left:{{ passed }}; width:0; transition:left .7s cubic-bezier(.2,.8,.2,1);"><div style="position:absolute; left:-0.75px; top:0; bottom:0; width:1.5px; background:#D4402A;"></div><div style="position:absolute; left:{{ chipLeft }}; right:{{ chipRight }}; top:calc(100% + 4px); transform:{{ chipTf }}; background:#D4402A; color:#FFFFFF; font:600 10.5px/1 'JetBrains Mono',monospace; padding:3px 6px; border-radius:4px; white-space:nowrap; font-variant-numeric:tabular-nums;">{{ chip }}</div></div></sc-if>
+    </div>
+  </div>
+
+  <aside style="display:flex; flex-direction:column; min-height:0; background:#F1EFE9; border-right:1px solid rgba(21,20,18,.10);">
+    <div style="display:flex; flex:none; align-items:center; justify-content:space-between; gap:12px; padding:20px 20px 14px;">
+      <h2 style="margin:0; font:300 20px/1.1 'Unbounded',sans-serif; letter-spacing:-0.04em;">Діалог</h2>
+      <span style="display:inline-flex; align-items:center; gap:7px; color:#6E6A63; font:400 11px/1 'JetBrains Mono',monospace;"><span style="width:6px; height:6px; border-radius:50%; background:{{ connDot }};"></span>{{ connLabel }}</span>
+    </div>
+    <div style="flex:1; min-height:0; overflow-y:auto; padding:6px 20px 20px;" ref="{{ feedRef }}">
+      <div style="display:flex; flex-direction:column; gap:18px;">
+        <sc-if value="{{ feedEmpty }}"><p style="margin:0; color:#6E6A63; font:400 13.5px/1.5 'Onest',sans-serif;">{{ feedEmptyText }}</p></sc-if>
+        <sc-for list="{{ feed }}" as="m" hint-placeholder-count="4">
+          <sc-if value="{{ m.isAsst }}">
+            <div style="display:flex; flex-direction:column; gap:6px; animation:adcFade .38s cubic-bezier(.2,.8,.2,1) both;">
+              <div style="color:#6E6A63; font:500 10px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ m.meta }}</div>
+              <div style="font:400 14.5px/1.55 'Onest',sans-serif; color:{{ m.color }}; overflow-wrap:anywhere;">{{ m.text }}</div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ m.isUser }}">
+            <div style="display:flex; justify-content:flex-end; animation:adcFade .38s cubic-bezier(.2,.8,.2,1) both;"><div style="max-width:86%; padding:10px 14px; border-radius:16px 16px 4px 16px; background:#151412; color:#F5F3EE; font:400 14.5px/1.5 'Onest',sans-serif; overflow-wrap:anywhere;">{{ m.text }}</div></div>
+          </sc-if>
+          <sc-if value="{{ m.isProg }}">
+            <div style="display:flex; align-items:center; gap:10px; color:#6E6A63; font:400 12px/1.4 'JetBrains Mono',monospace;"><sc-if value="{{ m.running }}"><span style="flex:none; width:12px; height:12px; border-radius:50%; border:1.5px solid rgba(21,20,18,.15); border-top-color:#D4402A; animation:adcSpin .8s linear infinite;"></span></sc-if><sc-if value="{{ m.finished }}"><span style="flex:none; width:12px; text-align:center; color:#151412;">✓</span></sc-if>{{ m.text }}</div>
+          </sc-if>
+          <sc-if value="{{ m.isReceipt }}">
+            <div style="display:grid; grid-template-columns:12px minmax(0,1fr) auto; align-items:baseline; gap:10px; padding:2px 0; color:#3A3833; font:400 12px/1.4 'JetBrains Mono',monospace; animation:adcFade .38s cubic-bezier(.2,.8,.2,1) both;"><span style="text-align:center; color:#151412; font-weight:500;">{{ m.sign }}</span><span><b style="color:#151412; font-weight:500;">{{ m.amount }}</b> · {{ m.what }}</span><span style="color:#6E6A63; font-variant-numeric:tabular-nums;">залишок {{ m.after }}</span></div>
+          </sc-if>
+          <sc-if value="{{ m.isCp }}">
+            <div style="display:flex; flex-direction:column; gap:10px; padding:14px 16px; border:1px solid {{ m.border }}; border-radius:14px; background:#FCFBF8;">
+              <div style="display:flex; align-items:center; gap:9px; font:500 10.5px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:8px; height:8px; transform:rotate(45deg); background:{{ m.dBg }}; border:1.5px solid {{ m.dBorder }};"></span>{{ m.title }}<span style="color:#6E6A63;">· рев. {{ m.rev }}</span></div>
+              <sc-if value="{{ m.active }}">
+                <div style="color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif;">{{ m.hint }}</div>
+                <div style="display:flex; flex-wrap:wrap; gap:8px;"><button type="button" onClick="{{ m.onApprove }}" style="height:34px; padding:0 16px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 13.5px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">{{ m.approveLabel }}</button><button type="button" onClick="{{ m.onEdit }}" style="height:34px; padding:0 16px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 13.5px/1 'Onest',sans-serif; cursor:pointer;" style-hover="border-color:#151412;">Правки</button></div>
+                <sc-if value="{{ m.freeNote }}"><div style="color:#6E6A63; font:400 11.5px/1.4 'JetBrains Mono',monospace;">правки до видачі — безкоштовно</div></sc-if>
+              </sc-if>
+              <sc-if value="{{ m.closed }}"><div style="color:{{ m.statusColor }}; font:500 11px/1 'JetBrains Mono',monospace;">{{ m.status }}</div></sc-if>
+            </div>
+          </sc-if>
+          <sc-if value="{{ m.isErr }}">
+            <div style="display:flex; flex-direction:column; gap:10px; padding:14px 16px; border-radius:14px; background:#FCFBF8; border:1px solid rgba(184,51,31,.35);">
+              <div style="display:flex; align-items:center; gap:9px; color:#B8331F; font:500 10.5px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:7px; height:7px; border-radius:50%; background:#B8331F;"></span>{{ m.title }}</div>
+              <div style="font:400 14px/1.5 'Onest',sans-serif;">{{ m.text }}</div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ m.isShort }}">
+            <div role="alert" style="display:flex; flex-direction:column; gap:12px; padding:14px 16px; border:1px solid #151412; border-radius:14px; background:#FCFBF8; animation:adcFade .38s cubic-bezier(.2,.8,.2,1) both;">
+              <div style="display:flex; align-items:center; gap:9px; font:500 10.5px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:8px; height:8px; transform:rotate(45deg); background:#D4402A;"></span>{{ m.title }}</div>
+              <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; color:#6E6A63; font:400 11.5px/1.3 'JetBrains Mono',monospace;">
+                <span style="display:flex; flex-direction:column; gap:5px;">потрібно<b style="color:#151412; font:500 17px/1 'JetBrains Mono',monospace;">{{ m.need }}</b></span>
+                <span style="display:flex; flex-direction:column; gap:5px;">у вас<b style="color:#151412; font:500 17px/1 'JetBrains Mono',monospace;">{{ m.have }}</b></span>
+                <span style="display:flex; flex-direction:column; gap:5px;">не вистачає<b style="color:#151412; font:500 17px/1 'JetBrains Mono',monospace;">{{ m.short }}</b></span>
+              </div>
+              <div style="color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif;">{{ m.advice }}</div>
+              <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                <button type="button" onClick="{{ m.onTopup }}" style="height:34px; padding:0 16px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 13.5px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">{{ m.topupLabel }}</button>
+                <sc-if value="{{ m.oneFormat }}"><button type="button" onClick="{{ m.onOne }}" style="height:34px; padding:0 16px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 13.5px/1 'Onest',sans-serif; cursor:pointer;" style-hover="border-color:#151412;">Лишити один формат</button></sc-if>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ m.isRetry }}">
+            <div style="display:flex; flex-direction:column; gap:10px; padding:14px 16px; border:1px solid #151412; border-radius:14px; background:#FCFBF8; animation:adcFade .38s cubic-bezier(.2,.8,.2,1) both;">
+              <div style="display:flex; align-items:center; gap:9px; font:500 10.5px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:8px; height:8px; transform:rotate(45deg); background:#D4402A;"></span>Баланс поповнено · {{ m.plus }}</div>
+              <div style="color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif;">{{ m.text }}</div>
+              <button type="button" onClick="{{ m.onRetry }}" style="align-self:flex-start; height:34px; padding:0 16px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 13.5px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">Повторити</button>
+            </div>
+          </sc-if>
+        </sc-for>
+      </div>
+    </div>
+    <sc-if value="{{ showComposer }}" hint-placeholder-val="{{ true }}"><div style="flex:none; display:flex; flex-direction:column; gap:8px; padding:0 16px 16px;">
+      <sc-if value="{{ showRevStrip }}">
+        <div style="display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 12px; align-items:baseline; padding:10px 4px 2px; border-top:1px solid rgba(21,20,18,.10);">
+          <span style="color:#6E6A63; font:500 10px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Наступна правка</span>
+          <span style="display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:6px; font:400 12px/1.3 'JetBrains Mono',monospace; color:#151412; text-align:right;"><sc-if value="{{ revShort }}"><span style="width:7px; height:7px; transform:rotate(45deg); background:#D4402A;"></span></sc-if>{{ revStripText }}<sc-if value="{{ revShort }}"><button type="button" onClick="{{ topupWs }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 12px/1.3 'JetBrains Mono',monospace; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A;">поповнити</button></sc-if></span>
+          <span></span>
+          <span style="color:#6E6A63; font:400 11.5px/1.3 'Onest',sans-serif; text-align:right;">Питання — безкоштовно. Надсилати можна завжди.</span>
+        </div>
+      </sc-if>
+      <form onSubmit="{{ send }}" style="display:flex; flex-direction:column; gap:8px; padding:12px 10px 10px 14px; border:1px solid {{ composerBorder }}; border-radius:16px; background:#FCFBF8; transition:border-color .2s;" style-focus-within="border-color:#151412;">
+        <textarea rows="1" value="{{ composer }}" onChange="{{ onComposer }}" onKeyDown="{{ onKey }}" placeholder="{{ placeholder }}" aria-label="Повідомлення" style="display:block; width:100%; min-height:1.5em; max-height:7.5em; padding:0; border:0; background:transparent; font:400 14.5px/1.5 'Onest',sans-serif; resize:none; outline:none;"></textarea>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+          <button type="button" style="height:30px; padding:0 12px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#3A3833; font:500 11.5px/1 'JetBrains Mono',monospace; cursor:pointer;" style-hover="border-color:#151412; color:#151412;">+ Фото</button>
+          <span style="display:flex; align-items:center; gap:10px; min-width:0;">
+            <span style="min-width:0; color:#6E6A63; font:400 10.5px/1.3 'JetBrains Mono',monospace; text-align:right;">↵ надіслати<sc-if value="{{ hintA }}"><span> · </span><span style="color:{{ hintAColor }};">{{ hintAText }}</span></sc-if></span>
+            <button type="submit" aria-label="Надіслати" style="flex:none; width:34px; height:34px; border-radius:50%; border:0; background:{{ sendBg }}; color:#F5F3EE; font:500 16px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">↑</button>
+          </span>
+        </div>
+      </form>
+    </div></sc-if>
+  </aside>
+
+  <main style="position:relative; min-width:0; min-height:0; overflow:auto; background:#F8F7F3;">
+    <sc-if value="{{ vBrand }}">
+      <div style="display:flex; flex-direction:column; max-width:1000px; padding:40px {{ pad }} 88px; animation:adcFade .5s cubic-bezier(.2,.8,.2,1) both;">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 24px;">
+          <p style="margin:0; display:flex; align-items:center; gap:10px; color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:9px; height:9px; transform:rotate(45deg); background:#D4402A; border:1.5px solid #D4402A; animation:adcRing 1.6s ease-out infinite;"></span>Чекпоінт 1 / 3 · Бренд-кіт · ревізія 1</p>
+          <div style="display:flex; gap:8px;"><button type="button" style="height:40px; padding:0 18px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="border-color:#151412;">Правки</button><button type="button" onClick="{{ approveBrand }}" style="display:inline-flex; align-items:center; gap:10px; height:40px; padding:0 18px 0 20px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">Затвердити <span>→</span></button></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:16px; padding:32px 0 36px;">
+          <h1 style="margin:0; font:300 {{ dBrand }}/0.95 'Unbounded',sans-serif; letter-spacing:-0.055em;">Зерно</h1>
+          <p style="margin:0; max-width:640px; color:#3A3833; font:400 18px/1.55 'Onest',sans-serif;">Кав’ярня у Львові: обсмажуємо зерно самі, сніданки до 12:00.</p>
+          <span style="color:#6E6A63; font:400 12.5px/1.5 'JetBrains Mono',monospace;">zerno.example.com · 7 сторінок · українська</span>
+        </div>
+        <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:28px; padding:28px 0; border-top:1px solid rgba(21,20,18,.10);">
+          <span style="padding-top:2px; color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Палітра</span>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(96px,1fr)); gap:8px;">
+            <div style="display:flex; flex-direction:column; justify-content:flex-end; gap:4px; height:120px; padding:12px; border-radius:12px; background:#6B3E26; color:#FFF8F0;"><span style="font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; opacity:.8;">Кава</span><span style="font:500 13px/1.2 'JetBrains Mono',monospace;">#6B3E26</span></div>
+            <div style="display:flex; flex-direction:column; justify-content:flex-end; gap:4px; height:120px; padding:12px; border-radius:12px; background:#FFF8F0; box-shadow:inset 0 0 0 1px rgba(21,20,18,.12); color:#3A3833;"><span style="font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; opacity:.8;">Молоко</span><span style="font:500 13px/1.2 'JetBrains Mono',monospace;">#FFF8F0</span></div>
+            <div style="display:flex; flex-direction:column; justify-content:flex-end; gap:4px; height:120px; padding:12px; border-radius:12px; background:#D9A066; color:#3A3833;"><span style="font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; opacity:.8;">Карамель</span><span style="font:500 13px/1.2 'JetBrains Mono',monospace;">#D9A066</span></div>
+            <div style="display:flex; flex-direction:column; justify-content:flex-end; gap:4px; height:120px; padding:12px; border-radius:12px; background:#2B2B2B; color:#F5F3EE;"><span style="font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; opacity:.8;">Графіт</span><span style="font:500 13px/1.2 'JetBrains Mono',monospace;">#2B2B2B</span></div>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:28px; padding:28px 0; border-top:1px solid rgba(21,20,18,.10);">
+          <span style="padding-top:2px; color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Шрифти</span>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:24px;">
+            <div style="display:flex; flex-direction:column; gap:8px;"><span style="font:800 56px/1 'Montserrat',sans-serif; letter-spacing:-0.02em;">Аа</span><span style="font:500 16px/1.3 'Onest',sans-serif;">Montserrat</span><span style="color:#6E6A63; font:400 12px/1.4 'JetBrains Mono',monospace;">заголовки · 800</span></div>
+            <div style="display:flex; flex-direction:column; gap:8px;"><span style="font:400 56px/1 'Inter',sans-serif; letter-spacing:-0.02em;">Аа</span><span style="font:500 16px/1.3 'Onest',sans-serif;">Inter</span><span style="color:#6E6A63; font:400 12px/1.4 'JetBrains Mono',monospace;">текст · 400</span></div>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:24px; margin-top:12px; padding:{{ panelPad }}; border:1px solid rgba(21,20,18,.10); border-radius:20px; background:#FCFBF8;">
+          <h2 style="margin:0; font:300 28px/1.1 'Unbounded',sans-serif; letter-spacing:-0.04em;">Ваші рішення</h2>
+          <sc-if value="{{ n5bCp1 }}">
+            <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:6px 28px; align-items:baseline; padding:16px 0; border-top:1px solid rgba(21,20,18,.10); border-bottom:1px solid rgba(21,20,18,.10);">
+              <span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">До списання</span>
+              <span style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; font:400 13px/1.4 'JetBrains Mono',monospace;"><sc-if value="{{ cp1Short }}"><span style="width:8px; height:8px; transform:rotate(45deg); background:#D4402A;"></span></sc-if>{{ cp1SumText }}<sc-if value="{{ cp1Short }}"><button type="button" onClick="{{ topupWs }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 13px/1.4 'JetBrains Mono',monospace; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A;">поповнити</button></sc-if></span>
+              <span></span>
+              <span style="color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif;">{{ cp1SumSub }}</span>
+            </div>
+          </sc-if>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Мета ролика</span>
+            <div style="display:flex; flex-wrap:wrap; gap:8px;"><span style="height:38px; padding:0 16px; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/38px 'Onest',sans-serif;">Привести нових гостей</span><span style="height:38px; padding:0 16px; border-radius:999px; border:1px solid rgba(21,20,18,.16); font:500 14px/36px 'Onest',sans-serif;">Анонс сніданків</span></div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Формати</span>
+            <div style="display:flex; flex-wrap:wrap; gap:10px;">
+              <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="3">
+                <button type="button" onClick="{{ t.onClick }}" aria-pressed="{{ t.pressed }}" style="position:relative; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:12px; width:124px; height:132px; padding:14px 10px; border:1.5px solid {{ t.border }}; border-radius:14px; background:{{ t.bg }}; color:#151412; cursor:pointer; transition:border-color .2s, background-color .2s;" style-hover="border-color:#151412;">
+                  <sc-if value="{{ t.hasTag }}"><span style="position:absolute; top:9px; right:10px; color:{{ t.tagColor }}; font:500 11px/1 'JetBrains Mono',monospace;">{{ t.tag }}</span></sc-if>
+                  <span style="width:{{ t.gw }}; height:{{ t.gh }}; border-radius:4px; border:1.5px solid #151412; background:{{ t.gbg }};"></span>
+                  <span style="font:500 13px/1 'JetBrains Mono',monospace;">{{ t.ratio }}</span>
+                  <span style="color:#6E6A63; font:400 12px/1 'Onest',sans-serif;">{{ t.name }}</span>
+                </button>
+              </sc-for>
+            </div>
+            <sc-if value="{{ n5aCp1Note }}"><p style="margin:0; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; color:#6E6A63; font:400 12px/1.5 'JetBrains Mono',monospace;"><span>{{ cp1NoteText }}</span><sc-if value="{{ cp1Short }}"><span>·</span><span style="color:#151412;">у вас {{ balNum }}</span><span>·</span><button type="button" onClick="{{ topupWs }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 12px/1.5 'JetBrains Mono',monospace; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A;">поповнити</button></sc-if></p></sc-if>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Мова відео</span>
+            <div style="display:inline-flex; align-self:flex-start; padding:3px; border-radius:999px; border:1px solid rgba(21,20,18,.16);"><span style="height:34px; padding:0 16px; border-radius:999px; background:#151412; color:#F5F3EE; font:500 13.5px/34px 'Onest',sans-serif;">Українська</span><span style="height:34px; padding:0 16px; border-radius:999px; font:500 13.5px/34px 'Onest',sans-serif;">English</span></div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ vScript }}">
+      <div style="display:flex; flex-direction:column; max-width:1000px; padding:40px {{ pad }} 88px; animation:adcFade .5s cubic-bezier(.2,.8,.2,1) both;">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 24px;">
+          <p style="margin:0; display:flex; align-items:center; gap:10px; color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:9px; height:9px; transform:rotate(45deg); background:#D4402A; border:1.5px solid #D4402A; animation:adcRing 1.6s ease-out infinite;"></span>Чекпоінт 2 / 3 · Тексти · ревізія 1</p>
+          <div style="display:flex; gap:8px;"><button type="button" style="height:40px; padding:0 18px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="border-color:#151412;">Правки</button><button type="button" onClick="{{ approveScript }}" style="display:inline-flex; align-items:center; gap:10px; height:40px; padding:0 18px 0 20px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">Затвердити <span>→</span></button></div>
+        </div>
+        <sc-if value="{{ n5bFree }}"><p style="margin:20px 0 0; color:#6E6A63; font:400 12px/1.5 'JetBrains Mono',monospace;">правки до видачі — безкоштовно</p></sc-if>
+        <h1 style="margin:32px 0 0; font:300 {{ dM }}/1.08 'Unbounded',sans-serif; letter-spacing:-0.045em;">Ранок у «Зерні»</h1>
+        <p style="margin:18px 0 32px; max-width:560px; color:#3A3833; font:400 18px/1.55 'Onest',sans-serif;">Три сцени по 5 секунд: аромат, ціна, заклик.</p>
+        <sc-for list="{{ scenes }}" as="s" hint-placeholder-count="3">
+          <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:28px; padding:28px 0; border-top:1px solid rgba(21,20,18,.10);"><span style="padding-top:4px; color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ s.id }}</span><span style="display:flex; flex-direction:column; gap:6px;"><span style="font:500 22px/1.25 'Onest',sans-serif; letter-spacing:-0.01em;">{{ s.head }}</span><span style="color:#6E6A63; font:400 14.5px/1.5 'Onest',sans-serif;">{{ s.sub }}</span></span></div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ vBoard }}">
+      <div style="display:flex; flex-direction:column; max-width:1000px; padding:40px {{ pad }} 88px; animation:adcFade .5s cubic-bezier(.2,.8,.2,1) both;">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 24px;">
+          <p style="margin:0; display:flex; align-items:center; gap:10px; color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:9px; height:9px; transform:rotate(45deg); background:#D4402A; border:1.5px solid #D4402A; animation:adcRing 1.6s ease-out infinite;"></span>Чекпоінт 3 / 3 · Розкадровка · ревізія {{ rev }}</p>
+          <div style="display:flex; gap:8px;"><button type="button" style="height:40px; padding:0 18px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="border-color:#151412;">Правки</button><button type="button" onClick="{{ approveBoard }}" style="display:inline-flex; align-items:center; gap:10px; height:40px; padding:0 18px 0 20px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif; white-space:nowrap; cursor:pointer;" style-hover="background:#D4402A;">Затвердити й рендерити<sc-if value="{{ n5aCp3Btn }}"><span style="padding-left:10px; border-left:1px solid rgba(245,243,238,.28); font:400 12px/1 'JetBrains Mono',monospace; color:rgba(245,243,238,.82);">{{ cp3BtnPrice }}</span></sc-if><span>→</span></button></div>
+        </div>
+        <sc-if value="{{ n5aCp3Line }}"><p style="margin:14px 0 0; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px 10px; color:#6E6A63; font:400 12px/1.5 'JetBrains Mono',monospace; text-align:right;"><span>{{ cp3LineText }}</span><sc-if value="{{ cp3Short }}"><span>·</span><button type="button" onClick="{{ topupWs }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 12px/1.5 'JetBrains Mono',monospace; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A;">поповнити</button></sc-if></p></sc-if>
+        <sc-if value="{{ n5bCp3 }}">
+          <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:6px 28px; align-items:baseline; margin-top:24px; padding:16px 0; border-top:1px solid #151412; border-bottom:1px solid rgba(21,20,18,.10);">
+            <span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ cp3SumLabel }}</span>
+            <span style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; font:400 13px/1.4 'JetBrains Mono',monospace;"><sc-if value="{{ cp3Short }}"><span style="width:8px; height:8px; transform:rotate(45deg); background:#D4402A;"></span></sc-if>{{ cp3SumText }}<sc-if value="{{ cp3Short }}"><button type="button" onClick="{{ topupWs }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 13px/1.4 'JetBrains Mono',monospace; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A;">поповнити</button></sc-if></span>
+            <span></span>
+            <span style="color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif;">{{ cp3SumSub }}</span>
+          </div>
+        </sc-if>
+        <h1 style="margin:32px 0 0; font:300 {{ dM }}/1.08 'Unbounded',sans-serif; letter-spacing:-0.045em;">Розкадровка</h1>
+        <p style="margin:18px 0 28px; max-width:560px; color:#3A3833; font:400 18px/1.55 'Onest',sans-serif;">Стіли в основному форматі 9:16 — по два кадри на сцену.</p>
+        <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px;">
+          <sc-for list="{{ scenes }}" as="s" hint-placeholder-count="3">
+            <div style="display:flex; flex-direction:column; gap:10px;"><div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;"><span style="aspect-ratio:9 / 16; border-radius:6px; background:repeating-linear-gradient(135deg, #E9E5DC 0 2px, #F1EEE7 2px 12px);"></span><span style="aspect-ratio:9 / 16; border-radius:6px; background:repeating-linear-gradient(135deg, #E9E5DC 0 2px, #F1EEE7 2px 12px);"></span></div><span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ s.id }}</span><span style="font:500 15px/1.35 'Onest',sans-serif;">{{ s.head }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ vProgress }}">
+      <div style="padding:44px {{ pad }} 88px; max-width:1000px; animation:adcFade .5s cubic-bezier(.2,.8,.2,1) both;">
+        <div style="color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ progEyebrow }}</div>
+        <h1 style="margin:18px 0 0; display:flex; align-items:center; gap:18px; font:300 {{ dL }}/1.02 'Unbounded',sans-serif; letter-spacing:-0.05em;">{{ progTitle }}<span style="width:12px; height:12px; border-radius:50%; background:#D4402A; animation:adcPulse 1.1s ease-in-out infinite;"></span></h1>
+        <div style="margin-top:44px; font:200 {{ numeral }}/0.9 'Unbounded',sans-serif; letter-spacing:-0.06em; font-variant-numeric:tabular-nums;">{{ progPct }}<span style="font-size:.38em; color:#6E6A63;">%</span></div>
+        <div style="margin-top:26px; height:2px; background:rgba(21,20,18,.12); position:relative;"><div style="position:absolute; left:0; top:0; bottom:0; width:{{ progPct }}%; background:#151412;"></div></div>
+        <div style="margin-top:12px; color:#6E6A63; font:400 12px/1.4 'JetBrains Mono',monospace;">{{ progMeta }}</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ vDone }}">
+      <div style="max-width:1000px; padding:40px {{ pad }} 88px; animation:adcFade .5s cubic-bezier(.2,.8,.2,1) both;">
+        <div style="display:grid; grid-template-columns:{{ doneCols }}; gap:40px 56px; align-items:start;">
+          <figure style="margin:0 auto; display:flex; flex-direction:column; gap:16px; width:{{ playerW }};">
+            <div style="position:relative; width:100%; aspect-ratio:9 / 16; overflow:hidden; border-radius:14px; box-shadow:0 30px 60px -30px rgba(21,20,18,.45), 0 0 0 1px rgba(21,20,18,.06); background:repeating-linear-gradient(135deg, #E9E5DC 0 2px, #F1EEE7 2px 12px);"><span style="position:absolute; left:14px; bottom:14px; color:#3A3833; font:500 10px/1.3 'JetBrains Mono',monospace;">video · 9:16 · рев. {{ rev }}</span></div>
+            <div style="display:flex; align-items:center; gap:14px;"><span style="flex:none; width:40px; height:40px; border-radius:50%; background:#151412; display:flex; align-items:center; justify-content:center;"><span style="width:0; height:0; border-top:7px solid transparent; border-bottom:7px solid transparent; border-left:11px solid #F5F3EE; margin-left:3px;"></span></span><span style="position:relative; flex:1; height:4px; border-radius:999px; background:#E7E3DA;"><span style="position:absolute; left:0; top:0; bottom:0; width:0; background:#151412;"></span><span style="position:absolute; left:0; top:50%; width:12px; height:12px; border-radius:50%; background:#D4402A; transform:translate(-50%,-50%);"></span></span><span style="color:#6E6A63; font:400 12px/1 'JetBrains Mono',monospace;">0:00 / 0:15</span></div>
+          </figure>
+          <div style="display:flex; flex-direction:column; min-width:0;">
+            <p style="margin:0; color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Готово · ревізія {{ rev }}</p>
+            <h1 style="margin:18px 0 0; font:300 {{ dM }}/1.08 'Unbounded',sans-serif; letter-spacing:-0.045em;">Ролик готовий<span style="color:#D4402A;">.</span></h1>
+            <p style="margin:18px 0 0; max-width:560px; color:#3A3833; font:400 18px/1.55 'Onest',sans-serif;">Завантажте файли нижче. Щоб змінити щось — напишіть у чаті, я зроблю нову ревізію.</p>
+            <div style="margin-top:28px; display:inline-flex; align-self:flex-start; padding:3px; border-radius:999px; border:1px solid rgba(21,20,18,.16);"><span style="height:34px; padding:0 16px; border-radius:999px; background:#151412; color:#F5F3EE; font:500 13.5px/34px 'Onest',sans-serif;">9:16</span><span style="height:34px; padding:0 16px; border-radius:999px; font:500 13.5px/34px 'Onest',sans-serif;">1:1</span></div>
+            <div style="display:flex; flex-direction:column; gap:14px; margin-top:40px;">
+              <span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Завантаження</span>
+              <div style="border-top:1px solid rgba(21,20,18,.10);">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid rgba(21,20,18,.10);"><span style="display:flex; flex-direction:column; gap:5px;"><span style="font:500 15px/1.2 'Onest',sans-serif;">MP4 · 9:16</span><span style="color:#6E6A63; font:400 11.5px/1 'JetBrains Mono',monospace;">1080×1920 · 15 с · h264 + aac</span></span><span style="width:34px; height:34px; border-radius:50%; border:1px solid rgba(21,20,18,.16); display:flex; align-items:center; justify-content:center;">↓</span></div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid rgba(21,20,18,.10);"><span style="display:flex; flex-direction:column; gap:5px;"><span style="font:500 15px/1.2 'Onest',sans-serif;">MP4 · 1:1</span><span style="color:#6E6A63; font:400 11.5px/1 'JetBrains Mono',monospace;">1080×1080 · 15 с · h264 + aac</span></span><span style="width:34px; height:34px; border-radius:50%; border:1px solid rgba(21,20,18,.16); display:flex; align-items:center; justify-content:center;">↓</span></div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid rgba(21,20,18,.10);"><span style="display:flex; flex-direction:column; gap:5px;"><span style="font:500 15px/1.2 'Onest',sans-serif;">Постер</span><span style="color:#6E6A63; font:400 11.5px/1 'JetBrains Mono',monospace;">PNG · 9:16 · кадр заклику</span></span><span style="width:34px; height:34px; border-radius:50%; border:1px solid rgba(21,20,18,.16); display:flex; align-items:center; justify-content:center;">↓</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ vFailed }}">
+      <div style="padding:44px {{ pad }}; max-width:1000px; animation:adcFade .5s cubic-bezier(.2,.8,.2,1) both;">
+        <div style="display:flex; align-items:center; gap:10px; color:#B8331F; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:7px; height:7px; border-radius:50%; background:#B8331F;"></span>Помилка · етап codegen</div>
+        <h1 style="margin:18px 0 0; font:300 {{ dL }}/1.02 'Unbounded',sans-serif; letter-spacing:-0.05em;">Щось пішло не так</h1>
+        <p style="margin:20px 0 0; max-width:520px; color:#3A3833; font:400 17px/1.55 'Onest',sans-serif;">Сцену не вдалося зібрати навіть за шаблоном. Повторити цей запуск неможливо — почніть новий проєкт.</p>
+        <div style="margin-top:32px; display:flex; gap:8px;"><button type="button" onClick="{{ goHome }}" style="height:40px; padding:0 18px 0 20px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">Новий проєкт</button></div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ vSession }}">
+      <div style="display:flex; flex-direction:column; gap:28px; padding:44px {{ pad }}; max-width:640px; animation:adcFade .5s cubic-bezier(.2,.8,.2,1) both;">
+        <dc-import name="AcAuth" app="{{ app }}" layout="moment" hint-size="100%,520px"></dc-import>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ vNotFound }}">
+      <div style="padding:44px {{ pad }}; max-width:1000px; animation:adcFade .5s cubic-bezier(.2,.8,.2,1) both;">
+        <div style="color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Проєкт · {{ pid }}</div>
+        <h1 style="margin:18px 0 0; font:300 {{ dL }}/1.02 'Unbounded',sans-serif; letter-spacing:-0.05em;">Проєкт не знайдено</h1>
+        <p style="margin:20px 0 0; max-width:520px; color:#3A3833; font:400 17px/1.55 'Onest',sans-serif;">Перевірте посилання або відкрийте проєкт зі списку. Нові проєкти з’являються там одразу після старту.</p>
+        <div style="margin-top:32px; display:flex; gap:8px;"><button type="button" onClick="{{ openProjects }}" style="height:40px; padding:0 18px 0 20px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">Мої проєкти</button><button type="button" onClick="{{ goHome }}" style="height:40px; padding:0 18px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="border-color:#151412;">Новий проєкт</button></div>
+      </div>
+    </sc-if>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;app&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;object&quot;}}">
+class Component extends DCLogic {
+  feedRef = React.createRef();
+  componentDidUpdate() { const el = this.feedRef.current; if (el && this._len !== this._lastLen) { el.scrollTop = el.scrollHeight; this._lastLen = this._len; } }
+  componentDidMount() { const el = this.feedRef.current; if (el) el.scrollTop = el.scrollHeight; }
+  renderVals() {
+    const a = this.props.app || {};
+    const act = a.act || (() => {});
+    const f = a.fmt || { num: String, word: () => 'кредитів', cr: (n) => n + ' кредитів', sgn: String };
+    const v = a.v || {};
+    const ws = a.ws || {};
+    const P = a.P || { video: 10, revision: 3, extraFormat: 2 };
+    const w = a.frameW || 1440;
+    const bal = a.balance ?? 0;
+    const st = ws.status || 'awaiting_brand';
+    const view = ws.view || 'brand';
+    const FMT = { vertical: '9:16', square: '1:1', landscape: '16:9' };
+    const FMTN = { vertical: 'Вертикальне', square: 'Квадрат', landscape: 'Горизонтальне' };
+    const formats = ws.formats || ['vertical'];
+    const paid = ws.paid || [];
+    const extra = formats.slice(1).filter((x) => !paid.includes(x));
+    const paidExtra = formats.slice(1).filter((x) => paid.includes(x));
+    const need = extra.length * P.extraFormat;
+    const fmtShort = need > 0 && bal < need;
+    const lab = (arr) => arr.map((x) => FMT[x]).join(', ');
+    // timeline
+    const SEG = [['Сайт', 1], ['Бренд-кіт', 1.3], ['Сценарій', 1.2], ['Сцени і музика', 1.6], ['Рендер', 1], ['Готово', 0.6]];
+    const MAP = { awaiting_brand: [1, 34.33, '00:09', 1], awaiting_script: [2, 52.24, '00:31', 2], scripting: [2, 45, '00:24', 0], directing: [3, 65, '00:58', 0], awaiting_storyboard: [3, 76.12, '01:12', 3], rendering: [4, 84, '01:40', 0], delivered: [6, 100, '02:14', 0], revising: [6, 100, '02:14', 0], failed: [4, 80, '01:31', 0], crawling: [0, 8.53, '00:04', 0] };
+    const idle = !ws.status;
+    const m = idle ? [-1, 0, '', 0] : (MAP[st] || MAP.awaiting_brand);
+    const segs = SEG.map(([label, wt], i) => ({ label, flex: wt, num: i < m[0] ? '✓' : String(i + 1).padStart(2, '0'), color: i <= m[0] && !idle ? '#151412' : '#6E6A63', numColor: i === m[0] ? '#D4402A' : 'inherit' }));
+    const cpPos = [34.33, 52.24, 76.12];
+    const diamonds = cpPos.map((left, i) => {
+      const passed = !idle && (m[1] > left || st === 'delivered' || st === 'revising');
+      const open = m[3] === i + 1;
+      return { left: left + '%', bg: open ? '#D4402A' : passed ? '#151412' : '#F5F3EE', border: open ? '#D4402A' : passed ? '#151412' : 'rgba(21,20,18,.45)', anim: open ? 'adcRing 1.6s ease-out infinite' : 'none' };
+    });
+    const end = m[1] >= 100;
+    // feed
+    const n7B = v.N7 === 'B';
+    const n6A = v.N6 !== 'B';
+    const feed = [];
+    (ws.feed || []).forEach((it, idx) => {
+      const base = { key: idx, isAsst: false, isUser: false, isProg: false, isCp: false, isErr: false, isShort: false, isRetry: false, isReceipt: false };
+      if (it.k === 'asst' || it.k === 'sys') feed.push({ ...base, isAsst: true, meta: (it.k === 'sys' ? 'Система' : 'AdCreative') + ' · ' + (it.at || '11:08'), text: it.text, color: it.k === 'sys' ? '#3A3833' : '#151412' });
+      else if (it.k === 'user') feed.push({ ...base, isUser: true, text: it.text });
+      else if (it.k === 'prog') feed.push({ ...base, isProg: true, text: it.text, running: !!it.running, finished: !it.running });
+      else if (it.k === 'err') feed.push({ ...base, isErr: true, title: it.title || 'Помилка', text: it.text });
+      else if (it.k === 'cp') {
+        const active = it.state === 'active';
+        const approveLabel = it.n === 3 && v.N5 !== 'B' && need > 0 ? 'Затвердити · ' + f.cr(need) : 'Затвердити';
+        feed.push({ ...base, isCp: true, title: it.title, rev: it.rev || 1, active, closed: !active, hint: it.hint, border: active ? '#151412' : 'rgba(21,20,18,.12)', dBg: active ? '#D4402A' : it.state === 'done' ? '#151412' : 'transparent', dBorder: active ? '#D4402A' : it.state === 'done' ? '#151412' : 'rgba(21,20,18,.4)', status: it.state === 'done' ? '✓ Затверджено' : 'Замінено новою ревізією', statusColor: it.state === 'done' ? '#151412' : '#6E6A63', approveLabel, freeNote: v.N5 !== 'B', onApprove: () => act('approve', it.n), onEdit: () => act('edit') });
+      } else if (it.k === 'credit') {
+        const c = it;
+        const insuff = c.t === 'insuff' || c.t === 'insuffFmt';
+        if (!n7B) {
+          const T = {
+            rev: 'Списано ' + c.credits + ' кредитів за правку. Залишок: ' + c.balance + '.',
+            fmt: 'Списано ' + c.credits + ' кредитів за додаткові формати (' + c.count + '). Залишок: ' + c.balance + '.',
+            insuff: 'Не вистачає кредитів: потрібно ' + c.need + ', у вас ' + c.have + '. Поповніть баланс у кабінеті — і я продовжу.',
+            insuffFmt: 'Не вистачає кредитів на додаткові формати: потрібно ' + c.need + ', у вас ' + c.have + '. Поповніть баланс або лишіть один формат.',
+            refund: 'Не вдалося завершити ролик — ' + c.credits + ' кредитів повернуто на баланс.',
+          };
+          feed.push({ ...base, isAsst: true, meta: 'AdCreative · ' + (c.at || '11:08'), text: T[c.t], color: '#151412' });
+          if (insuff && n6A) feed.push(this.shortCard(base, c, f, act, a, idx + 0.5));
+        } else if (insuff) {
+          feed.push(this.shortCard(base, c, f, act, a, idx));
+        } else {
+          const what = c.t === 'rev' ? 'правка · рев. ' + (c.rev || 2) : c.t === 'fmt' ? (c.count > 1 ? 'формати ' : 'формат ') + (c.fmtLabel || '1:1') : 'повернення за збій';
+          feed.push({ ...base, isReceipt: true, sign: c.t === 'refund' ? '+' : '\u2212', amount: f.cr(c.credits), what, after: f.num(c.balance) });
+        }
+      } else if (it.k === 'retry') {
+        const txt = it.ctx === 'rev' ? 'Надішлю правку ще раз: «' + (it.msg || 'Зроби заголовок коротшим') + '» — ' + f.cr(P.revision) + '.' : 'Затверджу розкадровку ще раз — спишу ' + f.cr(need || P.extraFormat) + ' за ' + (lab(extra) || '1:1') + '.';
+        feed.push({ ...base, isRetry: true, plus: '+' + f.num(it.plus || 10) + ' · тепер ' + f.num(bal), text: txt, onRetry: () => act('retry', it.ctx) });
+      }
+    });
+    this._len = feed.length;
+    // composer / N5 at delivery
+    const delivered = st === 'delivered';
+    const revShort = delivered && bal < P.revision;
+    const placeholder = delivered ? 'Напишіть правку — зроблю нову ревізію' : ['crawling', 'brandkit', 'scripting', 'directing', 'rendering', 'revising'].includes(st) ? 'Можна писати — врахую на наступному погодженні' : 'Відповідь, питання або правки';
+    // tiles
+    const tiles = ['vertical', 'square', 'landscape'].map((fm) => {
+      const on = formats.includes(fm);
+      const first = formats[0] === fm;
+      const isPaid = paid.includes(fm);
+      let tag = '';
+      let tagColor = '#6E6A63';
+      if (v.N5 !== 'B') {
+        if (first && on) tag = 'у ціні';
+        else if (isPaid) tag = 'оплачено';
+        else { tag = '+' + P.extraFormat; tagColor = on ? '#151412' : '#6E6A63'; }
+      }
+      const G = { vertical: ['22px', '38px'], square: ['32px', '32px'], landscape: ['44px', '25px'] };
+      return { key: fm, ratio: FMT[fm], name: FMTN[fm], pressed: on ? 'true' : 'false', border: on ? '#151412' : 'rgba(21,20,18,.14)', bg: on ? '#F5F3EE' : 'transparent', gbg: on ? '#151412' : 'transparent', gw: G[fm][0], gh: G[fm][1], hasTag: !!tag, tag, tagColor, onClick: () => act('fmt', fm) };
+    });
+    const cp1Sum = need > 0 ? f.cr(need) + ' за ' + lab(extra) + ' — спишу на ЧП3' : '';
+    const dL = Math.round(Math.max(40, Math.min(76, w * 0.05))) + 'px';
+    const dM = Math.round(Math.max(32, Math.min(52, w * 0.038))) + 'px';
+    const stageW = w - 380;
+    return {
+      app: a,
+      segs, diamonds,
+      hasPlayhead: !idle,
+      showComposer: !idle,
+      passed: m[1] + '%',
+      chip: m[2],
+      chipLeft: end ? 'auto' : '0',
+      chipRight: end ? '0' : 'auto',
+      chipTf: end ? 'none' : 'translateX(-50%)',
+      connDot: a.net ? '#B8331F' : '#2F8F5B',
+      connLabel: a.net ? 'з’єднання втрачено' : 'на зв’язку',
+      feedRef: this.feedRef,
+      feed,
+      feedEmpty: feed.length === 0,
+      feedEmptyText: view === 'notfound' ? 'Тут з’явиться діалог, коли ви відкриєте свій проєкт.' : '',
+      composer: ws.composer || '',
+      onComposer: (e) => act('composer', e.target.value),
+      onKey: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); act('send'); } },
+      send: (e) => { e.preventDefault(); act('send'); },
+      placeholder,
+      composerBorder: ws.editing ? '#151412' : 'rgba(21,20,18,.16)',
+      sendBg: (ws.composer || '').trim() ? '#151412' : 'rgba(21,20,18,.28)',
+      hintA: delivered && v.N5 !== 'B',
+      hintAText: revShort ? 'правка — ' + f.cr(P.revision) + ', у вас ' + f.num(bal) : 'правка — ' + f.cr(P.revision),
+      hintAColor: revShort ? '#151412' : '#6E6A63',
+      showRevStrip: delivered && v.N5 === 'B',
+      revShort,
+      revStripText: revShort ? 'не вистачає ' + f.num(P.revision - bal) + ' · потрібно ' + f.num(P.revision) + ', у вас ' + f.num(bal) : f.cr(P.revision) + ' · у вас ' + f.num(bal) + ' → ' + f.num(bal - P.revision),
+      topupWs: () => act('openTopup', { from: 'ws' }),
+      pad: Math.round(Math.max(24, Math.min(56, w * 0.04))) + 'px',
+      dBrand: Math.round(Math.max(56, Math.min(96, w * 0.07))) + 'px',
+      dL, dM,
+      numeral: Math.round(Math.max(96, Math.min(200, w * 0.13))) + 'px',
+      panelPad: stageW < 700 ? '24px' : '32px',
+      vBrand: view === 'brand',
+      vScript: view === 'script',
+      vBoard: view === 'board',
+      vProgress: view === 'progress',
+      vDone: view === 'done',
+      vFailed: view === 'failed',
+      vSession: view === 'session',
+      vNotFound: view === 'notfound',
+      pid: ws.pid || 'p_7Hk2mQ9x',
+      approveBrand: () => act('approve', 1),
+      approveScript: () => act('approve', 2),
+      approveBoard: () => act('approve', 3),
+      tiles,
+      balNum: f.num(bal),
+      n5aCp1Note: v.N5 !== 'B' && need > 0,
+      cp1NoteText: '+' + f.num(need) + ' за ' + lab(extra) + ' спишу на ЧП3',
+      n5bCp1: v.N5 === 'B',
+      cp1Short: fmtShort,
+      cp1SumText: need > 0 ? (fmtShort ? 'не вистачає ' + f.num(need - bal) + ': ' + cp1Sum + ', у вас ' + f.num(bal) : cp1Sum) : 'нічого · один формат входить у ціну ролика',
+      cp1SumSub: 'Перший формат — у ціні ролика, кожен наступний +' + f.cr(P.extraFormat) + '. Правки до видачі — безкоштовно.',
+      n5bFree: v.N5 === 'B',
+      rev: ws.rev || 1,
+      n5aCp3Btn: v.N5 !== 'B' && need > 0,
+      cp3BtnPrice: f.cr(need),
+      n5aCp3Line: v.N5 !== 'B' && (need > 0 || paidExtra.length > 0),
+      cp3LineText: (paidExtra.length ? lab(paidExtra) + ' оплачено раніше' + (need > 0 ? ' · ' : '') : '') + (need > 0 ? f.cr(need) + ' за ' + lab(extra) + (fmtShort ? ' · у вас ' + f.num(bal) : '') : ''),
+      cp3Short: fmtShort,
+      n5bCp3: v.N5 === 'B',
+      cp3SumLabel: need > 0 ? 'Зараз спишемо' : 'Списань немає',
+      cp3SumText: need > 0 ? (fmtShort ? 'не вистачає ' + f.num(need - bal) + ': ' + f.cr(need) + ' за ' + lab(extra) + ', у вас ' + f.num(bal) : f.cr(need) + ' за ' + lab(extra) + ' · залишок ' + f.num(bal) + ' → ' + f.num(bal - need)) : (paidExtra.length ? lab(paidExtra) + ' оплачено в ревізії 1' : 'один формат — у ціні ролика'),
+      cp3SumSub: (paidExtra.length && need > 0 ? lab(paidExtra) + ' оплачено в ревізії 1 — повторно не списую. ' : '') + 'Правки до видачі — безкоштовно; після «Затвердити» почнеться рендер.',
+      scenes: [{ id: 'S1 · 0–5 с', head: 'Ранок починається з аромату', sub: 'Крупний план: зерно падає в ростер.' }, { id: 'S2 · 5–10 с', head: 'Капучино — 75 грн', sub: 'Чашка на стійці, ціна плашкою.' }, { id: 'S3 · 10–15 с', head: 'Заходьте до 12:00 — сніданки', sub: 'Адреса і заклик.' }],
+      progEyebrow: st === 'revising' ? '06 — Готово · ревізія ' + (ws.rev || 2) : st === 'crawling' ? '01 — Сайт' : '05 — Рендер',
+      progTitle: st === 'revising' ? 'Вношу правки' : st === 'crawling' ? 'Сканую сайт' : 'Рендерю',
+      progPct: ws.pct ?? 64,
+      progMeta: st === 'crawling' ? 'Сканую ' + (ws.host || 'сайт') + '… ' + (ws.pct ?? 28) + '% · ліміт 120 с' : st === 'revising' ? 'Правка: «' + (ws.lastMsg || 'Зроби заголовок коротшим') + '» · ревізія ' + (ws.rev || 2) : formats.map((x) => FMT[x]).join(' · ') + ' · 1080×1920 · h264 + aac · формат 1 з ' + formats.length,
+      doneCols: stageW < 760 ? 'minmax(0,1fr)' : 'auto minmax(0,1fr)',
+      playerW: stageW < 760 ? '300px' : Math.round(Math.max(380, Math.min(640, (a.frameH || 900) - 260)) * 9 / 16) + 'px',
+      goHome: () => act('home'),
+      openProjects: () => act('cab', 'projects'),
+    };
+  }
+  shortCard(base, c, f, act, a, key) {
+    const n6 = a.n6for ? a.n6for(c.need, c.have) : { short: c.need - c.have, pkg: { label: 'Старт', credits: 10, id: 'starter' }, custom: 5 };
+    const isFmt = c.t === 'insuffFmt';
+    return { ...base, key, isShort: true, title: isFmt ? 'Не вистачає на формати' : 'Не вистачає на правку', need: f.num(c.need), have: f.num(c.have), short: f.num(c.need - c.have), advice: 'Різницю закриє пакет «' + n6.pkg.label + '» — ' + f.cr(n6.pkg.credits) + ' або своя сума від ' + f.num(n6.custom) + '. Після оплати поверну сюди — натисніть «Повторити».', topupLabel: 'Поповнити', oneFormat: isFmt, onTopup: () => act('openTopup', { from: 'ws', ctx: isFmt ? 'cp3' : 'rev', pkg: n6.pkg.id }), onOne: () => act('oneFormat') };
+  }
+}
+</script>
+</body>
+</html>

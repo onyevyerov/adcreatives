@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@200;300;400;500&amp;family=Onest:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Montserrat:wght@700;800&amp;family=Inter:wght@400;600&amp;display=swap">
+<style>
+html,body{margin:0;background:#E9E6DF;color:#151412;-webkit-font-smoothing:antialiased;}
+*{box-sizing:border-box;}
+a{color:#151412;text-decoration:underline;text-underline-offset:3px;}
+a:hover{color:#D4402A;}
+button,input,textarea{font:inherit;color:inherit;}
+:focus-visible{outline:2px solid #151412;outline-offset:2px;}
+@keyframes adcPulse{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes adcSpin{to{transform:rotate(360deg)}}
+@keyframes adcRing{0%{box-shadow:0 0 0 0 rgba(212,64,42,.5)}100%{box-shadow:0 0 0 9px rgba(212,64,42,0)}}
+@keyframes adcFade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes acFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes acSlide{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+@keyframes acDelta{0%{opacity:0;transform:translateY(4px)}25%{opacity:1;transform:none}75%{opacity:1}100%{opacity:0;transform:translateY(-6px)}}
+</style>
+</helmet>
+
+<div style="width:3088px; padding:72px 80px 160px; display:flex; flex-direction:column; gap:104px; font-family:'Onest',sans-serif;">
+
+<header style="display:grid; grid-template-columns:minmax(0,1fr) 760px; gap:64px; align-items:end; padding-bottom:40px; border-bottom:1.5px solid #151412;">
+  <div style="display:flex; flex-direction:column; gap:20px;">
+    <div style="display:flex; align-items:center; gap:10px;"><span style="width:9px; height:9px; border-radius:50%; background:#D4402A;"></span><span style="font:500 15px/1 'Unbounded',sans-serif; letter-spacing:-0.02em;">AdCreative</span><span style="margin-left:12px; color:#6E6A63; font:500 11px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">референс реалізації · 2026-10-20</span></div>
+    <h1 style="margin:0; font:300 88px/0.95 'Unbounded',sans-serif; letter-spacing:-0.05em;">Акаунти, кабінет, кредити<span style="color:#D4402A;">.</span></h1>
+    <p style="margin:0; max-width:1100px; font:400 18px/1.55 'Onest',sans-serif; color:#3A3833; text-wrap:pretty;">Затверджений набір варіантів — єдиний візуальний еталон для ТЗ «Фронтенд акаунтів». Кожен кадр має id стану (<span style="font:500 15px 'JetBrains Mono',monospace;">#n1-login-invalid</span>), той самий, що й ім’я dev-фікстури <span style="font:500 15px 'JetBrains Mono',monospace;">/?fixture=…</span>, яку робить блок. Приймання блоку — збіг фікстури з кадром за розмірами, текстами й станами. Кадри живі: hover, focus і кліки працюють.</p>
+  </div>
+  <div style="display:flex; flex-direction:column; gap:14px; padding:24px 28px; border-radius:20px; background:#FCFBF8;">
+    <span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Набір</span>
+    <div style="display:flex; flex-wrap:wrap; gap:6px; font:500 12.5px/1 'JetBrains Mono',monospace;">
+      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="15"><a href="{{ c.href }}" style="padding:8px 12px; border-radius:999px; border:1px solid {{ c.border }}; background:{{ c.bg }}; color:{{ c.fg }}; text-decoration:none;">{{ c.label }}</a></sc-for>
+    </div>
+    <span style="color:#3A3833; font:400 13px/1.55 'Onest',sans-serif;">Розділи: <a href="#T">T · токени</a> · <a href="#K">K · спільні деталі</a> · N1–N15 · <a href="#F">F · сценарії</a> · <a href="#M">M · карта станів</a></span>
+  </div>
+</header>
+
+<section id="T" style="display:flex; flex-direction:column; gap:32px;">
+  <div style="display:flex; align-items:baseline; gap:24px;"><span style="font:500 13px/1 'JetBrains Mono',monospace; color:#D4402A;">T</span><h2 style="margin:0; font:300 48px/1 'Unbounded',sans-serif; letter-spacing:-0.045em;">Токени</h2><span style="font:400 13px/1.4 'JetBrains Mono',monospace; color:#6E6A63;">apps/api/public/static/css/tokens.css · нові три — Крок 0</span></div>
+  <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:24px;">
+    <sc-for list="{{ tokenGroups }}" as="g" hint-placeholder-count="4">
+      <div style="display:flex; flex-direction:column; gap:12px; padding:28px; border-radius:20px; background:#FCFBF8;">
+        <span style="font:500 16px/1.2 'Onest',sans-serif;">{{ g.title }}</span>
+        <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="5">
+          <div style="display:grid; grid-template-columns:40px minmax(0,1fr); gap:12px; align-items:center;"><span style="width:40px; height:28px; border-radius:6px; background:{{ r.swatch }}; box-shadow:inset 0 0 0 1px rgba(21,20,18,.12);"></span><span style="display:flex; flex-direction:column; gap:2px;"><b style="font:500 12px/1.3 'JetBrains Mono',monospace;">{{ r.name }} <span style="color:{{ r.newColor }};">{{ r.isNew }}</span></b><span style="font:400 12px/1.4 'Onest',sans-serif; color:#3A3833;">{{ r.use }}</span></span></div>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:24px;">
+    <div style="display:flex; flex-direction:column; gap:10px; padding:28px; border-radius:20px; background:#F8F7F3;">
+      <span style="font:500 16px/1.2 'Onest',sans-serif;">Типографіка</span>
+      <span style="font:200 64px/0.9 'Unbounded',sans-serif; letter-spacing:-0.06em;">148</span><span style="font:400 12px/1.4 'JetBrains Mono',monospace; color:#6E6A63;">numeral · Unbounded 200 · tabular-nums · −0.06em — баланс 148/112, чек 168/104, адмін 72</span>
+      <span style="font:300 44px/1.04 'Unbounded',sans-serif; letter-spacing:-0.05em;">Вхід</span><span style="font:400 12px/1.4 'JetBrains Mono',monospace; color:#6E6A63;">заголовок модалки · Unbounded 300 · 44 (390: 36) · −0.05em</span>
+      <span style="font:400 24px/1.2 'Onest',sans-serif;">olena@zerno.example.com</span><span style="font:400 12px/1.4 'JetBrains Mono',monospace; color:#6E6A63;">поле .st-url · Onest 400 · 24 (390: 20)</span>
+      <span style="font:500 12.5px/1.4 'JetBrains Mono',monospace;">12 кредитів · −10 · 19.10 10:15</span><span style="font:400 12px/1.4 'JetBrains Mono',monospace; color:#6E6A63;">усе машинне — JetBrains Mono · tabular-nums</span>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:10px; padding:28px; border-radius:20px; background:#F8F7F3;">
+      <span style="font:500 16px/1.2 'Onest',sans-serif;">Кнопки (C1)</span>
+      <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+        <span style="display:inline-flex; align-items:center; gap:14px; height:52px; padding:0 22px 0 26px; border-radius:999px; background:#151412; color:#F5F3EE; font:500 15px/1 'Onest',sans-serif;">Увійти <span>→</span></span>
+        <span style="display:inline-flex; align-items:center; height:52px; padding:0 18px; border-radius:999px; border:1px solid rgba(21,20,18,.16); font:500 14px/1 'Onest',sans-serif;">Увійти через Google</span>
+        <span style="display:inline-flex; align-items:center; gap:10px; height:40px; padding:0 18px 0 20px; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif;">Поповнити на 25 кредитів <span>→</span></span>
+        <span style="display:inline-flex; align-items:center; height:34px; padding:0 16px; border-radius:999px; background:#151412; color:#F5F3EE; font:500 13.5px/1 'Onest',sans-serif;">Повторити</span>
+        <span style="display:inline-flex; align-items:stretch; height:32px; border:1px solid rgba(21,20,18,.16); border-radius:999px; font:400 12.5px/30px 'JetBrains Mono',monospace;"><span style="padding:0 12px 0 14px;"><b style="font-weight:500;">12</b> кредитів</span><span style="width:1px; background:rgba(21,20,18,.16);"></span><span style="padding:0 11px; font:400 15px/30px 'Onest',sans-serif;">+</span></span>
+        <span style="display:inline-flex; align-items:center; height:30px; padding:0 12px; border-radius:999px; border:1px solid rgba(21,20,18,.16); font:500 11.5px/1 'JetBrains Mono',monospace;">Копіювати</span>
+      </div>
+      <span style="font:400 12px/1.5 'Onest',sans-serif; color:#3A3833;">52 — модалка входу, чек; 40 — сцена, кабінет, адмінка; 34 — чат, рядки вибору, вторинні в кабінеті; 32 — топбар; 30 — теги. Primary hover → --accent. Disabled — opacity .45, cursor not-allowed. Busy — спінер 12px зліва від тексту, стрілка ховається.</span>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:10px; padding:28px; border-radius:20px; background:#F8F7F3;">
+      <span style="font:500 16px/1.2 'Onest',sans-serif;">Рух і доступність</span>
+      <span style="font:400 13px/1.6 'Onest',sans-serif; color:#3A3833;">Поява — adcFade .35–.5s var(--ease); модалка — fade .3s; мітка зміни балансу «−3 / +10» — 1.6s, один раз; нескінченні — лише спінери запитів і busy-точка. <span style="font:500 12px 'JetBrains Mono',monospace;">prefers-reduced-motion</span> — лише opacity. Фокус — outline 2px --ink, offset 2px. Модалка й меню — пастка фокусу, Esc закриває, фокус повертається на тригер. На 390 цілі ≥ 44px. Enter надсилає кожну форму; автозаповнення: username / current-password / new-password.</span>
+    </div>
+  </div>
+</section>
+
+<section id="K" style="display:flex; flex-direction:column; gap:32px;">
+  <div style="display:flex; align-items:baseline; gap:24px;"><span style="font:500 13px/1 'JetBrains Mono',monospace; color:#D4402A;">K</span><h2 style="margin:0; font:300 48px/1 'Unbounded',sans-serif; letter-spacing:-0.045em;">Спільні деталі · Крок 0</h2></div>
+  <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:24px;">
+    <div style="display:flex; flex-direction:column; gap:14px; padding:28px; border-radius:20px; background:#FCFBF8;">
+      <span style="font:500 18px/1.2 'Onest',sans-serif;">K1 · lib/credits.js</span>
+      <div style="display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 16px; font:400 12.5px/1.5 'JetBrains Mono',monospace;">
+        <span style="color:#6E6A63;">creditWord(n)</span><span>1 кредит · 2 кредити · 5 кредитів · 11 кредитів · 21 кредит</span>
+        <span style="color:#6E6A63;">formatCredits(n)</span><span>1 250 кредитів (NBSP між тисячами і перед словом)</span>
+        <span style="color:#6E6A63;">signed(n)</span><span>−10 (U+2212) · +25 · 0</span>
+        <span style="color:#6E6A63;">enoughFor(n, prices)</span><span>вистачить на 1 ролик або 4 правки</span>
+        <span style="color:#6E6A63;">isLow(balance, prices)</span><span>balance &lt; prices.video × 0.5</span>
+        <span style="color:#6E6A63;">closingPackage(pk, short)</span><span>найменший пакет ≥ різниці, інакше найбільший</span>
+        <span style="color:#6E6A63;">extraFormatsCharge(…)</span><span>{ need, extra[], paid[] }</span>
+      </div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:14px; padding:28px; border-radius:20px; background:#FCFBF8;">
+      <span style="font:500 18px/1.2 'Onest',sans-serif;">K3 · views/shortage.js</span>
+      <div style="display:flex; flex-direction:column; gap:12px; padding:14px 16px; border:1px solid #151412; border-radius:14px; background:#FCFBF8;">
+        <span style="display:flex; align-items:center; gap:9px; font:500 10.5px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:8px; height:8px; transform:rotate(45deg); background:#D4402A;"></span>Не вистачає кредитів</span>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; color:#6E6A63; font:400 11.5px/1.3 'JetBrains Mono',monospace;"><span style="display:flex; flex-direction:column; gap:5px;">потрібно<b style="color:#151412; font:500 17px/1 'JetBrains Mono',monospace;">10</b></span><span style="display:flex; flex-direction:column; gap:5px;">у вас<b style="color:#151412; font:500 17px/1 'JetBrains Mono',monospace;">4</b></span><span style="display:flex; flex-direction:column; gap:5px;">не вистачає<b style="color:#151412; font:500 17px/1 'JetBrains Mono',monospace;">6</b></span></div>
+        <span style="color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif;">Різницю закриє пакет «Старт» — 10 кредитів. Після оплати ролик почнеться сам.</span>
+        <span style="display:flex; gap:8px;"><span style="height:34px; padding:0 16px; border-radius:999px; background:#151412; color:#F5F3EE; font:500 13.5px/34px 'Onest',sans-serif;">Поповнити на 10 →</span><span style="height:34px; padding:0 16px; border-radius:999px; border:1px solid rgba(21,20,18,.16); font:500 13.5px/32px 'Onest',sans-serif;">Своя сума · 6</span></span>
+      </div>
+      <span style="font:400 12.5px/1.5 'Onest',sans-serif; color:#3A3833;">Одна картка для старту (N3) і чату (N6). Рамка --ink, ромб --accent, радіус 14, padding 14/16 (старт 16/18, числа 20px). Кнопки — 34 у чаті, 40 на старті. role="alert".</span>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:14px; padding:28px; border-radius:20px; background:#FCFBF8;">
+      <span style="font:500 18px/1.2 'Onest',sans-serif;">K4 · lib/credit-messages.js</span>
+      <div style="display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 16px; font:400 12px/1.5 'JetBrains Mono',monospace;">
+        <span style="color:#6E6A63;">insufficient</span><span>Не вистачає кредитів: потрібно {need}, у вас {have}. …</span>
+        <span style="color:#6E6A63;">insufficientFormats</span><span>Не вистачає кредитів на додаткові формати: потрібно {need}, у вас {have}. …</span>
+        <span style="color:#6E6A63;">chargedRevision</span><span>Списано {credits} кредитів за правку. Залишок: {balance}.</span>
+        <span style="color:#6E6A63;">chargedFormats</span><span>Списано {credits} кредитів за додаткові формати ({count}). Залишок: {balance}.</span>
+        <span style="color:#6E6A63;">refunded</span><span>Не вдалося завершити ролик — {credits} кредитів повернуто на баланс.</span>
+      </div>
+      <span style="font:400 12.5px/1.5 'Onest',sans-serif; color:#3A3833;">Текст повідомлення показується дослівно (N7-A). Розпізнане повідомлення → <span style="font:500 12px 'JetBrains Mono',monospace;">refreshMe()</span> і мітка зміни балансу в топбарі; insufficient* → картка K3 під повідомленням.</span>
+    </div>
+  </div>
+</section>
+
+<sc-for list="{{ items }}" as="n" hint-placeholder-count="3">
+  <section id="{{ n.id }}" style="display:flex; flex-direction:column; gap:32px;">
+    <div style="display:grid; grid-template-columns:minmax(0,1fr) 1080px; gap:48px; align-items:start; padding-top:28px; border-top:1.5px solid #151412;">
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div style="display:flex; align-items:baseline; gap:18px;"><span style="font:500 14px/1 'JetBrains Mono',monospace; color:#D4402A;">{{ n.code }}</span><h2 style="margin:0; font:300 44px/1.05 'Unbounded',sans-serif; letter-spacing:-0.045em;">{{ n.title }}</h2></div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; font:500 12px/1 'JetBrains Mono',monospace;"><span style="padding:8px 12px; border-radius:999px; background:#151412; color:#F5F3EE;">{{ n.variant }}</span><span style="padding:8px 12px; border-radius:999px; border:1px solid rgba(21,20,18,.16);">блок {{ n.block }}</span><span style="padding:8px 12px; border-radius:999px; border:1px solid rgba(21,20,18,.16);">{{ n.files }}</span></div>
+        <p style="margin:0; max-width:1100px; font:400 15px/1.6 'Onest',sans-serif; color:#3A3833; text-wrap:pretty;">{{ n.idea }}</p>
+      </div>
+      <div style="display:flex; flex-direction:column; padding:20px 24px; border-radius:20px; background:#FCFBF8;">
+        <span style="padding-bottom:10px; color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Розміри й правила</span>
+        <sc-for list="{{ n.specs }}" as="s" hint-placeholder-count="6">
+          <div style="display:grid; grid-template-columns:200px minmax(0,1fr); gap:16px; padding:8px 0; border-top:1px solid rgba(21,20,18,.10); font:400 12.5px/1.5 'Onest',sans-serif;"><span style="font:500 11.5px/1.5 'JetBrains Mono',monospace;">{{ s.k }}</span><span style="color:#3A3833;">{{ s.v }}</span></div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex; flex-wrap:wrap; gap:40px 48px; align-items:flex-start;">
+      <sc-for list="{{ n.frames }}" as="f" hint-placeholder-count="2">
+        <div id="{{ f.id }}" style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; justify-content:space-between; gap:24px; width:{{ f.bw }}; font:500 12px/1.3 'JetBrains Mono',monospace; letter-spacing:.04em;"><span style="text-transform:uppercase;">{{ f.label }}</span><a href="{{ f.href }}" style="color:#6E6A63; text-decoration:none; white-space:nowrap;">#{{ f.preset }} · {{ f.size }}</a></div>
+          <div data-fid="{{ f.id }}" style="position:relative; width:{{ f.bw }}; height:{{ f.bh }}; min-height:{{ f.minH }}; overflow:hidden; border-radius:14px; background:{{ f.bg }}; box-shadow:0 0 0 1px rgba(21,20,18,.12);">
+            <sc-if value="{{ f.on }}"><div style="width:{{ f.w }}; height:{{ f.h }};"><dc-import name="AcApp" preset="{{ f.preset }}" variant="FINAL" frame-w="{{ f.fw }}" frame-h="{{ f.fh }}" embedded="{{ true }}" style="display:block; width:100%; height:100%;" hint-size="100%,100%"></dc-import></div></sc-if>
+            <sc-if value="{{ f.off }}"><div style="position:absolute; inset:0; background:repeating-linear-gradient(135deg, #E9E5DC 0 2px, #F1EEE7 2px 12px); display:flex; align-items:flex-end; padding:16px;"><span style="font:500 11px/1.3 'JetBrains Mono',monospace; color:#3A3833;">{{ f.preset }} · завантажиться при прокрутці</span></div></sc-if>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+</sc-for>
+
+<section id="F" style="display:flex; flex-direction:column; gap:56px;">
+  <div style="display:flex; align-items:baseline; gap:24px;"><span style="font:500 13px/1 'JetBrains Mono',monospace; color:#D4402A;">F</span><h2 style="margin:0; font:300 48px/1 'Unbounded',sans-serif; letter-spacing:-0.045em;">Сценарії</h2><span style="font:400 13px/1.4 'JetBrains Mono',monospace; color:#6E6A63;">наскрізні перевірки інтеграційної гілки (розділ 6 ТЗ)</span></div>
+  <sc-for list="{{ flows }}" as="fl" hint-placeholder-count="2">
+    <div id="{{ fl.id }}" style="display:flex; flex-direction:column; gap:18px;">
+      <div style="display:flex; align-items:baseline; gap:20px;"><span style="font:500 14px/1 'JetBrains Mono',monospace; color:#D4402A;">{{ fl.code }}</span><h3 style="margin:0; font:300 32px/1.1 'Unbounded',sans-serif; letter-spacing:-0.04em;">{{ fl.title }}</h3><span style="font:400 13px/1.4 'JetBrains Mono',monospace; color:#6E6A63;">{{ fl.sub }}</span></div>
+      <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; padding:20px; border-radius:20px; background:#FCFBF8;">
+        <sc-for list="{{ fl.steps }}" as="f" hint-placeholder-count="5">
+          <div style="display:flex; flex-direction:column; gap:10px; width:{{ f.bw }};">
+            <div data-fid="{{ f.id }}" style="position:relative; width:{{ f.bw }}; height:{{ f.bh }}; overflow:hidden; border-radius:10px; background:#F5F3EE; box-shadow:0 0 0 1px rgba(21,20,18,.12);">
+              <sc-if value="{{ f.on }}"><div style="width:{{ f.w }}; height:{{ f.h }}; transform:scale({{ f.scale }}); transform-origin:0 0;"><dc-import name="AcApp" preset="{{ f.preset }}" variant="FINAL" frame-w="{{ f.fw }}" frame-h="{{ f.fh }}" embedded="{{ true }}" style="display:block; width:100%; height:100%;" hint-size="100%,100%"></dc-import></div></sc-if>
+              <sc-if value="{{ f.off }}"><div style="position:absolute; inset:0; background:repeating-linear-gradient(135deg, #E9E5DC 0 2px, #F1EEE7 2px 12px);"></div></sc-if>
+            </div>
+            <span style="display:flex; gap:8px; font:400 12px/1.4 'Onest',sans-serif; color:#3A3833;"><b style="flex:none; font:500 11px/1.4 'JetBrains Mono',monospace; color:#151412;">{{ f.num }}</b>{{ f.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+</section>
+
+<section id="M" style="display:flex; flex-direction:column; gap:28px;">
+  <div style="display:flex; align-items:baseline; gap:24px;"><span style="font:500 13px/1 'JetBrains Mono',monospace; color:#D4402A;">M</span><h2 style="margin:0; font:300 48px/1 'Unbounded',sans-serif; letter-spacing:-0.045em;">Карта станів → фікстури</h2></div>
+  <p style="margin:0; max-width:1300px; font:400 15px/1.6 'Onest',sans-serif; color:#3A3833;">Кожен рядок — обов’язкова фікстура блоку в <span style="font:500 13px 'JetBrains Mono',monospace;">public/static/dev/fixtures/&lt;блок&gt;.js</span> під тим самим ім’ям і посилання на кадр-еталон.</p>
+  <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:24px; align-items:start;">
+    <sc-for list="{{ mapCols }}" as="mc" hint-placeholder-count="4">
+      <div style="display:flex; flex-direction:column; padding:24px 28px; border-radius:20px; background:#FCFBF8;">
+        <sc-for list="{{ mc.rows }}" as="r" hint-placeholder-count="20">
+          <sc-if value="{{ r.isHead }}"><div style="display:flex; justify-content:space-between; gap:12px; padding:18px 0 8px; border-bottom:1px solid #151412; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><a href="{{ r.href }}" style="text-decoration:none;">{{ r.label }}</a><span style="color:#6E6A63;">{{ r.block }}</span></div></sc-if>
+          <sc-if value="{{ r.isRow }}"><div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; padding:6px 0; border-bottom:1px solid rgba(21,20,18,.10); font:400 12px/1.4 'Onest',sans-serif;"><span>{{ r.label }}</span><a href="{{ r.href }}" style="font:400 11.5px/1.4 'JetBrains Mono',monospace; color:#3A3833; text-decoration-color:rgba(21,20,18,.16);">{{ r.preset }}</a></div></sc-if>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="">
+class Component extends DCLogic {
+  state = { seen: {} };
+  componentDidMount() {
+    this.io = new IntersectionObserver((ents) => {
+      const add = {};
+      ents.forEach((e) => { if (e.isIntersecting) { add[e.target.getAttribute('data-fid')] = true; this.io.unobserve(e.target); } });
+      if (Object.keys(add).length) this.setState((s) => ({ seen: { ...s.seen, ...add } }));
+    }, { rootMargin: '800px' });
+    this.observe();
+    this.t = setInterval(() => this.observe(), 1500);
+  }
+  componentWillUnmount() { if (this.io) this.io.disconnect(); clearInterval(this.t); }
+  observe() { document.querySelectorAll('[data-fid]').forEach((el) => { if (!el.__obs && !this.state.seen[el.getAttribute('data-fid')]) { el.__obs = true; this.io.observe(el); } }); }
+
+  data() {
+    if (this._d) return this._d;
+    const S = (k, v) => ({ k, v });
+    const N = [
+      { id: 'N1', code: 'N1 · N2', title: 'Вхід, реєстрація, активація, скидання', variant: 'A-контейнер · поля B', block: 'B1', files: 'views/auth.js · css/auth.css · data/auth-actions.js',
+        idea: 'Модалка поверх старту (контейнер N1-A): старт і введена адреса лишаються під затемненням. Усередині — манера N1-B: підкреслені поля .st-url, кнопка 52, великий заголовок. Усі «моменти з листа» (N2-A) живуть у тій самій модалці; на 390 вона повноекранна. Цю ж форму B12 вбудовує в сцену для 401.',
+        specs: [S('Підкладка', '--scrim rgba(21,20,18,.32), fade .3s; клік по підкладці = «Закрити» (крім activating); 390: фон --card'), S('Картка', '560px · padding 44 · радіус 20 · --card · рамка 1px --line · по центру · max-height calc(100% − 48px), scroll; 390: 100%×100%, padding 24/24/40, радіус 0, без рамки'), S('Шапка', 'eyebrow mono 11 uppercase --muted · «Закрити» .st-link праворуч (не на 390, не в 401, не в activating) · заголовок Unbounded 300 44/1.04 −0.05em (390: 36) · лід Onest 16/1.55 --ink-2 · контекст-рядок: точка 7px --ink + текст 13.5, хост mono 12.5'), S('Перемикач', '.seg «Вхід | Реєстрація» 34px, лише в login/register і без 401-контексту'), S('Поля', 'label-s над полем (mono 10.5 uppercase +.08em --muted) · input 52px, padding-bottom 8, Onest 24 (390: 20), border-bottom 1.5px --ink, без рамки й фону · помилка — border-bottom 1.5px --danger + aria-invalid · відступ між полями 28'), S('Пароль', 'кнопка «Показати/Сховати» mono 11.5 праворуч усередині поля, aria-pressed · у реєстрації й новому паролі підказка праворуч від label: «від 8 до 128 символів» → «ще 3 символи» → «✓ достатньо» (--ink)'), S('Дії', 'primary 52 (padding 0 22 0 26, gap 14, «→») + .st-link поруч; busy — спінер, текст «Входжу…/Створюю…/Надсилаю…/Зберігаю…», disabled · 390: кнопка на всю ширину'), S('Google', 'роздільник «або» (лінії --line) + ghost 52 «Увійти через Google» → 501 → рядок-статус з точкою --muted «Вхід через Google ще не підключено.»'), S('Помилки', 'під полями, Onest 13.5 --danger, role=alert, id для aria-describedby; тексти серверу дослівно; network/empty/bad_email/empty_name — копірайт UI · rate_limited блокує кнопку'), S('Лист надіслано', 'блок з лініями зверху/знизу: label «Адреса» + e-mail mono 18 · «Надіслати ще раз · 0:42» 34 ghost з таймером 60 с · «Інша адреса» .st-link'), S('Активовано', 'label «Баланс» + numeral 112 (390: 72) + слово mono 13 · бонус «+5 · вітальний бонус нараховано» · якщо є відкладений старт і грошей не вистачає — картка «Не вистачає на ролик» (рамка --ink, ромб) + «Поповнити»')] },
+      { id: 'N3', code: 'N3', title: 'Старт: гість і користувач', variant: 'A · тихо', block: 'B2', files: 'views/start.js · css/start.css · data/start-actions.js',
+        idea: 'Перший екран не змінюється. Ціна — mono-рядок під формою; баланс — у шапці. Нестача з’являється рядком до натискання і карткою K3 після. Шапка старту: гість — ghost «Увійти» 32, користувач — контроли акаунта N4-B (пілюля + ініціали). Автостарт після входу/оплати — рядок «Починаю ролик…» у формі, без підтвердження.',
+        specs: [S('Шапка', '76px · вордмарк ліворуч · праворуч: гість — ghost 32 «Увійти» (390: 44px висота) → модалка login; користувач — mountAccountControls (B3)'), S('Рядок ціни', 'під полем, mono 12.5 --muted: «Ролик — 10 кредитів · правки на чекпоінтах безкоштовні» (гість) / «Ролик — 10 кредитів · у вас 12» / «… · у вас 4 · поповнити» (.st-link → openTopup from start)'), S('Гість натиснув «Почати»', 'адреса й ручний текст зберігаються в sessionStorage adc.pendingStart, фото — лише в пам’яті; відкривається модалка register з контекстом «Ролик для host почнеться після входу.»'), S('Нестача', 'клієнтська перевірка balance < prices.video АБО 402 → K3 під формою (числа 20px, кнопки 40): «Поповнити на {пакет}» + «Своя сума · {різниця, мін. 5}»'), S('Автостарт', 'кнопка disabled зі спінером «Починаю» · рядок mono 12.5: «Починаю ролик для host · −10 кредитів · залишок 15» · якщо фото були, але загубились — «Фото, обрані до входу, не збереглися — додайте їх у чаті через «+ Фото».»'), S('Мої проєкти', '.st-link «Мої проєкти · 4» у ряду посилань, лише для користувача з проєктами'), S('Після виходу', 'рядок-статус з точкою --ink над формою: «Ви вийшли з акаунта. Проєкти збережено — увійдіть, щоб продовжити.»')] },
+      { id: 'N4', code: 'N4', title: 'Баланс у топбарі й меню акаунта', variant: 'B · баланс як дія', block: 'B3', files: 'views/topbar.js · views/account-controls.js · css/chrome.css · css/account.css',
+        idea: 'Пілюля «12 кредитів | +» поруч із «Новий проєкт»: поповнення в один клік з будь-якого екрана. Низький баланс — «+ Поповнити» текстом, без кольору. Меню — коло з ініціалами. Клієнт більше не бачить $-витрат і «Статистика» — лише адмін.',
+        specs: [S('Пілюля', '32px · рамка 1px --line-strong · pill · ліва частина: число mono 500 + слово mono 12.5 --muted, padding 0 12 0 14 → кабінет «Баланс» · роздільник 1px · права: «+» Onest 15, мін. 32px → openTopup from topbar; hover правої — --ink фон / --on-ink'), S('Низький', 'balance < prices.video × 0.5 → права частина «+ Поповнити» Onest 500 13, padding 0 14 0 10'), S('Завантаження /me', 'спінер 12px + «баланс…» mono 12.5 --muted, пілюлі немає'), S('Зміна балансу', 'мітка «−3 / +10» mono 500 11 --ink-2 ліворуч від пілюлі, acDelta 1.6s один раз; reduced-motion — лише opacity'), S('Тригер меню', 'коло 32 з ініціалами Onest 500 11.5 · рамка --line-strong · відкрите — фон --ink, текст --on-ink · aria-haspopup=menu, aria-expanded'), S('Меню', 'top 50 (у шапці старту 42), right 16 · 272px · padding 6 · --card · рамка 1px --ink · радіус 14 · без тіні · шапка: ім’я 14/500, e-mail mono 11.5, «роль · адміністратор» · пункти 40px радіус 10, hover --paper: Кабінет · Мої проєкти {N} · Історія · Профіль · [Адмінка · Статистика ↗] · лінія · Вийти'), S('Клавіатура', 'Enter/Space відкриває, ↓/↑ ходять пунктами, Esc закриває і повертає фокус, клік поза меню закриває'), S('Адмін', '«Витрачено $X» і «Статистика» лишаються лише для isAdmin; перед колом mono 10.5 «адмін»'), S('Хост-слот', 'у кабінеті «Кабінет», в адмінці «Адмінка» (mono 12.5); статус проєкту там не показується')] },
+      { id: 'N5', code: 'N5', title: 'Ціна дії до списання', variant: 'A · підписи біля дії', block: 'B5', files: 'views/cp-brand.js · views/cp-board.js · views/composer.js · їхні css',
+        idea: 'Ціна там, де палець: теги на тайлах форматів, сума в кнопці ЧП3, підказка в композері після видачі. Нічого не блокується — нестача лише підписується.',
+        specs: [S('Тайли форматів (ЧП1)', 'тег у правому верхньому куті тайла mono 500 11 (top 9, right 10): перший обраний — «у ціні» --muted; інші — «+2» (обраний --ink, необраний --muted); уже оплачений у попередній ревізії — «оплачено»'), S('Підсумок під тайлами', 'mono 12 --muted: «+2 за 1:1 спишу на ЧП3»; якщо не вистачає — «· у вас 1 · поповнити» (.st-link → openTopup from ws, ctx cp3)'), S('ЧП3 кнопка', '«Затвердити й рендерити» + роздільник 1px rgba(on-ink,.28) + «2 кредити» mono 12 + «→»; без додаткових форматів — без суми'), S('ЧП3 рядок', 'під шапкою, праворуч, mono 12 --muted: «1:1 оплачено раніше · 2 кредити за 16:9 · у вас 1 · поповнити»'), S('Композер після видачі', 'підказка праворуч: «↵ надіслати · правка — 3 кредити»; якщо balance < revision — «правка — 3 кредити, у вас 2» кольором --ink; надсилання не блокується'), S('Оплачені формати', 'рахує фронтенд з project.credits.parts (B4): kind format + format')] },
+      { id: 'N6', code: 'N6 · N7', title: 'Нестача і списання в чаті', variant: 'N6-A · картка в контексті · N7-A · як є', block: 'B6', files: 'views/chat.js · css/chat.css · data/retry-actions.js',
+        idea: 'Серверні повідомлення про кредити показуються дослівно, як звичайні повідомлення AdCreative. Під відмовою — картка K3 з «Поповнити» (кабінет з банером повернення). Після оплати й повернення в проєкт — картка «Баланс поповнено» з «Повторити». Картка ЧП3 у чаті показує суму в «Затвердити».',
+        specs: [S('Відмова', 'повідомлення assistant дослівно + K3 одразу під ним: заголовок «Не вистачає на правку» / «Не вистачає на формати», числа 17px, порада «Різницю закриє пакет «Старт» — 10 кредитів або своя сума від 5. Після оплати поверну сюди — натисніть «Повторити».»'), S('Кнопки K3', '«Поповнити» 34 primary → openTopup({from:"ws", ctx}) · для форматів — «Лишити один формат» 34 ghost → setFormats([перший])'), S('Повторити', 'картка рамка --ink, радіус 14, ромб: «Баланс поповнено · +10 · тепер 11» + опис дії + «Повторити» 34 → cp3: approve(); rev: sendMessage(текст правки)'), S('Картка ЧП у чаті', 'активна ЧП3 з додатковими форматами: «Затвердити · 2 кредити»; під кнопками mono 11.5 --muted «правки до видачі — безкоштовно»'), S('Списання/повернення', 'текст дослівно; рядок не змінюється — реакцію дає топбар (мітка −3/+10 після refreshMe)'), S('Повернення з кабінету', 'кабінет показує банер «Після оплати поверну до host — натисніть «Повторити» в чаті.»')] },
+      { id: 'N8', code: 'N8 · N9', title: 'Кабінет: каркас, баланс і поповнення', variant: 'N8-B · дві колонки · N9-A · тайли', block: 'B7', files: 'views/cabinet.js · views/cab-balance.js · css/cabinet.css · css/cab-balance.css · data/topup-actions.js',
+        idea: 'Кабінет — частина продукту: топбар 56 і сітка робочого простору. Навігація на --chat шириною колонки діалогу, розділ на --stage. Поповнення — тайли пакетів як тайли форматів C6; своя сума — тайл з підкресленим полем.',
+        specs: [S('Сітка', 'топбар 56 (B3, хост-слот «Кабінет») · колонки 380px | 1fr (< 1200: 300px) · min-width 1024 · кожна колонка скролиться окремо'), S('Навігація', 'padding 20/20/16: «← до host» .st-link (якщо прийшли з проєкту) + «Кабінет» Unbounded 300 20 · пункти 52px радіус 14 padding 0 14: активний — --card + рамка --ink, aria-current=page; meta праворуч mono 12 --muted (баланс, к-сть операцій, проєктів) · адмін — «Адмінка →» · низ: e-mail mono 11.5 + «Вийти»'), S('Розділ', 'max-width 1000 · padding 40 56 88 (< 1200: 32) · заголовок Unbounded 300 clamp(32, 3.8vw, 52)'), S('Баланс', 'label «Баланс» + numeral 148 (< 1200: 112) + слово mono 14 · праворуч mono 12.5: «вистачить на 1 ролик або 4 правки» / «ролик 10 · правка 3 · додатковий формат +2» / «+5 · вітальний бонус»'), S('Нуль', '«Поповніть баланс, щоб зробити перший ролик.» Onest 18 --ink-2'), S('Банер повернення', 'рамка --ink, радіус 14, ромб --accent: зі старту — «Після оплати поверну на старт — ролик для host почнеться сам.»; з проєкту — «… до host — натисніть «Повторити» в чаті.»'), S('Незавершене', 'рядок між лініями: точка --accent + «Незавершене поповнення · {пакет}» + mono мета + ghost-рамка --ink «Продовжити оплату» 34'), S('Тайли', 'grid auto-fill minmax(170px,1fr) gap 10 · min-height 172 · padding 16/16/14 · рамка 1.5px --line-soft → обраний --ink + фон --paper + ✓ коло 20 · назва 14/500 · число Unbounded 300 40 · слово mono 12 · низ через лінію: «1 ролик або 4 правки» mono 11.5 + «закриє різницю» (рекомендований)'), S('Своя сума', 'тайл з input Unbounded 300 32, border-bottom 1.5 --ink; підказка «від 5 до 500 кредитів» → «= 4 ролики або 13 правок» (--ink); помилки: порожньо / не ціле / поза межами — Onest 13.5 --danger'), S('Відправка', 'primary 40 «Поповнити на 25 кредитів →» + mono 12 «тестова оплата — гроші не списуються» → POST topups → /?checkout=<id>')] },
+      { id: 'N10', code: 'N10', title: 'Тестова оплата', variant: 'A · екран-чек', block: 'B8', files: 'views/checkout.js · css/checkout.css · data/checkout-actions.js',
+        idea: 'Окремий екран /?checkout=<id>: працює за прямим посиланням і з телефона. Зі старту після «Оплатити» повертаємо автоматично й ролик стартує сам; з проєкту — кнопкою «Повернутися до проєкту».',
+        specs: [S('Шапка', '76px як на старті: вордмарк + mountAccountControls'), S('Колонка', 'по центру, max-width 560, gap 36 (390: 28); 390 — вирівнювання зверху, padding 8 24 32'), S('Мітка', 'пунктирна pill 1px rgba(ink,.25): «Тестова оплата · гроші не списуються» mono 500 10.5 uppercase'), S('Сума', 'eyebrow «До сплати / Зараховано / Оплату скасовано / Уже оплачено · дата» · numeral 168 (390: 104) + слово mono 14 · лід Onest 18 · мета mono 12 «поповнення t_9q4m · створено 19.10 11:20»'), S('Дії', 'через лінію: primary 52 «Оплатити →» + ghost 52 «Скасувати» · confirming — «Підтверджую…» зі спінером, обидві disabled · 390: стовпчиком на всю ширину'), S('paid', 'start → рядок зі спінером «Повертаю на старт — ролик для host почнеться сам…» і автоперехід за 1.4 с; project → «Повернутися до проєкту →»; cabinet → «До кабінету →»'), S('failed', '«0 зараховано» · «Спробувати ще раз →» (новий topup з тим самим пакетом) + «До кабінету»'), S('Повторне відкриття', 'paid/failed з сервера без дій — eyebrow «Уже оплачено · дата», мета «повторне відкриття — другого зарахування немає»'), S('Гість', 'модалка login з контекстом «Після входу відкрию оплату t_9q4m.»'), S('404', '«Поповнення не знайдено» + «До кабінету»')] },
+      { id: 'N11', code: 'N11 · N12', title: 'Історія і мої проєкти', variant: 'N11-B · стрічка по днях · N12-B · картки', block: 'B9', files: 'views/cab-history.js · views/cab-projects.js · їхні css · data/cabinet-actions.js',
+        idea: 'Історія групується по днях з підсумком дня — видно, що «з’їв» кожен день. Проєкти — сітка карток із форматами й розбивкою витрат по кліку. Слота постера в реалізації немає, поки API не віддає постер.',
+        specs: [S('День', 'заголовок Unbounded 300 20 «19 жовтня» + праворуч mono 12 --muted «за день −12 · на кінець 12» (nowrap) · лінія знизу 1px --ink'), S('Рядок операції', 'grid 52px | 1fr | auto · padding 13 0 · лінія --line · час mono 12 --muted · назва Onest 14 · примітка «…» 13 --ink-2 · проєкт — .st-link mono 12 → відкрити проєкт · праворуч сума mono 500 13.5 і «→ 12» mono 11 --muted'), S('Назви операцій', 'рахує фронтенд з kind + ref: Ролик · Правка · рев. N · Додатковий формат 1:1 · Повернення за збій · Поповнення · {пакет} · Коригування · Вітальний бонус'), S('Пагінація', 'limit 50, before → «Показати ще» 34 ghost зі спінером; кінець — mono 12 «Це всі операції · з 14.10.2026»; порожньо / завантаження'), S('Картки', 'grid auto-fill minmax(250px,1fr) (< 1200: 220) gap 12 · --card · рамка --line · радіус 14 · hover/розкрита — рамка --ink · padding 16 18'), S('Вміст картки', 'статус: точка 7px за C2 (busy пульсує, awaiting --accent, delivered --ink, failed --danger) + підпис STATUS_LABELS · дата mono 11.5 · хост Onest 500 16 (або «Без сайту» + «за описом») → відкрити · низ через лінію: гліфи форматів + «9:16 · 1:1» mono 11 (nowrap) · «витрачено 15 кредитів» .st-link → розбивка'), S('Розбивка', 'рядки «Ролик −10 · Формат 1:1 −2 · Правка · рев. 2 −3» + «Разом −15» через лінію --ink; з поверненням — «= 0»'), S('Порожньо', '«Проєктів ще немає» + primary 40 «Новий проєкт →»')] },
+      { id: 'N13', code: 'N13', title: 'Профіль і пароль', variant: 'A · одна форма', block: 'B10', files: 'views/cab-profile.js · css/cab-profile.css · data/profile-actions.js',
+        idea: 'Усе видно одразу: ім’я із «Зберегти», e-mail і дата лише для читання, зміна пароля двома полями, «Вийти з акаунта».',
+        specs: [S('Ім’я', 'поле-картка 48 (рамка --line-strong, --card, радіус 14) + ghost 40 «Зберегти» / «Зберігаю…» · «✓ Збережено» mono 11 · порожнє або > 80 — «Ім’я — від 1 до 80 символів.» (копірайт UI)'), S('Лише читання', 'сітка 2 колонки між лініями: E-mail mono 13.5 · «З нами з» mono 13.5 · адмін — «роль · адміністратор (ADMIN_EMAILS)»'), S('Пароль', 'прихований username для автозаповнення · 2 колонки: «Поточний пароль» / «Новий пароль» + підказка довжини · помилки: invalid_credentials → «Поточний пароль невірний.» (копірайт UI), weak_password — серверний текст'), S('Успіх', '«✓ Пароль змінено. Інші сесії завершено.» · cookie оновлюється сервером'), S('Дії', 'primary 40 «Змінити пароль» + ghost 40 «Вийти з акаунта» (space-between)')] },
+      { id: 'N14', code: 'N14', title: 'Адмінка', variant: 'A · таблиця + панель деталей', block: 'B11', files: 'views/admin.js · css/admin.css · data/admin-actions.js',
+        idea: 'Робочий інструмент без переходів: таблиця користувачів і бічна панель з балансом, коригуванням і останніми операціями. Outbox і всі проєкти — сусідні вкладки.',
+        specs: [S('Підшапка', 'під топбаром (хост-слот «Адмінка») · padding 14 24 · «Адмінка» Unbounded 300 20 + .seg вкладки 34 «Користувачі 4 · Outbox 2 · Усі проєкти 7» · праворуч «Статистика ↗» → /stats'), S('Таблиця', 'колонки 1.6fr | 1fr | 120 | 92 | 64 · шапка label-s з лінією --ink · рядок 46 · обраний — --card, радіус 10, e-mail 500 · пошук за e-mail 40px картка (фільтр на клієнті) · «4 з 4» mono 12'), S('Панель', '420px · --card · рамка зліва --line · padding 28/28/40 · роль label-s · ім’я Unbounded 300 28 · e-mail mono 12 · «створено … · активовано …» · numeral 72'), S('Коригування', 'Кредити 120px (+5 або −3, mono 15) | Примітка з лічильником 0/200 · прев’ю «баланс 12 → 17» mono 12 · primary 40 «Нарахувати» / «Списати» · помилки: 0 або не ціле, > 200, 402 «Не вистачає кредитів: потрібно 5, у вас 0.»'), S('Велике списання', 'списання ≥ 20 або > 50% балансу → блок рамка --ink з ромбом «Списати 10 кредитів у … ? Баланс стане 2.» + «Так, списати» / «Скасувати»'), S('Успіх', '«✓ Нараховано +5 · «компенсація». Баланс 17.» + новий рядок зверху з fade'), S('Outbox', 'рядок 96 | 1fr | 1.2fr | auto: час · тема + pill «активація/скидання» + адреса · посилання mono з ellipsis · «Копіювати» → «✓ Скопійовано» · «Відкрити ↗» (теги 30)'), S('Усі проєкти', '?all=1 · власник за e-mail (рахує фронтенд з users) або «без власника · eval/CLI» --muted · totalUsd mono ($ лише тут)')] },
+      { id: 'N15', code: 'N15', title: 'Сесія, доступ, помилки', variant: 'B · стан у панелі сцени', block: 'B12', files: 'views/session.js · css/session.css',
+        idea: 'У манері X4: заголовок display-l, пояснення, дві кнопки — у панелі сцени; чат лишається. Нових поверхонь немає.',
+        specs: [S('401 у проєкті', 'сцена: форма входу з views/auth.js (layout stage, padding як X4) · eyebrow «Сесія завершилась» · «Увійдіть ще раз» · контекст «Після входу відкрию host на тому ж місці.» · без перемикача · після входу — перезапуск потоку проєкту (actions.start)'), S('404 проєкту', 'eyebrow «Проєкт · id» · Unbounded 300 clamp(40,5vw,76) «Проєкт не знайдено» · текст 17 · primary 40 «Мої проєкти» + ghost 40 «Новий проєкт» · чат — «Тут з’явиться діалог, коли ви відкриєте свій проєкт.» · таймлайн неактивний (без плейхеда)'), S('403', 'маршрут admin для не-адміна: «403 · Адмінка» · «Лише для адміністратора.» 64 · «До кабінету» + «Новий проєкт»'), S('Немає мережі', 'топбар/чат: точка --danger «з’єднання втрачено»; у формах — «Немає з’єднання. Перевірте інтернет — дані у формі збережені.»'), S('429', 'текст серверу під формою, кнопка disabled'), S('Вихід', 'POST logout → старт із рядком-статусом (див. N3)')] },
+    ];
+    const D = (p, w, h, l) => [p, w, h, l];
+    const FR = {
+      N1: [D('n1-login', 1440, 900, 'Вхід з «Почати»'), D('n1-register-weak', 1440, 900, 'Реєстрація · weak_password'), D('n2-check', 1440, 900, 'Перевірте пошту'), D('n2-activated', 1440, 900, 'Активовано · не вистачає'), D('n1-login', 390, 844, 'Вхід · 390'), D('n2-reset', 390, 844, 'Новий пароль · 390'), D('n2-reset-done', 390, 844, 'Скидання · успіх · 390'), D('n10-guest', 390, 844, 'Оплата гостем → вхід · 390'), D('sheet-n1', 1440, 0, 'Усі стани входу й реєстрації'), D('sheet-n2', 1440, 0, 'Усі стани листів')],
+      N3: [D('n3-guest', 1440, 900, 'Гість'), D('n3-user', 1440, 900, 'Користувач · 12'), D('n3-low', 1440, 900, 'Баланс 4 · до натискання'), D('n3-402', 1440, 900, 'Нестача після «Почати»'), D('n3-auto', 1440, 900, 'Автостарт · фото втрачено'), D('n3-empty', 1440, 900, 'Порожня форма'), D('n15-logout', 1440, 900, 'Після виходу'), D('n3-guest', 390, 844, 'Гість · 390'), D('n3-auto', 390, 844, 'Автостарт · 390')],
+      N4: [D('n4-menu', 1440, 900, 'Меню'), D('n4-admin', 1440, 900, 'Меню адміна'), D('ws-meload', 1440, 900, 'Завантаження /me'), D('ws-long', 1024, 768, '1024 · довгий хост · 1 250'), D('sheet-n4', 1440, 0, 'Усі стани топбару')],
+      N5: [D('n5-cp1', 1440, 900, 'ЧП1 · два формати'), D('n5-cp1-short', 1024, 768, 'ЧП1 · не вистачає'), D('n5-cp1-one', 1024, 768, 'ЧП1 · один формат'), D('n5-cp3', 1440, 900, 'ЧП3'), D('n5-cp3-short', 1024, 768, 'ЧП3 · не вистачає'), D('n5-cp3-paid', 1024, 768, 'ЧП3 · 1:1 оплачено'), D('n5-cp3-one', 1024, 768, 'ЧП3 · один формат'), D('n5-done', 1440, 900, '«Готово»'), D('n5-done-short', 1024, 768, '«Готово» · не вистачає'), D('n5-done-typing', 1024, 768, 'Пишемо правку')],
+      N6: [D('n7-fmt-short', 1440, 900, 'Відмова ЧП3 + K3'), D('n7-rev-short', 1440, 900, 'Відмова правки + K3'), D('n6-cab-return', 1440, 900, 'Кабінет з банером'), D('n6-pay', 1440, 900, 'Оплата з проєкту'), D('n6-retry', 1024, 768, '«Повторити» ЧП3'), D('n6-retry-rev', 1024, 768, '«Повторити» правку'), D('n7-rev', 1440, 900, 'Списано за правку'), D('n7-fmt', 1024, 768, 'Списано за формати'), D('n7-refund', 1024, 768, 'Повернення за збій')],
+      N8: [D('cab-balance', 1440, 900, 'Баланс'), D('cab-zero', 1440, 900, 'Перший візит · 0'), D('n6-start-return', 1440, 900, 'Повернення на старт'), D('cab-from-ws', 1024, 768, '1024 · з проєкту'), D('cab-loading', 1024, 768, 'Завантаження'), D('cab-admin', 1440, 900, 'Адмін у кабінеті'), D('sheet-n9', 1440, 0, 'Усі стани поповнення')],
+      N10: [D('n10-pending', 1440, 900, 'pending'), D('n10-paid-ws', 1440, 900, 'paid · з проєкту'), D('n10-pending', 390, 844, 'pending · 390'), D('n10-paid-start', 390, 844, 'paid · старт · 390'), D('sheet-n10', 1440, 0, 'Усі стани оплати')],
+      N11: [D('cab-history', 1440, 900, 'Історія'), D('cab-history', 1024, 768, 'Історія · 1024'), D('cab-projects', 1440, 900, 'Мої проєкти'), D('sheet-n11', 1440, 0, 'Усі стани історії'), D('sheet-n12', 1440, 0, 'Усі стани проєктів')],
+      N13: [D('cab-profile', 1440, 900, 'Профіль'), D('sheet-n13', 1440, 0, 'Усі стани профілю')],
+      N14: [D('adm-users', 1440, 900, 'Користувачі'), D('adm-user', 1440, 900, '+5 «компенсація»'), D('adm-done', 1440, 900, 'Нараховано'), D('adm-confirm', 1440, 900, 'Велике списання'), D('adm-402', 1440, 900, 'Нижче нуля'), D('adm-outbox', 1440, 900, 'Outbox'), D('adm-all', 1440, 900, 'Усі проєкти'), D('adm-search', 1440, 900, 'Пошук'), D('adm-empty', 1440, 900, 'Порожньо'), D('adm-loading', 1440, 900, 'Завантаження')],
+      N15: [D('n15-401', 1440, 900, '401 у проєкті'), D('n15-401-err', 1024, 768, '401 · невірний пароль'), D('n15-404', 1440, 900, '404 проєкту'), D('n15-404', 1024, 768, '404 · 1024'), D('n15-403', 1440, 900, '403'), D('n15-net', 1024, 768, 'Немає мережі'), D('n1-login-rate', 1440, 900, '429')],
+    };
+    const F = [
+      ['F1', 'Перший ролик з нуля', 'гість → реєстрація → лист → оплата → автостарт', [['n3-guest', 1440, 900, 'Гість вводить адресу'], ['n1-register-filled', 1440, 900, 'Реєстрація'], ['n2-check', 1440, 900, 'Перевірте пошту'], ['n2-activated', 1440, 900, 'Активовано · 0'], ['f1-topup', 1440, 900, 'Поповнення'], ['f1-pay', 1440, 900, 'Тестова оплата'], ['f1-paid', 1440, 900, 'Зараховано'], ['n3-auto', 1440, 900, 'Автостарт · −10'], ['ws-crawl', 1440, 900, 'Діалог · 15']]],
+      ['F2', 'Нестача на ЧП3', 'баланс 1 · 9:16 + 1:1', [['n5-cp1-short', 1440, 900, 'ЧП1'], ['n5-cp3-short', 1440, 900, 'ЧП3'], ['n7-fmt-short', 1440, 900, 'Відмова'], ['n6-cab-return', 1440, 900, 'Поповнення'], ['n6-pay', 1440, 900, 'Оплата'], ['n6-retry', 1440, 900, '«Повторити»'], ['n7-fmt', 1440, 900, 'Списано 2']]],
+      ['F3', 'Правка після видачі', '', [['n5-done', 1440, 900, '«Готово»'], ['n5-done-typing', 1440, 900, 'Правка'], ['n7-rev', 1440, 900, 'Списано · −3'], ['f3-done2', 1440, 900, 'Ревізія 2']]],
+      ['F4', 'Відновлення пароля', 'десктоп → телефон', [['n1-login', 1440, 900, '«Забули пароль?»'], ['n2-forgot', 1440, 900, 'E-mail'], ['n2-forgot-sent', 1440, 900, 'Надіслано'], ['n2-reset', 390, 844, 'Новий пароль'], ['n2-reset-weak', 390, 844, 'Закороткий'], ['n2-reset-done', 390, 844, 'Вхід виконано']]],
+      ['F5', 'Адмін', '', [['adm-users', 1440, 900, 'Користувачі'], ['adm-user', 1440, 900, '+5'], ['adm-done', 1440, 900, 'Запис в історії'], ['adm-outbox', 1440, 900, 'Outbox']]],
+    ];
+    const M = [
+      ['N1', 'B1', [['Вхід · порожньо', 'n1-login'], ['Вхід · заповнено', 'n1-login-filled'], ['Вхід · надсилання', 'n1-login-busy'], ['invalid_credentials', 'n1-login-invalid'], ['not_activated', 'n1-login-notact'], ['not_activated · надіслано', 'n1-login-notact-sent'], ['rate_limited', 'n1-login-rate'], ['Немає мережі', 'n1-login-net'], ['Google 501', 'n1-google'], ['Реєстрація', 'n1-register'], ['Підказка пароля', 'n1-register-hint'], ['Пароль показано', 'n1-register-ok'], ['weak_password', 'n1-register-weak'], ['Реєстрація · надсилання', 'n1-register-busy']]],
+      ['N2', 'B1', [['Лист · пауза', 'n2-check'], ['Лист · можна ще', 'n2-check-ready'], ['Лист · надіслано ще', 'n2-check-sent'], ['Активую', 'n2-activating'], ['Активовано · нестача', 'n2-activated'], ['Активовано · бонус', 'n2-activated-bonus'], ['Активовано · без старту', 'n2-activated-plain'], ['invalid_token', 'n2-act-invalid'], ['invalid_token · надіслано', 'n2-act-invalid-sent'], ['Забули пароль', 'n2-forgot'], ['Скидання · надіслано', 'n2-forgot-sent'], ['Новий пароль', 'n2-reset'], ['Новий пароль · weak', 'n2-reset-weak'], ['Скидання · invalid', 'n2-reset-invalid'], ['Скидання · успіх', 'n2-reset-done']]],
+      ['N3', 'B2', [['Гість', 'n3-guest'], ['Гість з адресою', 'n3-guest-url'], ['Користувач', 'n3-user'], ['Низький', 'n3-low'], ['Нестача', 'n3-402'], ['Автостарт', 'n3-auto'], ['Порожньо', 'n3-empty'], ['Після виходу', 'n15-logout']]],
+      ['N4', 'B3', [['Меню', 'n4-menu'], ['Меню адміна', 'n4-admin'], ['/me', 'ws-meload'], ['Довгий хост', 'ws-long']]],
+      ['N5', 'B5', [['ЧП1', 'n5-cp1'], ['ЧП1 · нестача', 'n5-cp1-short'], ['ЧП1 · один', 'n5-cp1-one'], ['ЧП3', 'n5-cp3'], ['ЧП3 · нестача', 'n5-cp3-short'], ['ЧП3 · оплачено', 'n5-cp3-paid'], ['ЧП3 · один', 'n5-cp3-one'], ['Готово', 'n5-done'], ['Готово · нестача', 'n5-done-short']]],
+      ['N6', 'B6', [['Відмова ЧП3', 'n7-fmt-short'], ['Відмова правки', 'n7-rev-short'], ['Повторити ЧП3', 'n6-retry'], ['Повторити правку', 'n6-retry-rev'], ['Списано · правка', 'n7-rev'], ['Списано · формати', 'n7-fmt'], ['Повернення', 'n7-refund']]],
+      ['N8', 'B7', [['Баланс', 'cab-balance'], ['Нуль', 'cab-zero'], ['Банер · старт', 'n6-start-return'], ['Банер · проєкт', 'n6-cab-return'], ['З проєкту', 'cab-from-ws'], ['Завантаження', 'cab-loading'], ['Адмін', 'cab-admin']]],
+      ['N10', 'B8', [['loading', 'n10-loading'], ['pending', 'n10-pending'], ['confirming', 'n10-confirming'], ['paid', 'n10-paid'], ['paid · старт', 'n10-paid-start'], ['paid · проєкт', 'n10-paid-ws'], ['failed', 'n10-failed'], ['повторно', 'n10-revisit'], ['404', 'n10-404'], ['гість', 'n10-guest']]],
+      ['N11', 'B9', [['Історія', 'cab-history'], ['Проєкти', 'cab-projects']]],
+      ['N13', 'B10', [['Профіль', 'cab-profile']]],
+      ['N14', 'B11', [['Користувачі', 'adm-users'], ['Користувач', 'adm-user'], ['Нараховано', 'adm-done'], ['Підтвердження', 'adm-confirm'], ['402', 'adm-402'], ['Outbox', 'adm-outbox'], ['Усі проєкти', 'adm-all'], ['Пошук', 'adm-search'], ['Порожньо', 'adm-empty'], ['Завантаження', 'adm-loading']]],
+      ['N15', 'B12', [['401', 'n15-401'], ['401 · помилка', 'n15-401-err'], ['404', 'n15-404'], ['403', 'n15-403'], ['Мережа', 'n15-net']]],
+    ];
+    return (this._d = { N, FR, F, M });
+  }
+  frame(id, preset, w, h, label, scale) {
+    const sheet = h === 0;
+    const on = !!this.state.seen[id];
+    const sc = scale || 1;
+    return { key: id, id, preset, label, size: sheet ? 'аркуш' : w + '×' + h, href: '#' + id, w: sheet ? '1440px' : w + 'px', h: sheet ? 'auto' : h + 'px', fw: w, fh: sheet ? 900 : h, bw: Math.round(w * sc) + 'px', bh: sheet ? 'auto' : Math.round(h * sc) + 'px', minH: sheet && !on ? '900px' : '0', bg: sheet ? '#E9E6DF' : '#F5F3EE', scale: sc, on, off: !on };
+  }
+  renderVals() {
+    const { N, FR, F, M } = this.data();
+    const used = new Set();
+    const items = N.map((n) => ({ ...n, key: n.id, frames: FR[n.id].map((x) => { let id = x[0] + (x[1] === 1440 ? '' : '-' + x[1]); if (used.has(id)) id = n.id + '-' + id; used.add(id); return this.frame(id, x[0], x[1], x[2], x[3]); }) }));
+    const where = {};
+    items.forEach((n) => n.frames.forEach((f) => { if (!where[f.preset]) where[f.preset] = f.id; }));
+    const flows = F.map(([code, title, sub, steps]) => ({ key: code, id: code, code, title, sub, steps: steps.map((s, i) => ({ ...this.frame(code + '-' + i, s[0], s[1], s[2], s[3], s[1] < 600 ? 0.32 : 0.3), num: String(i + 1).padStart(2, '0') })) }));
+    const rows = [];
+    M.forEach(([n, b, list]) => {
+      rows.push({ key: n, isHead: true, isRow: false, label: n, block: b, href: '#' + (n === 'N2' ? 'N1' : n === 'N9' ? 'N8' : n) });
+      list.forEach(([l, p], i) => rows.push({ key: n + i, isHead: false, isRow: true, label: l, preset: p, href: '#' + (where[p] || (n === 'N2' || n === 'N1' ? 'N1' : n)) }));
+    });
+    const per = Math.ceil(rows.length / 4);
+    const cols = [[], [], [], []];
+    let c = 0;
+    rows.forEach((r) => { if (r.isHead && cols[c].length >= per && c < 3) c++; cols[c].push(r); });
+    const CH = [['N1–N2', 'A · поля B', 'N1'], ['N3', 'A', 'N3'], ['N4', 'B', 'N4'], ['N5', 'A', 'N5'], ['N6', 'A', 'N6'], ['N7', 'A', 'N6'], ['N8', 'B', 'N8'], ['N9', 'A', 'N8'], ['N10', 'A', 'N10'], ['N11', 'B', 'N11'], ['N12', 'B', 'N11'], ['N13', 'A', 'N13'], ['N14', 'A', 'N14'], ['N15', 'B', 'N15']];
+    const tokenGroups = [
+      { key: 'p', title: 'Поверхні', rows: [['--paper', '#F5F3EE', 'сторінка, топбар, старт, чек'], ['--chat', '#F1EFE9', 'навігація кабінету, діалог'], ['--stage', '#F8F7F3', 'розділ кабінету, сцена, адмінка'], ['--card', '#FCFBF8', 'модалка, меню, тайли, панель адміна']] },
+      { key: 't', title: 'Текст і акценти', rows: [['--ink', '#151412', 'текст, primary, рамка активного'], ['--ink-2', '#3A3833', 'ліди, посилання'], ['--muted', '#6E6A63', 'підписи, eyebrow, мета'], ['--accent', '#D4402A', 'лише «дія зараз»: ромб K3, busy'], ['--danger', '#B8331F', 'лише помилки']] },
+      { key: 'l', title: 'Лінії', rows: [['--line', 'rgba(21,20,18,.10)', 'розділювачі'], ['--line-soft', 'rgba(21,20,18,.12)', 'рамки тайлів'], ['--line-strong', 'rgba(21,20,18,.16)', 'ghost, пілюля, поля-картки']] },
+      { key: 'n', title: 'Нові (Крок 0)', rows: [['--scrim', 'linear-gradient(rgba(21,20,18,.32),rgba(21,20,18,.32)),#F5F3EE', 'rgba(21,20,18,.32) · під модалкою входу', true], ['--veil', 'rgba(245,243,238,.78)', 'rgba(245,243,238,.78) · резерв для оверлеїв', true], ['--danger-field', 'rgba(184,51,31,.55)', 'rgba(184,51,31,.55) · рамка поля-картки з помилкою', true]] },
+    ].map((g) => ({ ...g, rows: g.rows.map(([name, swatch, use, isNew]) => ({ key: name, name, swatch, use, isNew: isNew ? 'нове' : '', newColor: '#D4402A' })) }));
+    return {
+      chips: CH.map(([l, v, h]) => ({ key: l, label: l + ' · ' + v, href: '#' + h, bg: l === 'N1–N2' ? '#151412' : 'transparent', fg: l === 'N1–N2' ? '#F5F3EE' : '#151412', border: l === 'N1–N2' ? '#151412' : 'rgba(21,20,18,.16)' })),
+      tokenGroups,
+      items,
+      flows,
+      mapCols: cols.map((r, i) => ({ key: i, rows: r })),
+    };
+  }
+}
+</script>
+
+
+</body></html>

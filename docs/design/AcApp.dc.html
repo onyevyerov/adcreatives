@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@200;300;400;500&amp;family=Onest:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Montserrat:wght@700;800&amp;family=Inter:wght@400;600&amp;display=swap">
+<style>
+html,body{margin:0;background:#F5F3EE;color:#151412;-webkit-font-smoothing:antialiased;}
+*{box-sizing:border-box;}
+a{color:#151412;text-decoration:underline;text-underline-offset:3px;}
+a:hover{color:#D4402A;}
+button,input,textarea{font:inherit;color:inherit;}
+:focus{outline:none;}
+:focus-visible{outline:2px solid #151412;outline-offset:2px;}
+::placeholder{color:#6E6A63;opacity:1;}
+@keyframes adcPulse{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes adcSpin{to{transform:rotate(360deg)}}
+@keyframes adcRing{0%{box-shadow:0 0 0 0 rgba(212,64,42,.5)}100%{box-shadow:0 0 0 9px rgba(212,64,42,0)}}
+@keyframes adcFade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes acFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes acSlide{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+@keyframes acDelta{0%{opacity:0;transform:translateY(4px)}25%{opacity:1;transform:none}75%{opacity:1}100%{opacity:0;transform:translateY(-6px)}}
+@media (prefers-reduced-motion: reduce){
+@keyframes adcFade{from{opacity:0}to{opacity:1}}
+@keyframes acSlide{from{opacity:0}to{opacity:1}}
+@keyframes adcPulse{to{opacity:1}}
+@keyframes adcSpin{to{transform:none}}
+@keyframes adcRing{to{box-shadow:none}}
+@keyframes acDelta{0%{opacity:0}25%{opacity:1}75%{opacity:1}100%{opacity:0}}
+*,*::before,*::after{transition-duration:.01ms !important;scroll-behavior:auto !important;}
+}
+</style>
+</helmet>
+<div style="position:relative; width:100%; height:{{ rootH }}; overflow:{{ rootOverflow }}; background:{{ rootBg }}; color:#151412; font-family:'Onest',sans-serif;">
+  <div style="position:{{ scrollPos }}; inset:0; overflow:{{ scrollOverflow }};">
+    <sc-if value="{{ rStart }}" hint-placeholder-val="{{ true }}"><dc-import name="AcStart" app="{{ app }}" style="display:block; min-height:100%;" hint-size="100%,100%"></dc-import></sc-if>
+
+    <sc-if value="{{ rSplit }}">
+      <div style="display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:76px minmax(0,1fr); min-height:100%; background:#F5F3EE;">
+        <header style="display:flex; align-items:center; justify-content:space-between; padding:0 {{ gutter }};">
+          <button type="button" onClick="{{ goHome }}" style="display:inline-flex; align-items:center; gap:10px; padding:0; border:0; background:none; color:#151412; font:500 15px/1 'Unbounded',sans-serif; letter-spacing:-0.02em; cursor:pointer;"><span style="width:9px; height:9px; border-radius:50%; background:#D4402A;"></span>AdCreative</button>
+          <button type="button" onClick="{{ goHome }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A;">← На старт</button>
+        </header>
+        <div style="display:grid; grid-template-columns:{{ splitCols }}; align-items:center; gap:{{ splitGap }}; padding:8px {{ gutter }} 48px;">
+          <div style="max-width:560px; width:100%; animation:adcFade .5s cubic-bezier(.2,.8,.2,1) both;"><dc-import name="AcAuth" app="{{ app }}" layout="split" hint-size="100%,560px"></dc-import></div>
+          <sc-if value="{{ splitPlayer }}">
+            <figure style="margin:0; display:flex; flex-direction:column; gap:14px; width:{{ playerW }}; animation:adcFade .5s .15s cubic-bezier(.2,.8,.2,1) both;">
+              <div style="position:relative; width:100%; aspect-ratio:9 / 16; overflow:hidden; border-radius:14px; box-shadow:0 30px 60px -30px rgba(21,20,18,.45), 0 0 0 1px rgba(21,20,18,.06); background:repeating-linear-gradient(135deg, #E9E5DC 0 2px, #F1EEE7 2px 12px);"><span style="position:absolute; left:14px; bottom:14px; color:#3A3833; font:500 10px/1.3 'JetBrains Mono',monospace;">sample-9x16.mp4 · приклад ролика</span></div>
+              <figcaption style="display:flex; flex-direction:column; gap:8px;"><span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ splitCapLabel }}</span><span style="color:#3A3833; font:400 13.5px/1.55 'Onest',sans-serif;">Три чекпоінти — бренд, тексти, розкадровка. Нічого не рендериться без вашого «так».</span></figcaption>
+            </figure>
+          </sc-if>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ rMoment }}">
+      <div style="display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:76px minmax(0,1fr); min-height:100%; background:#F5F3EE;">
+        <header style="display:flex; align-items:center; justify-content:space-between; padding:0 {{ gutter }};">
+          <button type="button" onClick="{{ goHome }}" style="display:inline-flex; align-items:center; gap:10px; padding:0; border:0; background:none; color:#151412; font:500 15px/1 'Unbounded',sans-serif; letter-spacing:-0.02em; cursor:pointer;"><span style="width:9px; height:9px; border-radius:50%; background:#D4402A;"></span>AdCreative</button>
+          <sc-if value="{{ hasUser }}"><dc-import name="AcTopbar" app="{{ app }}" part="account" hint-size="200px,32px"></dc-import></sc-if>
+        </header>
+        <div style="display:flex; align-items:center; padding:24px {{ gutter }} 64px;">
+          <div style="width:100%; max-width:760px; animation:adcFade .5s cubic-bezier(.2,.8,.2,1) both;"><dc-import name="AcAuth" app="{{ app }}" layout="moment" hint-size="100%,520px"></dc-import></div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ rWs }}"><dc-import name="AcWorkspace" app="{{ app }}" style="display:block; height:100%;" hint-size="100%,100%"></dc-import></sc-if>
+    <sc-if value="{{ rCab }}"><dc-import name="AcCabinet" app="{{ app }}" style="display:block; height:100%;" hint-size="100%,100%"></dc-import></sc-if>
+    <sc-if value="{{ rCheckout }}"><dc-import name="AcCheckout" app="{{ app }}" layout="page" style="display:block; min-height:100%;" hint-size="100%,100%"></dc-import></sc-if>
+    <sc-if value="{{ rAdmin }}"><dc-import name="AcAdmin" app="{{ app }}" style="display:block; height:100%;" hint-size="100%,100%"></dc-import></sc-if>
+
+    <sc-if value="{{ rSheet }}">
+      <div style="display:flex; flex-wrap:wrap; align-items:flex-start; gap:40px 32px; padding:40px; background:{{ sheetBg }};">
+        <sc-for list="{{ cells }}" as="c" hint-placeholder-count="4">
+          <div style="display:flex; flex-direction:column; gap:12px; width:{{ c.w }};">
+            <div style="display:flex; justify-content:space-between; gap:16px; font:500 11px/1.3 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase;"><span>{{ c.label }}</span><span style="color:#6E6A63; text-align:right;">{{ c.note }}</span></div>
+            <div style="position:relative; padding:{{ c.pad }}; min-height:{{ c.minH }}; border-radius:{{ c.rad }}; background:{{ c.bg }}; border:{{ c.border }}; box-shadow:0 0 0 1px rgba(21,20,18,.08); overflow:visible;">
+              <sc-if value="{{ c.isAuth }}"><dc-import name="AcAuth" app="{{ c.app }}" layout="{{ c.layout }}" hint-size="100%,420px"></dc-import></sc-if>
+              <sc-if value="{{ c.isTopbar }}"><dc-import name="AcTopbar" app="{{ c.app }}" hint-size="100%,56px"></dc-import></sc-if>
+              <sc-if value="{{ c.isCab }}"><dc-import name="AcCabinet" app="{{ c.app }}" bare="{{ c.bare }}" hint-size="100%,420px"></dc-import></sc-if>
+              <sc-if value="{{ c.isCheckout }}"><dc-import name="AcCheckout" app="{{ c.app }}" layout="{{ c.layout }}" hint-size="100%,420px"></dc-import></sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{ oAuthModal }}">
+    <div onClick="{{ authClose }}" style="position:absolute; z-index:40; inset:0; background:{{ scrimBg }}; animation:acFadeIn .3s cubic-bezier(.2,.8,.2,1) both;"></div>
+    <div role="dialog" aria-modal="true" style="position:absolute; z-index:41; left:50%; top:50%; transform:translate(-50%,-50%); width:{{ modalW }}; height:{{ modalH }}; max-height:{{ modalMaxH }}; overflow:auto; padding:{{ modalPad }}; border-radius:{{ modalRad }}; background:#FCFBF8; border:{{ modalBorder }};">
+      <dc-import name="AcAuth" app="{{ app }}" layout="{{ authModalLayout }}" hint-size="100%,460px"></dc-import>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ oSession }}">
+    <div style="position:absolute; z-index:40; inset:0; background:rgba(245,243,238,.78); animation:acFadeIn .3s cubic-bezier(.2,.8,.2,1) both;"></div>
+    <div role="dialog" aria-modal="true" style="position:absolute; z-index:41; left:50%; top:50%; transform:translate(-50%,-50%); width:460px; max-width:calc(100% - 48px); max-height:calc(100% - 48px); overflow:auto; padding:32px; border-radius:20px; background:#FCFBF8; border:1px solid #151412; animation:adcFade .4s cubic-bezier(.2,.8,.2,1) both;">
+      <sc-if value="{{ s401 }}"><dc-import name="AcAuth" app="{{ app }}" layout="card" hint-size="100%,420px"></dc-import></sc-if>
+      <sc-if value="{{ s404 }}">
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <span style="color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Проєкт · p_7Hk2mQ9x</span>
+          <h2 style="margin:0; font:300 28px/1.1 'Unbounded',sans-serif; letter-spacing:-0.04em;">Проєкт не знайдено</h2>
+          <p style="margin:0; color:#3A3833; font:400 14.5px/1.55 'Onest',sans-serif;">Перевірте посилання або відкрийте проєкт зі списку.</p>
+          <div style="display:flex; gap:8px; padding-top:6px;"><button type="button" onClick="{{ toProjects }}" style="height:40px; padding:0 18px 0 20px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">Мої проєкти</button><button type="button" onClick="{{ goHome }}" style="height:40px; padding:0 18px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="border-color:#151412;">Новий проєкт</button></div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ s403 }}">
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <span style="color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">403 · Адмінка</span>
+          <h2 style="margin:0; font:300 28px/1.1 'Unbounded',sans-serif; letter-spacing:-0.04em;">Лише для адміністратора.</h2>
+          <p style="margin:0; color:#3A3833; font:400 14.5px/1.55 'Onest',sans-serif;">Цей розділ недоступний для вашого акаунта.</p>
+          <div style="display:flex; gap:8px; padding-top:6px;"><button type="button" onClick="{{ toCab }}" style="height:40px; padding:0 18px 0 20px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">До кабінету</button></div>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ oCheckout }}">
+    <div onClick="{{ payClose }}" style="position:absolute; z-index:40; inset:0; background:rgba(21,20,18,.32); animation:acFadeIn .3s cubic-bezier(.2,.8,.2,1) both;"></div>
+    <div style="position:absolute; z-index:41; left:50%; top:50%; transform:translate(-50%,-50%); width:{{ coW }}; max-width:calc(100% - 32px); max-height:calc(100% - 32px); overflow:auto;"><dc-import name="AcCheckout" app="{{ app }}" layout="modal" hint-size="100%,420px"></dc-import></div>
+  </sc-if>
+
+  <sc-if value="{{ oDrawer }}">
+    <div onClick="{{ closeDrawer }}" style="position:absolute; z-index:40; inset:0; background:rgba(21,20,18,.32); animation:acFadeIn .3s cubic-bezier(.2,.8,.2,1) both;"></div>
+    <aside role="dialog" aria-modal="true" aria-label="Поповнення" style="position:absolute; z-index:41; top:0; right:0; bottom:0; width:{{ drawerW }}; display:flex; flex-direction:column; gap:24px; padding:28px 32px 32px; overflow:auto; background:#FCFBF8; border-left:1px solid #151412; animation:acSlide .45s cubic-bezier(.2,.8,.2,1) both;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+        <span style="color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Поповнення · {{ drCtx }}</span>
+        <button type="button" onClick="{{ closeDrawer }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A;">Закрити</button>
+      </div>
+      <sc-if value="{{ drHasNeed }}">
+        <div style="display:flex; flex-direction:column; gap:16px;">
+          <h2 style="margin:0; font:300 28px/1.1 'Unbounded',sans-serif; letter-spacing:-0.04em;">{{ drTitle }}</h2>
+          <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; padding:14px 0; border-top:1px solid rgba(21,20,18,.10); border-bottom:1px solid rgba(21,20,18,.10); color:#6E6A63; font:400 11.5px/1.3 'JetBrains Mono',monospace;">
+            <span style="display:flex; flex-direction:column; gap:6px;">потрібно<b style="color:#151412; font:500 20px/1 'JetBrains Mono',monospace;">{{ drNeed }}</b></span>
+            <span style="display:flex; flex-direction:column; gap:6px;">у вас<b style="color:#151412; font:500 20px/1 'JetBrains Mono',monospace;">{{ drHave }}</b></span>
+            <span style="display:flex; flex-direction:column; gap:6px;">не вистачає<b style="color:#151412; font:500 20px/1 'JetBrains Mono',monospace;">{{ drShort }}</b></span>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ drPick }}">
+        <form onSubmit="{{ drSubmit }}" novalidate="" style="display:flex; flex-direction:column; gap:18px;">
+          <div role="radiogroup" aria-label="Пакет" style="border-top:1px solid rgba(21,20,18,.10);">
+            <sc-for list="{{ drPkgs }}" as="k" hint-placeholder-count="3">
+              <button type="button" role="radio" aria-checked="{{ k.checked }}" onClick="{{ k.onClick }}" style="display:grid; grid-template-columns:20px minmax(0,1fr) auto; align-items:center; gap:14px; width:100%; padding:14px 0; border:0; border-bottom:1px solid rgba(21,20,18,.10); background:transparent; color:#151412; text-align:left; cursor:pointer;">
+                <span style="width:20px; height:20px; border-radius:50%; border:1.5px solid {{ k.ring }}; background:{{ k.dot }}; color:#F5F3EE; font:500 11px/17px 'JetBrains Mono',monospace; text-align:center;">{{ k.tick }}</span>
+                <span style="display:flex; flex-direction:column; gap:5px; min-width:0;"><span style="display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center; font:500 15px/1.2 'Onest',sans-serif;">{{ k.label }}<sc-if value="{{ k.rec }}"><span style="font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">закриє різницю</span></sc-if></span><span style="color:#6E6A63; font:400 11.5px/1.2 'JetBrains Mono',monospace;">{{ k.meta }}</span></span>
+                <span style="font:500 18px/1 'JetBrains Mono',monospace; font-variant-numeric:tabular-nums;">{{ k.num }}</span>
+              </button>
+            </sc-for>
+            <div onClick="{{ drPickCustom }}" style="display:grid; grid-template-columns:20px minmax(0,1fr) auto; align-items:center; gap:14px; padding:12px 0; border-bottom:1px solid rgba(21,20,18,.10); cursor:pointer;">
+              <span style="width:20px; height:20px; border-radius:50%; border:1.5px solid {{ drCRing }}; background:{{ drCDot }}; color:#F5F3EE; font:500 11px/17px 'JetBrains Mono',monospace; text-align:center;">{{ drCTick }}</span>
+              <span style="display:flex; flex-direction:column; gap:5px;"><span style="font:500 15px/1.2 'Onest',sans-serif;">Своя сума</span><span style="color:#6E6A63; font:400 11.5px/1.2 'JetBrains Mono',monospace;">від 5 до 500 · закриває різницю від {{ drCustomMin }}</span></span>
+              <input type="text" inputmode="numeric" value="{{ drCustom }}" onChange="{{ drOnCustom }}" onFocus="{{ drPickCustom }}" aria-label="Кількість кредитів" aria-invalid="{{ drCInvalid }}" style="width:72px; height:40px; padding:0; border:1px solid {{ drCLine }}; border-radius:10px; background:#FCFBF8; color:#151412; font:500 16px/1 'JetBrains Mono',monospace; text-align:center;" style-focus="border-color:#151412; outline:none;">
+            </div>
+          </div>
+          <sc-if value="{{ drErr }}"><p role="alert" style="margin:0; color:#B8331F; font:400 13.5px/1.5 'Onest',sans-serif;">{{ drErrText }}</p></sc-if>
+          <button type="submit" style="align-self:flex-start; display:inline-flex; align-items:center; gap:10px; height:40px; padding:0 18px 0 20px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">{{ drSubmitLabel }} <span>→</span></button>
+          <span style="color:#6E6A63; font:400 12px/1.5 'Onest',sans-serif;">{{ drAfter }}</span>
+        </form>
+      </sc-if>
+      <sc-if value="{{ drPay }}"><dc-import name="AcCheckout" app="{{ app }}" layout="drawer" hint-size="100%,360px"></dc-import></sc-if>
+    </aside>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;preset&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;n3-guest&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;variant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;A&quot;,&quot;B&quot;],&quot;default&quot;:&quot;A&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;combo&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;frameW&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;number&quot;},&quot;frameH&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;number&quot;},&quot;embedded&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = this.init();
+  timers = [];
+
+  D() {
+    if (this._D) return this._D;
+    const OLENA = { id: 'u_olena01', name: 'Олена Коваль', email: 'olena@zerno.example.com', isAdmin: false, createdAt: '14.10.2026', activatedAt: '14.10.2026' };
+    const ADMIN = { id: 'u_admin001', name: 'Адміністратор', email: 'admin@example.com', isAdmin: true, createdAt: '01.10.2026', activatedAt: '01.10.2026' };
+    const H = [
+      { id: 'format:p_flor:landscape', at: '19.10 10:40', label: 'Додатковий формат 16:9', proj: 'florist-kyiv.example.com', pid: 'p_flor', credits: -2, after: 12 },
+      { id: 'video:p_flor', at: '19.10 10:15', label: 'Ролик', proj: 'florist-kyiv.example.com', pid: 'p_flor', credits: -10, after: 14 },
+      { id: 'video:p_kav', at: '18.10 09:04', label: 'Ролик', proj: 'Без сайту', pid: 'p_kav', credits: -10, after: 24 },
+      { id: 'topup:t_c22', at: '18.10 09:00', label: 'Поповнення · своя сума', credits: 22, after: 34 },
+      { id: 'adjust:k8Hd', at: '17.10 11:00', label: 'Коригування', note: 'Компенсація за затримку', credits: 2, after: 12 },
+      { id: 'refund:p_shyna', at: '16.10 18:52', label: 'Повернення за збій', proj: 'shyna-lviv.example.com', pid: 'p_shyna', credits: 10, after: 10 },
+      { id: 'video:p_shyna', at: '16.10 18:40', label: 'Ролик', proj: 'shyna-lviv.example.com', pid: 'p_shyna', credits: -10, after: 0 },
+      { id: 'revision:p_zerno:r2', at: '15.10 09:12', label: 'Правка · рев. 2', proj: 'zerno.example.com', pid: 'p_zerno', credits: -3, after: 10 },
+      { id: 'format:p_zerno:square', at: '14.10 10:31', label: 'Додатковий формат 1:1', proj: 'zerno.example.com', pid: 'p_zerno', credits: -2, after: 13 },
+      { id: 'video:p_zerno', at: '14.10 10:05', label: 'Ролик', proj: 'zerno.example.com', pid: 'p_zerno', credits: -10, after: 15 },
+      { id: 'topup:t_8f2k', at: '14.10 10:02', label: 'Поповнення · Кілька роликів', credits: 25, after: 25 },
+    ];
+    const PROJ = [
+      { id: 'p_flor', host: 'florist-kyiv.example.com', status: 'rendering', formats: ['vertical', 'landscape'], createdAt: '19.10', credits: { charged: 12, refunded: 0, parts: [['Ролик', -10], ['Формат 16:9', -2]] } },
+      { id: 'p_kav', host: null, desc: 'Кав’ярня на Подолі · за описом', status: 'awaiting_script', formats: ['vertical'], createdAt: '18.10', credits: { charged: 10, refunded: 0, parts: [['Ролик', -10]] } },
+      { id: 'p_shyna', host: 'shyna-lviv.example.com', status: 'failed', formats: ['vertical'], createdAt: '16.10', credits: { charged: 10, refunded: 10, parts: [['Ролик', -10], ['Повернення за збій', 10]] } },
+      { id: 'p_zerno', host: 'zerno.example.com', status: 'delivered', formats: ['vertical', 'square'], createdAt: '14.10', credits: { charged: 15, refunded: 0, parts: [['Ролик', -10], ['Формат 1:1', -2], ['Правка · рев. 2', -3]] } },
+    ];
+    const USERS = [
+      { ...ADMIN, balance: 500 },
+      { ...OLENA, balance: 12 },
+      { id: 'u_andriy02', name: 'Андрій Мельник', email: 'andriy@shyna-lviv.example.com', isAdmin: false, createdAt: '15.10.2026', activatedAt: '15.10.2026', balance: 0 },
+      { id: 'u_new003', name: 'Ірина Ткач', email: 'new@florist-kyiv.example.com', isAdmin: false, createdAt: '19.10.2026', activatedAt: null, balance: 0 },
+    ];
+    const AH = {
+      u_olena01: H.map((e) => ({ ...e, by: e.id.startsWith('adjust') ? 'admin@example.com' : '' })),
+      u_andriy02: [{ id: 'video:p_an1', at: '15.10 12:20', label: 'Ролик', proj: 'Без сайту', credits: -10, after: 0 }, { id: 'topup:t_an1', at: '15.10 12:14', label: 'Поповнення · Старт', credits: 10, after: 10 }],
+      u_new003: [],
+      u_admin001: [{ id: 'bonus:seed:u_admin001', at: '01.10 09:00', label: 'Коригування', note: 'тестовий баланс', credits: 500, after: 500 }],
+    };
+    const OUT = [
+      { id: 'm1', at: '19.10 11:02', to: 'new@florist-kyiv.example.com', kind: 'activate', subject: 'Активація акаунта AdCreative', link: 'https://adcreative.example.com/?auth=activate&token=Qm4xT9vLr2…' },
+      { id: 'm2', at: '19.10 08:15', to: 'olena@zerno.example.com', kind: 'reset', subject: 'Скидання пароля AdCreative', link: 'https://adcreative.example.com/?auth=reset&token=Zt9pK1sWq0…' },
+    ];
+    const ALL = [
+      ...PROJ.map((p, i) => ({ ...p, owner: 'olena@zerno.example.com', usd: ['$2.40', '$0.86', '$1.31', '$2.31'][i] })),
+      { id: 'p_an1', host: null, owner: 'andriy@shyna-lviv.example.com', status: 'awaiting_brand', formats: ['vertical'], createdAt: '15.10', usd: '$0.42' },
+      { id: 'p_ev1', host: 'kavarnia-eval.example.com', owner: null, status: 'delivered', formats: ['vertical', 'square', 'landscape'], createdAt: '13.10', usd: '$3.07' },
+      { id: 'p_ev2', host: 'zerno.example.com', owner: null, status: 'failed', formats: ['vertical'], createdAt: '12.10', usd: '$0.58' },
+    ];
+    const P = { video: 10, revision: 3, extraFormat: 2 };
+    const PK = [{ id: 'starter', label: 'Старт', credits: 10 }, { id: 'standard', label: 'Кілька роликів', credits: 25 }, { id: 'pro', label: 'Серія', credits: 60 }];
+    const prog = (text, running) => ({ k: 'prog', text, running: !!running });
+    const asst = (at, text) => ({ k: 'asst', at, text });
+    const cp = (n, state, hint, rev) => ({ k: 'cp', n, state, hint, rev: rev || 1, title: ['', 'Чекпоінт 1 — бренд', 'Чекпоінт 2 — тексти', 'Чекпоінт 3 — розкадровка'][n] });
+    const feedBrand = [prog('Сканую сайт… 7/7 сторінок'), prog('Збираю бренд-кіт… готово'), asst('10:42', 'Ось що я зрозумів про ваш бренд. Перевірте, відповідайте на питання або напишіть, що змінити.'), cp(1, 'active', 'Палітра, шрифти, лого, факти й питання — праворуч.')];
+    const feedScript = [cp(1, 'done'), { k: 'user', text: 'Формати: 9:16, 1:1' }, prog('Пишу сценарій… готово'), asst('10:51', 'Сценарій готовий: три сцени по 5 секунд. Перевірте тексти.'), cp(2, 'active', 'Концепт і тексти сцен — праворуч.')];
+    const feedBoard = [cp(1, 'done'), { k: 'user', text: 'Формати: 9:16, 1:1' }, cp(2, 'done'), prog('Генерую сцени… 3/3'), prog('Підбираю музику… готово'), asst('10:58', 'Розкадровка готова: по два кадри на сцену й музика. Затвердьте — і почну рендер.'), cp(3, 'active', 'Стіли, QA і музика — праворуч.')];
+    const feedDone = [cp(1, 'done'), cp(2, 'done'), cp(3, 'done'), prog('Рендерю… 9:16, 1:1'), asst('11:06', 'Ролик готовий. Завантаження — праворуч. Щоб щось змінити, напишіть — зроблю нову ревізію.')];
+    return (this._D = { OLENA, ADMIN, H, PROJ, USERS, AH, OUT, ALL, P, PK, CUSTOM: { min: 5, max: 500 }, prog, asst, cp, feedBrand, feedScript, feedBoard, feedDone });
+  }
+
+  fmt() {
+    if (this._F) return this._F;
+    const plural = (n, f) => { n = Math.abs(n); const a = n % 10, b = n % 100; if (a === 1 && b !== 11) return f[0]; if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return f[1]; return f[2]; };
+    const CR = ['кредит', 'кредити', 'кредитів'];
+    const num = (n) => String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00A0');
+    const word = (n) => plural(n, CR);
+    return (this._F = { plural, num, word, cr: (n) => num(n) + '\u00A0' + word(n), sgn: (n) => (n < 0 ? '\u2212' : '+') + num(n) });
+  }
+
+  url() { try { return new URLSearchParams(window.location.search); } catch (e) { return new URLSearchParams(''); } }
+
+  variants() {
+    const u = this.url();
+    const p = this.props;
+    const raw = (p.variant || (p.embedded ? null : u.get('variant')) || (p.embedded ? 'A' : 'FINAL')).toUpperCase();
+    const CHOSEN = { N1: 'AB', N2: 'A', N3: 'A', N4: 'B', N5: 'A', N6: 'A', N7: 'A', N8: 'B', N9: 'A', N10: 'A', N11: 'B', N12: 'B', N13: 'A', N14: 'A', N15: 'B' };
+    const base = raw === 'B' ? 'B' : 'A';
+    const v = {};
+    for (let i = 1; i <= 15; i++) v['N' + i] = raw === 'FINAL' ? CHOSEN['N' + i] : base;
+    const combo = p.combo || (p.embedded ? '' : u.get('combo') || '');
+    combo.split(',').forEach((kv) => { const [k, val] = kv.split('='); if (k && v[k.trim()] && val) v[k.trim()] = val.trim().toUpperCase(); });
+    if (!p.embedded) for (let i = 1; i <= 15; i++) { const x = u.get('N' + i); if (x) v['N' + i] = x.toUpperCase(); }
+    return v;
+  }
+
+  base() {
+    const D = this.D();
+    return {
+      route: 'start', user: null, balance: 0, meLoading: false, bonus: 0,
+      startUrl: '', pendingUrl: '', startErr: null, startBusy: false, autostart: false, photosLost: false, flash: null,
+      auth: { open: false, view: 'login', name: '', email: '', password: '', showPw: false, err: null, busy: false, cooldown: 0, resent: false, context: null, bonus: 0, fails: 0 },
+      menu: false, delta: null,
+      ws: { host: 'zerno.example.com', pid: 'p_zerno', status: 'awaiting_brand', view: 'brand', formats: ['vertical', 'square'], paid: [], rev: 1, feed: D.feedBrand, composer: '', lastMsg: '' },
+      drawer: { open: false, ctx: null, step: 'pick', pkg: 'starter', custom: '', mode: 'pkg', err: false, need: 0, have: 0 },
+      cab: { section: 'balance', back: null, backHost: null, loading: false },
+      topup: { pkg: 'standard', custom: '', mode: 'pkg', err: false, busy: false },
+      pending: [],
+      checkout: { status: 'pending', id: 't_9q4m', credits: 25, label: 'Кілька роликів', at: '19.10 11:20', returnTo: 'cab', revisit: false },
+      checkoutModal: false,
+      hist: { entries: D.H, loading: false, more: false, moreBusy: false },
+      projects: D.PROJ, projOpen: null, noPoster: false,
+      profile: { edit: null, name: 'Олена Коваль', nameDraft: 'Олена Коваль', saving: false, saved: false, nameErr: false, cur: '', next: '', pwErr: null, pwDone: false, pwBusy: false },
+      admin: { tab: 'users', q: '', sel: 'u_olena01', adj: '', note: '', err: null, confirm: false, done: null, busy: false, copied: null, loading: false, forbidden: false },
+      adminUsers: D.USERS, adminHist: D.AH, outbox: D.OUT, allProjects: D.ALL,
+      packagesOverride: null,
+      session: null, net: false, sheet: null,
+    };
+  }
+
+  merge(s, patch) {
+    const out = { ...s };
+    Object.keys(patch || {}).forEach((k) => {
+      const val = patch[k];
+      if (val && typeof val === 'object' && !Array.isArray(val) && ['auth', 'ws', 'drawer', 'cab', 'topup', 'checkout', 'profile', 'admin', 'hist'].includes(k)) out[k] = { ...s[k], ...val };
+      else out[k] = val;
+    });
+    return out;
+  }
+
+  init() {
+    this.v = this.variants();
+    const u = this.url();
+    const name = this.props.preset || (this.props.embedded ? null : u.get('state')) || 'n3-guest';
+    let s = this.merge(this.base(), this.preset(name));
+    if (s.sheet) s.route = 'sheet';
+    return { ...s, vw: typeof window !== 'undefined' ? window.innerWidth : 1440, vh: typeof window !== 'undefined' ? window.innerHeight : 900 };
+  }
+
+  preset(name) {
+    const D = this.D();
+    const v = this.v;
+    const U = { user: D.OLENA, balance: 12 };
+    const A = { user: D.ADMIN, balance: 500 };
+    const ws = (o, extra) => ({ route: 'ws', ...U, ...(extra || {}), ws: o });
+    const cab = (section, extra) => ({ route: 'cab', ...U, cab: { section }, ...(extra || {}) });
+    const auth = (o, extra) => ({ pendingUrl: 'zerno.example.com', startUrl: 'zerno.example.com', auth: { open: true, ...o }, ...(extra || {}) });
+    const em = 'olena@zerno.example.com';
+    const insuffFmt = { k: 'credit', t: 'insuffFmt', need: 2, have: 1, at: '11:01' };
+    const insuffRev = { k: 'credit', t: 'insuff', need: 3, have: 2, at: '11:14' };
+    const userRev = { k: 'user', text: 'Зроби заголовок коротшим' };
+    const drawerB = (ctx, need, have, more) => (v.N6 === 'B' ? { drawer: { open: true, ctx, need, have, step: 'pick', pkg: 'starter', ...(more || {}) } } : {});
+    const coRoute = (st, extra) => (v.N10 === 'B' ? { route: 'cab', ...U, cab: { section: 'balance' }, checkoutModal: true, checkout: { status: st, ...(extra || {}) } } : { route: 'checkout', ...U, checkout: { status: st, ...(extra || {}) } });
+    const P = {
+      'n3-guest': {},
+      'n3-guest-url': { startUrl: 'zerno.example.com' },
+      'n3-user': { ...U, startUrl: 'zerno.example.com' },
+      'n3-low': { ...U, balance: 4, startUrl: 'zerno.example.com' },
+      'n3-402': { ...U, balance: 4, startUrl: 'zerno.example.com', startErr: { code: 'insufficient', need: 10, have: 4 }, ...drawerB('start', 10, 4) },
+      'n3-auto': { ...U, balance: 15, pendingUrl: 'zerno.example.com', startUrl: 'zerno.example.com', autostart: true, photosLost: true },
+      'n3-empty': { startErr: { code: 'empty' } },
+      'n1-login': auth({ view: 'login' }),
+      'n1-login-filled': auth({ view: 'login', email: em, password: 'kava2026!' }),
+      'n1-login-busy': auth({ view: 'login', email: em, password: 'kava2026!', busy: true }),
+      'n1-login-invalid': auth({ view: 'login', email: em, password: 'kava2025', err: 'invalid_credentials' }),
+      'n1-login-notact': auth({ view: 'login', email: 'new@florist-kyiv.example.com', password: 'florist-19', err: 'not_activated' }),
+      'n1-login-notact-sent': auth({ view: 'login', email: 'new@florist-kyiv.example.com', password: 'florist-19', err: 'not_activated', resent: true }),
+      'n1-login-rate': auth({ view: 'login', email: em, password: 'kava2025', err: 'rate_limited' }),
+      'n1-login-net': auth({ view: 'login', email: em, password: 'kava2026!', err: 'network' }),
+      'n1-google': auth({ view: 'login', err: 'google' }),
+      'n1-register': auth({ view: 'register' }),
+      'n1-register-hint': auth({ view: 'register', name: 'Олена Коваль', email: em, password: 'kava2' }),
+      'n1-register-ok': auth({ view: 'register', name: 'Олена Коваль', email: em, password: 'kava2026!', showPw: true }),
+      'n1-register-filled': auth({ view: 'register', name: 'Олена Коваль', email: em, password: 'kava2026!' }),
+      'n1-register-weak': auth({ view: 'register', name: 'Олена Коваль', email: em, password: 'kava', err: 'weak_password' }),
+      'n1-register-busy': auth({ view: 'register', name: 'Олена Коваль', email: em, password: 'kava2026!', busy: true }),
+      'n2-check': auth({ view: 'check', email: em, cooldown: 42 }),
+      'n2-check-ready': auth({ view: 'check', email: em, cooldown: 0 }),
+      'n2-check-sent': auth({ view: 'check', email: em, cooldown: 58, resent: true }),
+      'n2-activating': auth({ view: 'activating' }),
+      'n2-activated': auth({ view: 'activated' }, { user: D.OLENA, balance: 0 }),
+      'n2-activated-bonus': auth({ view: 'activated', bonus: 5 }, { user: D.OLENA, balance: 5, bonus: 5 }),
+      'n2-activated-plain': { auth: { open: true, view: 'activated' }, user: D.OLENA, balance: 0 },
+      'n2-act-invalid': auth({ view: 'activateInvalid', email: em }),
+      'n2-act-invalid-sent': auth({ view: 'activateInvalid', email: em, resent: true }),
+      'n2-forgot': { auth: { open: true, view: 'forgot', email: em } },
+      'n2-forgot-sent': { auth: { open: true, view: 'forgotSent', email: em } },
+      'n2-reset': { auth: { open: true, view: 'reset', password: 'Zerno-ranok' } },
+      'n2-reset-weak': { auth: { open: true, view: 'reset', password: 'kava', err: 'weak_password' } },
+      'n2-reset-invalid': { auth: { open: true, view: 'resetInvalid' } },
+      'n2-reset-done': { auth: { open: true, view: 'resetDone' }, user: D.OLENA, balance: 12 },
+      'ws-brand': ws({ status: 'awaiting_brand', view: 'brand', feed: D.feedBrand }),
+      'ws-crawl': ws({ status: 'crawling', view: 'progress', pct: 28, feed: [D.prog('Сканую сайт… 2/7 сторінок', true)] }, { balance: 15 }),
+      'ws-script': ws({ status: 'awaiting_script', view: 'script', feed: D.feedScript }),
+      'ws-meload': ws({ status: 'awaiting_brand', view: 'brand', feed: D.feedBrand }, { meLoading: true }),
+      'n4-menu': ws({ status: 'awaiting_brand', view: 'brand', feed: D.feedBrand }, { menu: true }),
+      'n4-admin': ws({ status: 'awaiting_brand', view: 'brand', feed: D.feedBrand }, { ...A, menu: true }),
+      'ws-long': ws({ host: 'kavyarnya-na-podoli-zi-snidankamy-do-obidu.example.com.ua', status: 'awaiting_storyboard', view: 'board', feed: D.feedBoard }, { balance: 1250 }),
+      'n5-cp1': ws({ status: 'awaiting_brand', view: 'brand', feed: D.feedBrand, formats: ['vertical', 'square'] }),
+      'n5-cp1-short': ws({ status: 'awaiting_brand', view: 'brand', feed: D.feedBrand, formats: ['vertical', 'square'] }, { balance: 1 }),
+      'n5-cp1-one': ws({ status: 'awaiting_brand', view: 'brand', feed: D.feedBrand, formats: ['vertical'] }),
+      'n5-cp3': ws({ status: 'awaiting_storyboard', view: 'board', feed: D.feedBoard }),
+      'n5-cp3-short': ws({ status: 'awaiting_storyboard', view: 'board', feed: D.feedBoard }, { balance: 1 }),
+      'n5-cp3-paid': ws({ status: 'awaiting_storyboard', view: 'board', rev: 2, formats: ['vertical', 'square', 'landscape'], paid: ['square'], feed: [...D.feedBoard.slice(0, 6), D.cp(3, 'active', 'Стіли, QA і музика — праворуч.', 2)] }),
+      'n5-cp3-one': ws({ status: 'awaiting_storyboard', view: 'board', formats: ['vertical'], feed: D.feedBoard }),
+      'n5-done': ws({ status: 'delivered', view: 'done', feed: D.feedDone }),
+      'n5-done-short': ws({ status: 'delivered', view: 'done', feed: D.feedDone }, { balance: 2 }),
+      'n5-done-typing': ws({ status: 'delivered', view: 'done', feed: D.feedDone, composer: 'Зроби заголовок коротшим' }),
+      'n7-rev': ws({ status: 'revising', view: 'progress', rev: 2, lastMsg: 'Зроби заголовок коротшим', feed: [...D.feedDone, userRev, { k: 'credit', t: 'rev', credits: 3, balance: 9, rev: 2, at: '11:12' }, D.prog('Вношу правки… рев. 2', true)] }, { balance: 9, delta: { n: -3, key: 1 } }),
+      'n7-rev-short': ws({ status: 'delivered', view: 'done', lastMsg: 'Зроби заголовок коротшим', feed: [...D.feedDone, userRev, insuffRev] }, { balance: 2, ...drawerB('rev', 3, 2) }),
+      'n7-fmt': ws({ status: 'rendering', view: 'progress', paid: ['square'], feed: [...D.feedBoard.slice(0, 6), D.cp(3, 'done'), { k: 'credit', t: 'fmt', credits: 2, count: 1, fmtLabel: '1:1', balance: 10, at: '11:01' }, D.prog('Рендерю… 9:16 · 1/2', true)] }, { balance: 10, delta: { n: -2, key: 2 } }),
+      'n7-fmt-short': ws({ status: 'awaiting_storyboard', view: 'board', feed: [...D.feedBoard, insuffFmt] }, { balance: 1, ...drawerB('cp3', 2, 1) }),
+      'n7-refund': ws({ host: 'shyna-lviv.example.com', pid: 'p_shyna', status: 'failed', view: 'failed', formats: ['vertical'], feed: [D.cp(1, 'done'), D.cp(2, 'done'), D.prog('Генерую сцени… 2/3'), { k: 'err', title: 'Помилка · codegen', text: 'Щось пішло не так на етапі «codegen»: сцену не вдалося зібрати навіть за шаблоном.' }, { k: 'credit', t: 'refund', credits: 10, balance: 10, at: '18:52' }] }, { balance: 10, delta: { n: 10, key: 3 } }),
+      'n6-cab-return': v.N6 === 'B' ? ws({ status: 'awaiting_storyboard', view: 'board', feed: [...D.feedBoard, insuffFmt] }, { balance: 1, drawer: { open: true, ctx: 'cp3', need: 2, have: 1, step: 'pick', pkg: 'starter' } }) : { ...cab('balance'), balance: 1, cab: { section: 'balance', back: 'ws', backHost: 'zerno.example.com' }, topup: { pkg: 'starter' } },
+      'n6-pay': v.N6 === 'B' ? ws({ status: 'awaiting_storyboard', view: 'board', feed: [...D.feedBoard, insuffFmt] }, { balance: 11, drawer: { open: true, ctx: 'cp3', need: 2, have: 1, step: 'pay' }, checkout: { status: 'paid', credits: 10, label: 'Старт', returnTo: 'ws', id: 't_4r2x' } }) : { ...coRoute('paid', { credits: 10, label: 'Старт', returnTo: 'ws', id: 't_4r2x' }), balance: 11 },
+      'n6-retry': ws({ status: 'awaiting_storyboard', view: 'board', feed: [...D.feedBoard, insuffFmt, { k: 'retry', ctx: 'cp3', plus: 10 }] }, { balance: 11 }),
+      'n6-retry-rev': ws({ status: 'delivered', view: 'done', lastMsg: 'Зроби заголовок коротшим', feed: [...D.feedDone, userRev, insuffRev, { k: 'retry', ctx: 'rev', plus: 10, msg: 'Зроби заголовок коротшим' }] }, { balance: 12 }),
+      'n6-start-return': { ...cab('balance'), balance: 4, pendingUrl: 'zerno.example.com', cab: { section: 'balance', back: 'start' }, topup: { pkg: 'starter' } },
+      'cab-balance': cab('balance'),
+      'cab-history': cab('history'),
+      'cab-projects': cab('projects'),
+      'cab-profile': cab('profile'),
+      'cab-loading': cab('balance', { cab: { section: 'balance', loading: true } }),
+      'cab-zero': { ...cab('balance'), balance: 0, hist: { entries: [] }, projects: [], topup: { pkg: 'standard' } },
+      'cab-from-ws': { ...cab('balance'), cab: { section: 'balance', backHost: 'zerno.example.com' } },
+      'cab-admin': { ...cab('balance'), ...A, hist: { entries: [D.AH.u_admin001[0]] }, projects: [] },
+      'n10-loading': coRoute('loading'),
+      'n10-pending': coRoute('pending'),
+      'n10-confirming': coRoute('confirming'),
+      'n10-paid': { ...coRoute('paid'), balance: 37 },
+      'n10-paid-start': { ...coRoute('paid', { returnTo: 'start' }), balance: 25, pendingUrl: 'zerno.example.com' },
+      'n10-paid-ws': { ...coRoute('paid', { returnTo: 'ws', credits: 10, label: 'Старт' }), balance: 11 },
+      'n10-failed': coRoute('failed'),
+      'n10-revisit': { ...coRoute('paid', { revisit: true, paidAt: '19.10 11:21' }), balance: 37 },
+      'n10-404': coRoute('notfound', { id: 't_zz00' }),
+      'n10-guest': { auth: { open: true, view: 'login', context: 'checkout' } },
+      'adm-users': { route: 'admin', ...A, admin: { tab: 'users', sel: v.N14 === 'B' ? null : 'u_olena01' } },
+      'adm-user': { route: 'admin', ...A, admin: { tab: v.N14 === 'B' ? 'user' : 'users', sel: 'u_olena01', adj: '+5', note: 'компенсація' } },
+      'adm-done': { route: 'admin', ...A, admin: { tab: v.N14 === 'B' ? 'user' : 'users', sel: 'u_olena01', done: { credits: 5, note: 'компенсація', balance: 17 } }, adminUsers: D.USERS.map((x) => (x.id === 'u_olena01' ? { ...x, balance: 17 } : x)), adminHist: { ...D.AH, u_olena01: [{ id: 'adjust:n3', at: '19.10 11:30', label: 'Коригування', note: 'компенсація', by: 'admin@example.com', credits: 5, after: 17, fresh: true }, ...D.AH.u_olena01] } },
+      'adm-confirm': { route: 'admin', ...A, admin: { tab: v.N14 === 'B' ? 'user' : 'users', sel: 'u_olena01', adj: '−10', note: 'помилкове нарахування', confirm: true } },
+      'adm-402': { route: 'admin', ...A, admin: { tab: v.N14 === 'B' ? 'user' : 'users', sel: 'u_andriy02', adj: '−5', note: 'тест', err: { need: 5, have: 0 } } },
+      'adm-outbox': { route: 'admin', ...A, admin: { tab: 'outbox', copied: 'm1' } },
+      'adm-all': { route: 'admin', ...A, admin: { tab: 'all' } },
+      'adm-empty': { route: 'admin', ...A, admin: { tab: 'users', sel: null }, adminUsers: [], outbox: [] },
+      'adm-search': { route: 'admin', ...A, admin: { tab: 'users', q: 'florist', sel: v.N14 === 'B' ? null : 'u_new003' } },
+      'adm-loading': { route: 'admin', ...A, admin: { tab: 'users', loading: true } },
+      'n15-401': v.N15 === 'B' ? ws({ status: 'awaiting_storyboard', view: 'session', feed: D.feedBoard }, { auth: { view: 'login', context: '401', email: em } }) : { ...ws({ status: 'awaiting_storyboard', view: 'board', feed: D.feedBoard }), session: '401', auth: { view: 'login', context: '401', email: em } },
+      'n15-401-err': v.N15 === 'B' ? ws({ status: 'awaiting_storyboard', view: 'session', feed: D.feedBoard }, { auth: { view: 'login', context: '401', email: em, password: 'kava', err: 'invalid_credentials' } }) : { ...ws({ status: 'awaiting_storyboard', view: 'board', feed: D.feedBoard }), session: '401', auth: { view: 'login', context: '401', email: em, password: 'kava', err: 'invalid_credentials' } },
+      'n15-404': v.N15 === 'B' ? ws({ host: null, pid: 'p_7Hk2mQ9x', status: null, view: 'notfound', feed: [] }) : { ...ws({ host: null, pid: 'p_7Hk2mQ9x', status: null, view: 'blank', feed: [] }), session: '404' },
+      'n15-403': v.N15 === 'B' ? { route: 'admin', ...U, admin: { forbidden: true } } : { route: 'admin', ...U, admin: { loading: true }, session: '403' },
+      'n15-logout': { flash: 'Ви вийшли з акаунта. Проєкти збережено — увійдіть, щоб продовжити.' },
+      'n15-net': ws({ status: 'awaiting_brand', view: 'brand', feed: D.feedBrand }, { net: true }),
+      'f1-topup': v.N6 === 'B' ? { user: D.OLENA, balance: 0, pendingUrl: 'zerno.example.com', startUrl: 'zerno.example.com', startErr: { code: 'insufficient', need: 10, have: 0 }, hist: { entries: [] }, projects: [], drawer: { open: true, ctx: 'start', need: 10, have: 0, step: 'pick', pkg: 'standard' } } : { route: 'cab', user: D.OLENA, balance: 0, pendingUrl: 'zerno.example.com', hist: { entries: [] }, projects: [], cab: { section: 'balance', back: 'start' }, topup: { pkg: 'standard' } },
+      'f1-pay': v.N6 === 'B' ? { user: D.OLENA, balance: 0, pendingUrl: 'zerno.example.com', startUrl: 'zerno.example.com', hist: { entries: [] }, projects: [], drawer: { open: true, ctx: 'start', need: 10, have: 0, step: 'pay' }, checkout: { status: 'pending', credits: 25, label: 'Кілька роликів', returnTo: 'start' } } : { ...coRoute('pending', { returnTo: 'start' }), balance: 0, pendingUrl: 'zerno.example.com', hist: { entries: [] }, projects: [] },
+      'f1-paid': v.N6 === 'B' ? { user: D.OLENA, balance: 25, pendingUrl: 'zerno.example.com', startUrl: 'zerno.example.com', projects: [], drawer: { open: true, ctx: 'start', need: 10, have: 0, step: 'pay' }, checkout: { status: 'paid', credits: 25, label: 'Кілька роликів', returnTo: 'start' } } : { ...coRoute('paid', { returnTo: 'start' }), balance: 25, pendingUrl: 'zerno.example.com', projects: [] },
+      'f3-done2': ws({ status: 'delivered', view: 'done', rev: 2, feed: [...D.feedDone, userRev, { k: 'credit', t: 'rev', credits: 3, balance: 9, rev: 2, at: '11:12' }, D.prog('Вношу правки… рев. 2'), D.asst('11:16', 'Ревізія 2 готова. Порівняйте з попередньою праворуч.')] }, { balance: 9 }),
+    };
+    if (name.startsWith('sheet-')) return { sheet: name, ...U };
+    return P[name] || {};
+  }
+
+  sheet(name) {
+    const v = this.v;
+    const D = this.D();
+    const N1lay = v.N1 === 'B' ? 'split' : v.N1 === 'AB' ? 'cardB' : 'card';
+    const N2lay = v.N2 === 'B' ? 'moment' : N1lay;
+    const wOf = (l) => (l === 'card' ? '420px' : l === 'cardB' ? '540px' : l === 'split' ? '600px' : '640px');
+    const authCell = (label, p, lay, note) => ({ label, note: note || '', kind: 'auth', layout: lay, w: wOf(lay), pad: lay === 'card' ? '36px' : lay === 'cardB' ? '44px' : '40px', bg: lay === 'card' || lay === 'cardB' ? '#FCFBF8' : '#F5F3EE', rad: lay === 'card' || lay === 'cardB' ? '20px' : '14px', patch: p });
+    const tb = (label, p, w, note) => ({ label, note: note || '', kind: 'topbar', w: Math.min(w || 1440, 1360) + 'px', pad: '0', bg: '#F5F3EE', rad: '14px', minH: p.menu ? '360px' : '56px', patch: { route: 'ws', ...p }, fw: w || 1440 });
+    const cab = (label, bare, p, note, w) => ({ label, note: note || '', kind: 'cab', bare, w: (w || 660) + 'px', pad: '32px', bg: v.N8 === 'B' ? '#F8F7F3' : '#F5F3EE', rad: '14px', patch: p, fw: 1440 });
+    const co = (label, p, note) => ({ label, note: note || '', kind: 'checkout', layout: v.N10 === 'B' ? 'modal' : 'page', w: v.N10 === 'B' ? '560px' : '660px', pad: v.N10 === 'B' ? '24px' : '0', bg: v.N10 === 'B' ? 'rgba(21,20,18,.32)' : '#F5F3EE', rad: '14px', minH: v.N10 === 'B' ? '0' : '640px', patch: p });
+    const pr = (k) => { const p = this.preset(k); return { ...p, auth: { ...(p.auth || {}) } }; };
+    const em = 'olena@zerno.example.com';
+    const long = Array.from({ length: 12 }, (_, i) => {
+      const b = D.PROJ[i % 4];
+      const hosts = ['florist-kyiv.example.com', null, 'shyna-lviv.example.com', 'zerno.example.com', 'barbershop-lviv.example.com', 'pekarnia-dnipro.example.com', null, 'yoga-studio-odesa.example.com', 'avtomyika.example.com', 'kvity-na-rynku.example.com', 'kava-z-soboyu.example.com', 'remont-telefoniv.example.com'];
+      const st = ['rendering', 'awaiting_script', 'failed', 'delivered', 'delivered', 'awaiting_brand', 'directing', 'delivered', 'revising', 'awaiting_storyboard', 'intake', 'delivered'];
+      return { ...b, id: 'p_x' + i, host: hosts[i], desc: hosts[i] ? '' : 'Опис бізнесу · без сайту', status: st[i], createdAt: ['19.10', '19.10', '18.10', '18.10', '17.10', '17.10', '16.10', '16.10', '15.10', '15.10', '14.10', '14.10'][i] };
+    });
+    const S = {
+      'sheet-n1': [
+        authCell('Вхід · порожньо', pr('n1-login'), N1lay, 'з «Почати»'), authCell('Вхід · заповнено', pr('n1-login-filled'), N1lay), authCell('Вхід · надсилання', pr('n1-login-busy'), N1lay),
+        authCell('invalid_credentials', pr('n1-login-invalid'), N1lay, '401'), authCell('not_activated', pr('n1-login-notact'), N1lay, '403'), authCell('not_activated · лист надіслано', pr('n1-login-notact-sent'), N1lay),
+        authCell('rate_limited', pr('n1-login-rate'), N1lay, '429'), authCell('Немає мережі', pr('n1-login-net'), N1lay, 'копірайт UI'), authCell('Google → 501', pr('n1-google'), N1lay),
+        authCell('Реєстрація · порожньо', pr('n1-register'), N1lay), authCell('Підказка довжини', pr('n1-register-hint'), N1lay, 'рахує фронтенд'), authCell('Пароль показано', pr('n1-register-ok'), N1lay),
+        authCell('weak_password', pr('n1-register-weak'), N1lay, '400'), authCell('Реєстрація · надсилання', pr('n1-register-busy'), N1lay), authCell('Вхід без контексту', { auth: { view: 'login' } }, N1lay, 'із шапки'),
+      ],
+      'sheet-n2': [
+        authCell('Перевірте пошту · пауза', pr('n2-check'), N2lay, '202'), authCell('Можна надіслати ще раз', pr('n2-check-ready'), N2lay), authCell('Лист надіслано ще раз', pr('n2-check-sent'), N2lay),
+        authCell('Перевірка посилання', pr('n2-activating'), N2lay), authCell('Активовано · не вистачає', pr('n2-activated'), N2lay, '→ N6'), authCell('Активовано · бонус 5', pr('n2-activated-bonus'), N2lay, 'signupBonus 5'),
+        authCell('Активовано · без URL', pr('n2-activated-plain'), N2lay), authCell('invalid_token', pr('n2-act-invalid'), N2lay, '400'), authCell('invalid_token · лист надіслано', pr('n2-act-invalid-sent'), N2lay),
+        authCell('Забули пароль', pr('n2-forgot'), N2lay), authCell('Скидання · надіслано', pr('n2-forgot-sent'), N2lay, '202'), authCell('Новий пароль', pr('n2-reset'), N2lay),
+        authCell('Скидання · weak_password', pr('n2-reset-weak'), N2lay), authCell('Скидання · invalid_token', pr('n2-reset-invalid'), N2lay), authCell('Скидання · успіх', pr('n2-reset-done'), N2lay, 'сесії завершено'),
+      ],
+      'sheet-n4': [
+        tb('Завантаження /me', { user: D.OLENA, meLoading: true, ws: { status: 'awaiting_brand' } }), tb('Баланс 12', { user: D.OLENA, balance: 12, ws: { status: 'awaiting_brand' } }),
+        tb('Баланс 5 · поріг, ще не низький', { user: D.OLENA, balance: 5, ws: { status: 'rendering' } }, 1440, 'prices.video × 0.5'), tb('Баланс 4 · низький', { user: D.OLENA, balance: 4, ws: { status: 'delivered' } }),
+        tb('Баланс 0', { user: D.OLENA, balance: 0, ws: { status: 'failed' } }), tb('Баланс 1 250', { user: D.OLENA, balance: 1250, ws: { status: 'awaiting_storyboard' } }),
+        tb('Зміна після списання · −3', { user: D.OLENA, balance: 9, delta: { n: -3, key: 7 }, ws: { status: 'revising' } }, 1440, 'анімація .7s, один раз'), tb('Зміна після зарахування · +10', { user: D.OLENA, balance: 11, delta: { n: 10, key: 8 }, ws: { status: 'awaiting_storyboard' } }),
+        tb('Адмін · «Витрачено», «Статистика»', { user: D.ADMIN, balance: 500, ws: { status: 'awaiting_brand' } }), tb('Меню відкрито', { user: D.OLENA, balance: 12, menu: true, ws: { status: 'awaiting_brand' } }),
+        tb('Меню адміна', { user: D.ADMIN, balance: 500, menu: true, ws: { status: 'delivered' } }), tb('1024 · довгий хост, низький баланс', { user: D.OLENA, balance: 4, ws: { host: 'kavyarnya-na-podoli-zi-snidankamy-do-obidu.example.com.ua', status: 'awaiting_storyboard' } }, 1024),
+      ],
+      'sheet-n9': [
+        cab('Перший візит · 0', 'balance', { balance: 0, hist: { entries: [] } }, 'копірайт UI'), cab('Баланс 12 · пакет обрано', 'balance', { balance: 12 }), cab('Баланс 1 250', 'balance', { balance: 1250, topup: { pkg: 'pro' } }),
+        cab('Своя сума · порожньо', 'balance', { topup: { mode: 'custom', custom: '', err: true } }), cab('Своя сума · нецілe', 'balance', { topup: { mode: 'custom', custom: '12.5', err: true } }), cab('Своя сума · поза межами', 'balance', { topup: { mode: 'custom', custom: '700', err: true } }),
+        cab('Своя сума · ок, живий перерахунок', 'balance', { topup: { mode: 'custom', custom: '40' } }, 'рахує фронтенд'), cab('Надсилання', 'balance', { topup: { pkg: 'standard', busy: true } }), cab('Незавершене поповнення', 'balance', { pending: [{ id: 't_9q4m', label: 'Кілька роликів', credits: 25, at: '19.10 11:20' }] }),
+        cab('Повернення після оплати · старт', 'balance', { balance: 4, pendingUrl: 'zerno.example.com', cab: { back: 'start' }, topup: { pkg: 'starter' } }, 'закриє різницю — рахує фронтенд'), cab('Один пакет', 'balance', { packagesOverride: [{ id: 'starter', label: 'Старт', credits: 10 }] }), cab('П’ять пакетів, довгі назви', 'balance', { packagesOverride: [{ id: 'a', label: 'Старт', credits: 10 }, { id: 'b', label: 'Кілька роликів', credits: 25 }, { id: 'c', label: 'Серія', credits: 60 }, { id: 'd', label: 'Сезонна кампанія для мережі', credits: 150 }, { id: 'e', label: 'Агенція', credits: 500 }], topup: { pkg: 'd' } }),
+        cab('Вітальний бонус', 'balance', { balance: 5, bonus: 5 }, 'signupBonus 5'),
+      ],
+      'sheet-n10': [
+        co('Завантаження', this.preset('n10-loading')), co('pending', this.preset('n10-pending')), co('Підтвердження', this.preset('n10-confirming'), 'кнопки заблоковано'),
+        co('paid · з кабінету', this.preset('n10-paid')), co('paid · зі старту → автостарт', this.preset('n10-paid-start'), 'без кнопки'), co('paid · з проєкту', this.preset('n10-paid-ws'), '→ «Повторити»'),
+        co('failed', this.preset('n10-failed')), co('Повторне відкриття paid', this.preset('n10-revisit'), 'без другого зарахування'), co('404', this.preset('n10-404')),
+      ],
+      'sheet-n11': [
+        cab('Список', 'history', {}, '', 1100), cab('Порожньо', 'history', { hist: { entries: [] } }, '', 1100), cab('Завантаження', 'history', { hist: { entries: [], loading: true } }, '', 1100),
+        cab('Сторінка + «Показати ще»', 'history', { hist: { entries: D.H.slice(0, 5), more: true } }, 'nextBefore ≠ null', 1100), cab('Довантаження', 'history', { hist: { entries: D.H.slice(0, 5), more: true, moreBusy: true } }, '', 1100),
+        cab('Довга примітка', 'history', { hist: { entries: [{ id: 'adjust:x', at: '19.10 12:00', label: 'Коригування', note: 'Компенсація за затримку рендеру 18–19 жовтня: два проєкти чекали в черзі довше години через оновлення сервера', credits: 6, after: 18 }, ...D.H.slice(0, 3)] } }, 'note ≤ 200', 1100),
+      ],
+      'sheet-n12': [
+        cab('Список · 4', 'projects', {}, '', 1100), cab('Розбивка · zerno', 'projects', { projOpen: 'p_zerno' }, 'потребує API', 1100), cab('Розбивка з поверненням', 'projects', { projOpen: 'p_shyna' }, '10 − 10 = 0', 1100),
+        cab('Порожньо', 'projects', { projects: [] }, '', 1100), cab('Один проєкт', 'projects', { projects: [D.PROJ[3]] }, '', 1100), cab('Без постера', 'projects', { noPoster: true }, 'B: без слота', 1100),
+        cab('12 проєктів · стрес-тест', 'projects', { projects: long }, '', 1100),
+      ],
+      'sheet-n13': [
+        cab('Перегляд', 'profile', {}), cab('Редагування імені', 'profile', { profile: { edit: 'name', nameDraft: 'Олена Коваль-Шевчук' } }), cab('Збереження', 'profile', { profile: { edit: 'name', nameDraft: 'Олена Коваль-Шевчук', saving: true } }),
+        cab('Збережено', 'profile', { profile: { name: 'Олена Коваль-Шевчук', nameDraft: 'Олена Коваль-Шевчук', saved: true } }), cab('Ім’я порожнє', 'profile', { profile: { edit: 'name', nameDraft: '', nameErr: true } }, 'копірайт UI'), cab('Пароль · поточний невірний', 'profile', { profile: { edit: 'password', cur: 'kava2025', next: 'Zerno-ranok', pwErr: 'invalid_credentials' } }, 'копірайт UI'),
+        cab('Пароль · weak_password', 'profile', { profile: { edit: 'password', cur: 'kava2026!', next: 'kava', pwErr: 'weak_password' } }), cab('Пароль змінено', 'profile', { profile: { pwDone: true } }, 'інші сесії завершено'), cab('Адмін · ознака ролі', 'profile', { user: D.ADMIN, balance: 500, profile: { name: 'Адміністратор', nameDraft: 'Адміністратор' } }),
+      ],
+    };
+    return S[name] || [];
+  }
+
+  componentDidMount() {
+    this.onResize = () => this.setState({ vw: window.innerWidth, vh: window.innerHeight });
+    window.addEventListener('resize', this.onResize);
+    this.cd = setInterval(() => { const a = this.state.auth; if (a && a.cooldown > 0 && !this.props.embedded) this.setState((s) => ({ auth: { ...s.auth, cooldown: Math.max(0, s.auth.cooldown - 1) } })); }, 1000);
+  }
+  componentWillUnmount() { window.removeEventListener('resize', this.onResize); clearInterval(this.cd); this.timers.forEach(clearTimeout); }
+  later(ms, fn) { this.timers.push(setTimeout(fn, ms)); }
+  set(patch) { this.setState((s) => this.merge(s, typeof patch === 'function' ? patch(s) : patch)); }
+  delta(n) { return { n, key: Date.now() }; }
+  fw() { return this.props.frameW || this.state.vw || 1440; }
+  fh() { return this.props.frameH || this.state.vh || 900; }
+
+  n6for(need, have) {
+    const D = this.D();
+    const short = Math.max(0, need - have);
+    const pk = this.state.packagesOverride || D.PK;
+    const pkg = pk.slice().sort((a, b) => a.credits - b.credits).find((p) => p.credits >= short) || pk[pk.length - 1];
+    return { need, have, short, pkg, custom: Math.max(short, D.CUSTOM.min) };
+  }
+
+  hist(s, e) { return { entries: [{ id: e.id || 'x' + Date.now(), at: '19.10 ' + new Date().toTimeString().slice(0, 5), after: s.balance + e.credits, ...e }, ...s.hist.entries] }; }
+
+  autostart() {
+    const D = this.D();
+    const s = this.state;
+    const host = s.pendingUrl || s.startUrl || 'zerno.example.com';
+    if (s.balance < D.P.video) {
+      this.set({ route: 'start', auth: { open: false }, startErr: { code: 'insufficient', need: D.P.video, have: s.balance }, ...(this.v.N6 === 'B' ? { drawer: { open: true, ctx: 'start', need: D.P.video, have: s.balance, step: 'pick' } } : {}) });
+      return;
+    }
+    this.set((st) => ({ route: 'start', auth: { open: false }, drawer: { open: false }, checkoutModal: false, autostart: true, startErr: null, pendingUrl: host, balance: st.balance - D.P.video, delta: this.delta(-D.P.video), hist: this.hist(st, { id: 'video:new', label: 'Ролик', proj: host, pid: 'p_new', credits: -D.P.video }) }));
+    this.later(1800, () => {
+      const photos = this.state.photosLost;
+      this.set((st) => ({ route: 'ws', autostart: false, pendingUrl: '', startUrl: '', projects: [{ id: 'p_new', host, status: 'crawling', formats: ['vertical'], createdAt: '19.10', credits: { charged: 10, refunded: 0, parts: [['Ролик', -10]] } }, ...st.projects], ws: { host, pid: 'p_new', status: 'crawling', view: 'progress', pct: 28, rev: 1, paid: [], formats: ['vertical', 'square'], feed: [D.prog('Сканую сайт… 2/7 сторінок', true), ...(photos ? [{ k: 'sys', at: '11:20', text: 'Фото, обрані до входу, не збереглися. Додайте їх через «+ Фото» нижче — я врахую на першому чекпоінті.' }] : [])] } }));
+      this.later(1800, () => this.set((st) => ({ ws: { status: 'awaiting_brand', view: 'brand', feed: [...D.feedBrand.slice(0, 2), ...st.ws.feed.filter((m) => m.k === 'sys'), ...D.feedBrand.slice(2)] } })));
+    });
+  }
+
+  approveBoard() {
+    const D = this.D();
+    const s = this.state;
+    const extra = s.ws.formats.slice(1).filter((x) => !s.ws.paid.includes(x));
+    const need = extra.length * D.P.extraFormat;
+    const L = { vertical: '9:16', square: '1:1', landscape: '16:9' };
+    if (need > 0 && s.balance < need) {
+      this.set((st) => ({ ws: { feed: [...st.ws.feed.filter((m) => m.k !== 'retry'), { k: 'credit', t: 'insuffFmt', need, have: st.balance, at: '11:01' }] }, ...(this.v.N6 === 'B' ? { drawer: { open: true, ctx: 'cp3', need, have: st.balance, step: 'pick' } } : {}) }));
+      return;
+    }
+    this.set((st) => {
+      const feed = st.ws.feed.filter((m) => m.k !== 'retry').map((m) => (m.k === 'cp' && m.n === 3 ? { ...m, state: 'done' } : m));
+      if (need > 0) feed.push({ k: 'credit', t: 'fmt', credits: need, count: extra.length, fmtLabel: extra.map((x) => L[x]).join(', '), balance: st.balance - need, at: '11:01' });
+      feed.push(D.prog('Рендерю… ' + st.ws.formats.map((x) => L[x]).join(', '), true));
+      let h = st.hist;
+      extra.forEach((x) => { h = { entries: [{ id: 'format:new:' + x, at: '19.10 11:01', label: 'Додатковий формат ' + L[x], proj: st.ws.host, pid: st.ws.pid, credits: -D.P.extraFormat, after: st.balance - need }, ...h.entries] }; });
+      return { balance: st.balance - need, delta: need ? this.delta(-need) : st.delta, hist: h, ws: { status: 'rendering', view: 'progress', pct: 12, paid: [...st.ws.paid, ...extra], feed } };
+    });
+    this.later(2200, () => this.set((st) => ({ ws: { status: 'delivered', view: 'done', feed: [...st.ws.feed.map((m) => (m.k === 'prog' && m.running ? { ...m, running: false } : m)), D.asst('11:06', 'Ролик готовий. Завантаження — праворуч. Щоб щось змінити, напишіть — зроблю нову ревізію.')] } })));
+  }
+
+  sendRevision(text) {
+    const D = this.D();
+    const s = this.state;
+    if (s.balance < D.P.revision) {
+      this.set((st) => ({ ws: { composer: '', lastMsg: text, feed: [...st.ws.feed.filter((m) => m.k !== 'retry'), ...(st.ws.feed.some((m) => m.k === 'user' && m.text === text) && st.ws.feed[st.ws.feed.length - 1].k !== 'user' ? [] : [{ k: 'user', text }]), { k: 'credit', t: 'insuff', need: D.P.revision, have: st.balance, at: '11:14' }] }, ...(this.v.N6 === 'B' ? { drawer: { open: true, ctx: 'rev', need: D.P.revision, have: st.balance, step: 'pick' } } : {}) }));
+      return;
+    }
+    this.set((st) => {
+      const rev = (st.ws.rev || 1) + 1;
+      const already = st.ws.feed.length && st.ws.feed.some((m) => m.k === 'user' && m.text === text);
+      return { balance: st.balance - D.P.revision, delta: this.delta(-D.P.revision), hist: this.hist(st, { id: 'revision:new:r' + rev, label: 'Правка · рев. ' + rev, proj: st.ws.host, pid: st.ws.pid, credits: -D.P.revision }), ws: { composer: '', lastMsg: text, rev, status: 'revising', view: 'progress', feed: [...st.ws.feed.filter((m) => m.k !== 'retry'), ...(already ? [] : [{ k: 'user', text }]), { k: 'credit', t: 'rev', credits: D.P.revision, balance: st.balance - D.P.revision, rev, at: '11:12' }, D.prog('Вношу правки… рев. ' + rev, true)] } };
+    });
+    this.later(2200, () => this.set((st) => ({ ws: { status: 'delivered', view: 'done', feed: [...st.ws.feed.map((m) => (m.k === 'prog' && m.running ? { ...m, running: false } : m)), D.asst('11:16', 'Ревізія ' + st.ws.rev + ' готова. Порівняйте з попередньою праворуч.')] } })));
+  }
+
+  openTopup(o) {
+    const s = this.state;
+    const from = (o && o.from) || 'topbar';
+    if (this.v.N6 === 'B' && from !== 'topbar') {
+      let need = 0, have = s.balance, ctx = from === 'ws' ? (o.ctx || (s.ws.status === 'delivered' ? 'rev' : 'cp3')) : 'start';
+      if (ctx === 'start') need = this.D().P.video;
+      else if (ctx === 'rev') need = this.D().P.revision;
+      else { const extra = s.ws.formats.slice(1).filter((x) => !s.ws.paid.includes(x)); need = extra.length * this.D().P.extraFormat; }
+      this.set({ drawer: { open: true, ctx, need, have, step: 'pick', pkg: (o && o.pkg) || this.n6for(need, have).pkg.id, mode: o && o.custom ? 'custom' : 'pkg', custom: o && o.custom ? String(o.custom) : '' }, menu: false });
+      return;
+    }
+    const back = from === 'start' ? 'start' : from === 'ws' ? 'ws' : null;
+    const n6 = from === 'start' ? this.n6for(this.D().P.video, s.balance) : null;
+    this.set({ route: 'cab', menu: false, auth: { open: false }, cab: { section: 'balance', back, backHost: s.route === 'ws' ? s.ws.host : null }, topup: { pkg: (o && o.pkg) || (n6 ? n6.pkg.id : s.topup.pkg), mode: o && o.custom ? 'custom' : 'pkg', custom: o && o.custom ? String(o.custom) : '', err: false }, retryCtx: from === 'ws' ? (o.ctx || (s.ws.status === 'delivered' ? 'rev' : 'cp3')) : null });
+  }
+
+  paid(credits, label, id) {
+    this.set((st) => ({ balance: st.balance + credits, delta: this.delta(credits), hist: this.hist(st, { id: 'topup:' + id, label: 'Поповнення · ' + label, credits }), pending: st.pending.filter((p) => p.id !== id), checkout: { status: 'paid' } }));
+  }
+
+  returnAfterPay() {
+    const s = this.state;
+    const ret = s.checkout.returnTo;
+    if (ret === 'start') { this.autostart(); return; }
+    if (ret === 'ws') {
+      const ctx = s.retryCtx || s.drawer.ctx || 'cp3';
+      this.set((st) => ({ route: 'ws', checkoutModal: false, drawer: { open: false }, cab: { back: null }, ws: { feed: [...st.ws.feed.filter((m) => m.k !== 'retry'), { k: 'retry', ctx, plus: st.checkout.credits, msg: st.ws.lastMsg }] } }));
+      return;
+    }
+    this.set({ route: 'cab', checkoutModal: false, cab: { section: 'balance' } });
+  }
+
+  act = (type, p) => {
+    const D = this.D();
+    const s = this.state;
+    const v = this.v;
+    switch (type) {
+      case 'home': return this.set({ route: 'start', menu: false, auth: { open: false }, startErr: null, autostart: false, session: null, drawer: { open: false }, checkoutModal: false, flash: null });
+      case 'menu': return this.set({ menu: !s.menu });
+      case 'logout': return this.set({ user: null, balance: 0, route: 'start', menu: false, pendingUrl: '', startUrl: '', startErr: null, session: null, flash: 'Ви вийшли з акаунта. Проєкти збережено — увійдіть, щоб продовжити.' });
+      case 'openAuth': return this.set({ auth: { open: true, view: p || 'login', err: null, busy: false, context: null }, flash: null });
+      case 'authClose': return this.set({ auth: { open: false, err: null } });
+      case 'authView': return this.set({ auth: { open: true, view: p, err: null, busy: false, resent: false, password: p === 'register' && s.auth.view === 'check' ? '' : s.auth.password } });
+      case 'authField': return this.set({ auth: { [p.k]: p.v, ...(p.k !== 'showPw' ? { err: s.auth.err === 'rate_limited' ? 'rate_limited' : null } : {}) } });
+      case 'authGoogle': return this.set({ auth: { err: 'google' } });
+      case 'authResend': return this.set({ auth: { resent: true, cooldown: s.auth.view === 'check' ? 60 : 0 } });
+      case 'authSubmit': return this.authSubmit();
+      case 'openMail': {
+        if (s.auth.view === 'forgotSent') return this.set({ auth: { view: 'reset', password: '', err: null } });
+        this.set({ auth: { view: 'activating' } });
+        return this.later(1100, () => {
+          const user = { ...D.OLENA, name: this.state.auth.name || D.OLENA.name, email: this.state.auth.email || D.OLENA.email };
+          this.set({ user, balance: 0, hist: { entries: [] }, projects: [], auth: { view: 'activated' } });
+        });
+      }
+      case 'startUrl': return this.set({ startUrl: p, startErr: null });
+      case 'startSubmit': {
+        const url = (s.startUrl || '').trim() || s.pendingUrl;
+        if (!url) return this.set({ startErr: { code: 'empty' } });
+        if (!s.user) return this.set({ pendingUrl: url, photosLost: false, auth: { open: true, view: 'register', err: null, context: null } });
+        if (s.balance < D.P.video) return this.set({ pendingUrl: url, auth: { open: false }, route: 'start', startErr: { code: 'insufficient', need: D.P.video, have: s.balance }, ...(v.N6 === 'B' ? { drawer: { open: true, ctx: 'start', need: D.P.video, have: s.balance, step: 'pick', pkg: this.n6for(D.P.video, s.balance).pkg.id } } : {}) });
+        this.set({ pendingUrl: url });
+        return setTimeout(() => this.autostart(), 0);
+      }
+      case 'openTopup': return this.openTopup(p);
+      case 'fmt': {
+        const has = s.ws.formats.includes(p);
+        const next = has ? s.ws.formats.filter((x) => x !== p) : [...s.ws.formats, p];
+        if (!next.length) return;
+        const order = ['vertical', 'square', 'landscape'];
+        return this.set({ ws: { formats: [next[0], ...order.filter((x) => x !== next[0] && next.includes(x))] } });
+      }
+      case 'approve': {
+        if (p === 1) return this.set((st) => ({ ws: { status: 'awaiting_script', view: 'script', feed: [...st.ws.feed.map((m) => (m.k === 'cp' ? { ...m, state: 'done' } : m)), { k: 'user', text: 'Формати: ' + st.ws.formats.map((x) => ({ vertical: '9:16', square: '1:1', landscape: '16:9' })[x]).join(', ') }, D.prog('Пишу сценарій… готово'), D.asst('10:51', 'Сценарій готовий: три сцени по 5 секунд. Перевірте тексти.'), D.cp(2, 'active', 'Концепт і тексти сцен — праворуч.')] } }));
+        if (p === 2) return this.set((st) => ({ ws: { status: 'awaiting_storyboard', view: 'board', feed: [...st.ws.feed.map((m) => (m.k === 'cp' ? { ...m, state: 'done' } : m)), D.prog('Генерую сцени… 3/3'), D.prog('Підбираю музику… готово'), D.asst('10:58', 'Розкадровка готова: по два кадри на сцену й музика. Затвердьте — і почну рендер.'), D.cp(3, 'active', 'Стіли, QA і музика — праворуч.')] } }));
+        return this.approveBoard();
+      }
+      case 'oneFormat': return this.set((st) => ({ ws: { formats: [st.ws.formats[0]], feed: [...st.ws.feed, { k: 'user', text: 'Формати: 9:16' }, D.asst('11:02', 'Лишаю один формат — 9:16. Затвердьте розкадровку ще раз.')] }, drawer: { open: false } }));
+      case 'edit': return this.set({ ws: { editing: true } });
+      case 'composer': return this.set({ ws: { composer: p } });
+      case 'send': {
+        const t = (s.ws.composer || '').trim();
+        if (!t) return;
+        if (s.ws.status === 'delivered') return this.sendRevision(t);
+        return this.set((st) => ({ ws: { composer: '', editing: false, feed: [...st.ws.feed, { k: 'user', text: t }, D.asst('11:00', 'Записав. Врахую, коли ви натиснете «Затвердити» або «Правки».')] } }));
+      }
+      case 'retry': return p === 'rev' ? this.sendRevision(s.ws.lastMsg || 'Зроби заголовок коротшим') : this.approveBoard();
+      case 'cab': return this.set({ route: 'cab', menu: false, session: null, auth: { open: false }, checkoutModal: false, cab: { section: p, backHost: s.route === 'ws' ? s.ws.host : s.cab.backHost, back: s.route === 'cab' ? s.cab.back : null } });
+      case 'back': return this.set({ route: s.cab.back === 'start' ? 'start' : 'ws', cab: { back: null, backHost: null } });
+      case 'pkg': return this.set({ topup: { pkg: p === 'custom' ? s.topup.pkg : p, mode: p === 'custom' ? 'custom' : 'pkg', err: false } });
+      case 'custom': return this.set({ topup: { custom: p, mode: 'custom', err: false } });
+      case 'step': { const n = parseInt(s.topup.custom, 10); const base = Number.isFinite(n) ? n : 20; return this.set({ topup: { custom: String(Math.min(500, Math.max(5, base + p))), mode: 'custom', err: false } }); }
+      case 'topupSubmit': {
+        const t = s.topup;
+        let credits, label, pkgId;
+        if (t.mode === 'custom') {
+          const n = Number(String(t.custom).replace(',', '.'));
+          if (!String(t.custom).trim() || !Number.isInteger(n) || n < 5 || n > 500) return this.set({ topup: { err: true } });
+          credits = n; label = 'своя сума'; pkgId = 'custom';
+        } else { const k = (s.packagesOverride || D.PK).find((x) => x.id === t.pkg); credits = k.credits; label = k.label; pkgId = k.id; }
+        this.set({ topup: { busy: true } });
+        return this.later(500, () => {
+          const id = 't_' + Math.random().toString(36).slice(2, 6);
+          const co = { status: 'pending', id, credits, label, at: '19.10 11:20', returnTo: s.cab.back || 'cab', revisit: false };
+          this.set((st) => ({ topup: { busy: false }, checkout: co, pending: [{ id, label, credits, at: '19.10 11:20' }, ...st.pending], ...(v.N10 === 'B' ? { checkoutModal: true } : { route: 'checkout' }) }));
+        });
+      }
+      case 'continuePay': { const pp = s.pending.find((x) => x.id === p); return this.set({ checkout: { status: 'pending', id: pp.id, credits: pp.credits, label: pp.label, returnTo: 'cab', revisit: false }, ...(v.N10 === 'B' ? { checkoutModal: true } : { route: 'checkout' }) }); }
+      case 'pay': {
+        if (p === 'failed') { this.set((st) => ({ checkout: { status: 'failed' }, pending: st.pending.filter((x) => x.id !== st.checkout.id) })); return; }
+        this.set({ checkout: { status: 'confirming' } });
+        return this.later(900, () => {
+          const c = this.state.checkout;
+          this.paid(c.credits, c.label, c.id);
+          if (c.returnTo === 'start') this.later(1400, () => this.autostart());
+          else if (this.state.drawer.open && c.returnTo === 'ws') this.later(1200, () => this.returnAfterPay());
+        });
+      }
+      case 'payReturn': return this.returnAfterPay();
+      case 'payAgain': { const id = 't_' + Math.random().toString(36).slice(2, 6); return this.set((st) => ({ checkout: { status: 'pending', id, revisit: false }, pending: [{ id, label: st.checkout.label, credits: st.checkout.credits, at: '19.10 11:24' }, ...st.pending] })); }
+      case 'payClose': return this.set({ checkoutModal: false });
+      case 'closeDrawer': return this.set({ drawer: { open: false } });
+      case 'drPkg': return this.set({ drawer: { pkg: p, mode: 'pkg', err: false } });
+      case 'drCustom': return this.set({ drawer: { custom: p, mode: 'custom', err: false } });
+      case 'drPickCustom': return this.set({ drawer: { mode: 'custom', custom: s.drawer.custom || String(this.n6for(s.drawer.need, s.drawer.have).custom) } });
+      case 'drSubmit': {
+        const d = s.drawer;
+        let credits, label;
+        if (d.mode === 'custom') { const n = Number(String(d.custom).replace(',', '.')); if (!Number.isInteger(n) || n < 5 || n > 500) return this.set({ drawer: { err: true } }); credits = n; label = 'своя сума'; }
+        else { const k = (s.packagesOverride || D.PK).find((x) => x.id === d.pkg); credits = k.credits; label = k.label; }
+        const id = 't_' + Math.random().toString(36).slice(2, 6);
+        return this.set({ drawer: { step: 'pay' }, checkout: { status: 'pending', id, credits, label, at: '19.10 11:20', returnTo: d.ctx === 'start' ? 'start' : 'ws', revisit: false }, retryCtx: d.ctx });
+      }
+      case 'more': this.set({ hist: { moreBusy: true } }); return this.later(700, () => this.set({ hist: { moreBusy: false, more: false, entries: D.H } }));
+      case 'projToggle': return this.set({ projOpen: s.projOpen === p ? null : p });
+      case 'openProject': {
+        const M = { p_zerno: ['zerno.example.com', 'delivered', 'done', D.feedDone, ['vertical', 'square'], ['square']], p_shyna: ['shyna-lviv.example.com', 'failed', 'failed', [D.cp(1, 'done'), D.cp(2, 'done'), { k: 'err', title: 'Помилка · codegen', text: 'Щось пішло не так на етапі «codegen»: сцену не вдалося зібрати навіть за шаблоном.' }, { k: 'credit', t: 'refund', credits: 10, balance: 10, at: '18:52' }], ['vertical'], []], p_kav: [null, 'awaiting_script', 'script', D.feedScript, ['vertical'], []], p_flor: ['florist-kyiv.example.com', 'rendering', 'progress', [...D.feedBoard.slice(0, 6), D.cp(3, 'done'), D.prog('Рендерю… 9:16, 16:9', true)], ['vertical', 'landscape'], ['landscape']] };
+        const m = M[p] || M.p_zerno;
+        return this.set({ route: 'ws', menu: false, ws: { pid: p, host: m[0] || 'Без сайту', status: m[1], view: m[2], feed: m[3], formats: m[4], paid: m[5], rev: p === 'p_zerno' ? 2 : 1, composer: '' } });
+      }
+      case 'prof': return this.set({ profile: { [p.k]: p.v, nameErr: false, pwErr: null, saved: false, pwDone: false } });
+      case 'profEdit': return this.set({ profile: { edit: p, nameDraft: s.profile.name, nameErr: false, pwErr: null, cur: '', next: '', saved: false } });
+      case 'profSaveName': {
+        const n = (s.profile.nameDraft || '').trim();
+        if (!n || n.length > 80) return this.set({ profile: { nameErr: true } });
+        this.set({ profile: { saving: true } });
+        return this.later(600, () => this.set((st) => ({ profile: { saving: false, saved: true, name: n, edit: null }, user: { ...st.user, name: n } })));
+      }
+      case 'profPw': {
+        const pr = s.profile;
+        if (!pr.cur || /wrong|2025/.test(pr.cur)) return this.set({ profile: { pwErr: 'invalid_credentials' } });
+        if ((pr.next || '').length < 8 || pr.next.length > 128) return this.set({ profile: { pwErr: 'weak_password' } });
+        this.set({ profile: { pwBusy: true } });
+        return this.later(700, () => this.set({ profile: { pwBusy: false, pwDone: true, cur: '', next: '', edit: null } }));
+      }
+      case 'admin': {
+        if (!s.user || !s.user.isAdmin) return this.set(v.N15 === 'B' ? { route: 'admin', menu: false, admin: { forbidden: true } } : { route: 'admin', menu: false, admin: { loading: true }, session: '403' });
+        return this.set({ route: 'admin', menu: false, admin: { tab: p, forbidden: false, loading: false, done: null, err: null, confirm: false } });
+      }
+      case 'adminSel': return this.set({ admin: { sel: p, tab: v.N14 === 'B' ? 'user' : 'users', adj: '', note: '', err: null, confirm: false, done: null } });
+      case 'adminQ': return this.set({ admin: { q: p } });
+      case 'adminField': return this.set({ admin: { [p.k]: p.v, err: null, done: null } });
+      case 'adminCopy': return this.set({ admin: { copied: p } });
+      case 'adminOpenLink': return this.set({ admin: { copied: p.id } });
+      case 'adminAdjust': {
+        const ad = s.admin;
+        const n = Number(String(ad.adj || '').replace('\u2212', '-').replace(/\s/g, ''));
+        if (!String(ad.adj || '').trim() || !Number.isInteger(n) || n === 0) return this.set({ admin: { err: 'zero' } });
+        if ((ad.note || '').length > 200) return this.set({ admin: { err: 'note' } });
+        const u = s.adminUsers.find((x) => x.id === ad.sel);
+        if (u.balance + n < 0) return this.set({ admin: { err: { need: -n, have: u.balance }, confirm: false } });
+        if (n < 0 && (-n >= 20 || -n > u.balance / 2) && !(p && p.confirmed)) return this.set({ admin: { confirm: true } });
+        this.set({ admin: { busy: true, confirm: false } });
+        return this.later(500, () => this.set((st) => {
+          const bal = u.balance + n;
+          return { admin: { busy: false, done: { credits: n, note: ad.note, balance: bal }, adj: '', note: '' }, adminUsers: st.adminUsers.map((x) => (x.id === u.id ? { ...x, balance: bal } : x)), adminHist: { ...st.adminHist, [u.id]: [{ id: 'adjust:' + Date.now(), at: '19.10 11:30', label: 'Коригування', note: ad.note, by: s.user.email, credits: n, after: bal, fresh: true }, ...(st.adminHist[u.id] || [])] } };
+        }));
+      }
+      default: return;
+    }
+  };
+
+  authSubmit() {
+    const D = this.D();
+    const s = this.state;
+    const a = s.auth;
+    const email = (a.email || '').trim().toLowerCase();
+    const okEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+    if (a.err === 'rate_limited') return;
+    if (s.net) return this.set({ auth: { err: 'network' } });
+    if (a.view === 'login') {
+      if (!email || !a.password) return this.set({ auth: { err: 'empty' } });
+      this.set({ auth: { busy: true, err: null } });
+      return this.later(700, () => {
+        if (email.startsWith('new@')) return this.set({ auth: { busy: false, err: 'not_activated' } });
+        if (/wrong|2025/.test(a.password) || a.password.length < 8) { const fails = (a.fails || 0) + 1; return this.set({ auth: { busy: false, fails, err: fails >= 4 ? 'rate_limited' : 'invalid_credentials' } }); }
+        const isAdm = email === 'admin@example.com';
+        const user = isAdm ? D.ADMIN : { ...D.OLENA, email };
+        const wasSession = this.state.session === '401' || this.state.ws.view === 'session';
+        this.set({ user, balance: isAdm ? 500 : 12, auth: { busy: false, open: false, password: '', context: null }, session: null, ...(wasSession ? { route: 'ws', ws: { view: 'board' } } : {}), ...(s.auth.context === 'checkout' ? { route: 'checkout' } : {}) });
+        if (this.state.pendingUrl && !wasSession) this.later(50, () => this.autostart());
+      });
+    }
+    if (a.view === 'register') {
+      if (!(a.name || '').trim()) return this.set({ auth: { err: 'empty_name' } });
+      if (!okEmail) return this.set({ auth: { err: 'bad_email' } });
+      if ((a.password || '').length < 8 || a.password.length > 128) return this.set({ auth: { err: 'weak_password' } });
+      this.set({ auth: { busy: true, err: null } });
+      return this.later(800, () => this.set({ auth: { busy: false, view: 'check', cooldown: 45, resent: false, password: '' } }));
+    }
+    if (a.view === 'activateInvalid') { if (!okEmail) return this.set({ auth: { err: 'bad_email' } }); this.set({ auth: { busy: true } }); return this.later(600, () => this.set({ auth: { busy: false, resent: true } })); }
+    if (a.view === 'forgot') { if (!okEmail) return this.set({ auth: { err: 'bad_email' } }); this.set({ auth: { busy: true } }); return this.later(700, () => this.set({ auth: { busy: false, view: 'forgotSent' } })); }
+    if (a.view === 'reset') {
+      if ((a.password || '').length < 8) return this.set({ auth: { err: 'weak_password' } });
+      this.set({ auth: { busy: true } });
+      return this.later(700, () => this.set({ auth: { busy: false, view: 'resetDone', password: '' }, user: D.OLENA, balance: 12 }));
+    }
+  }
+
+  vm(s, act) {
+    const D = this.D();
+    const ST = { intake: 'прийнято', crawling: 'сканую сайт', brandkit: 'збираю бренд-кіт', awaiting_brand: 'чекаю на погодження бренду', scripting: 'пишу сценарій', awaiting_script: 'чекаю на погодження текстів', directing: 'генерую сцени і музику', awaiting_storyboard: 'чекаю на погодження розкадровки', rendering: 'рендерю', delivered: 'готово', revising: 'вношу правки', failed: 'помилка' };
+    const fw = act ? s.fw || 1440 : this.fw();
+    const inWs = s.route === 'ws';
+    let n6 = null;
+    if (s.drawer && s.drawer.open) n6 = this.n6for(s.drawer.need, s.drawer.have);
+    else if (s.startErr && s.startErr.code === 'insufficient') n6 = this.n6for(s.startErr.need, s.startErr.have);
+    else if (s.route === 'cab' && s.cab.back === 'start') n6 = this.n6for(D.P.video, s.balance);
+    return {
+      ...s, v: this.v, fmt: this.fmt(), P: D.P, low: D.P.video * 0.5, packages: s.packagesOverride || D.PK, custom: D.CUSTOM,
+      act: act || this.act, frameW: fw, frameH: act ? 900 : this.fh(), mobile: fw < 600,
+      status: inWs ? s.ws.status : null, statusLabel: inWs && s.ws.status ? ST[s.ws.status] : null, host: inWs ? s.ws.host : null,
+      projectsCount: (s.projects || []).length, n6, n6for: (n, h) => this.n6for(n, h), proto: true,
+    };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const D = this.D();
+    const f = this.fmt();
+    const app = this.vm(s);
+    const fw = this.fw();
+    const mob = fw < 600;
+    const a = s.auth;
+    const N2views = ['check', 'activating', 'activated', 'activateInvalid', 'forgot', 'forgotSent', 'reset', 'resetInvalid', 'resetDone'];
+    const isN2 = N2views.includes(a.view);
+    const authLayout = isN2 && this.v.N2 === 'B' ? 'moment' : this.v.N1 === 'B' ? 'split' : this.v.N1 === 'AB' ? 'cardB' : 'card';
+    const modalLay = authLayout === 'card' || authLayout === 'cardB';
+    const authOn = a.open && s.route !== 'sheet';
+    const sheet = s.route === 'sheet';
+    const cells = sheet ? this.sheet(s.sheet).map((c, i) => {
+      const st = this.merge(this.merge(this.base(), { user: D.OLENA, balance: 12 }), c.patch || {});
+      st.fw = c.fw || 1440;
+      return { ...c, key: i, minH: c.minH || '0', border: '0', app: this.vm(st, () => {}), isAuth: c.kind === 'auth', isTopbar: c.kind === 'topbar', isCab: c.kind === 'cab', isCheckout: c.kind === 'checkout' };
+    }) : [];
+    const d = s.drawer;
+    const drPk = (s.packagesOverride || D.PK);
+    const dn6 = d.open ? this.n6for(d.need, d.have) : null;
+    const dCustomOn = d.mode === 'custom';
+    const dnum = Number(String(d.custom || '').replace(',', '.'));
+    const dsel = dCustomOn ? (Number.isInteger(dnum) ? dnum : null) : (drPk.find((k) => k.id === d.pkg) || {}).credits;
+    const ctxLabel = { start: 'старт ролика', cp3: 'ЧП3 · формати', rev: 'правка після видачі' }[d.ctx] || 'баланс';
+    const ph = Math.max(380, Math.min(600, this.fh() - 250));
+    const rest = (n) => Math.floor(n / D.P.video) + ' ' + f.plural(Math.floor(n / D.P.video), ['ролик', 'ролики', 'роликів']) + ' або ' + Math.floor(n / D.P.revision) + ' ' + f.plural(Math.floor(n / D.P.revision), ['правку', 'правки', 'правок']);
+    return {
+      app,
+      rootH: sheet ? 'auto' : '100%',
+      rootOverflow: sheet ? 'visible' : 'hidden',
+      rootBg: sheet ? 'transparent' : '#F5F3EE',
+      scrollPos: sheet ? 'relative' : 'absolute',
+      scrollOverflow: sheet ? 'visible' : s.route === 'ws' || s.route === 'cab' || s.route === 'admin' ? 'hidden' : 'auto',
+      rStart: s.route === 'start' && !(authOn && !modalLay),
+      rSplit: s.route === 'start' && authOn && authLayout === 'split',
+      rMoment: s.route === 'start' && authOn && authLayout === 'moment',
+      rWs: s.route === 'ws',
+      rCab: s.route === 'cab',
+      rCheckout: s.route === 'checkout',
+      rAdmin: s.route === 'admin',
+      rSheet: sheet,
+      sheetBg: this.v.N8 === 'B' ? '#F1EFE9' : '#E9E6DF',
+      cells,
+      gutter: mob ? '24px' : fw < 1100 ? '40px' : '56px',
+      goHome: () => this.act('home'),
+      hasUser: !!s.user,
+      splitCols: fw < 900 ? 'minmax(0,1fr)' : 'minmax(0,1fr) auto',
+      splitGap: fw < 1100 ? '40px' : '112px',
+      splitPlayer: fw >= 900,
+      playerW: Math.round(ph * 9 / 16) + 'px',
+      splitCapLabel: s.pendingUrl ? 'Далі — ролик для ' + s.pendingUrl : 'Приклад ролика · 9:16',
+      oAuthModal: s.route === 'start' && authOn && modalLay,
+      authModalLayout: authLayout === 'cardB' ? 'cardB' : 'card',
+      authClose: () => this.act('authClose'),
+      scrimBg: mob ? '#FCFBF8' : 'rgba(21,20,18,.32)',
+      modalW: mob ? '100%' : authLayout === 'cardB' ? '560px' : '460px',
+      modalH: mob ? '100%' : 'auto',
+      modalMaxH: mob ? '100%' : 'calc(100% - 48px)',
+      modalPad: mob ? '24px 24px 40px' : authLayout === 'cardB' ? '44px' : '36px',
+      modalRad: mob ? '0' : '20px',
+      modalBorder: mob ? '0' : '1px solid rgba(21,20,18,.10)',
+      oSession: !!s.session && !sheet,
+      s401: s.session === '401',
+      s404: s.session === '404',
+      s403: s.session === '403',
+      toProjects: () => this.act('cab', 'projects'),
+      toCab: () => this.act('cab', 'balance'),
+      oCheckout: s.checkoutModal && !sheet,
+      coW: '520px',
+      payClose: () => this.act('payClose'),
+      oDrawer: d.open && !sheet,
+      drawerW: fw < 1100 ? '420px' : '460px',
+      closeDrawer: () => this.act('closeDrawer'),
+      drCtx: ctxLabel,
+      drHasNeed: d.step === 'pick' && d.need > 0,
+      drTitle: dn6 ? 'Потрібно ще ' + f.cr(dn6.short) : '',
+      drNeed: f.num(d.need || 0), drHave: f.num(d.have || 0), drShort: dn6 ? f.num(dn6.short) : '0',
+      drPick: d.step === 'pick',
+      drPay: d.step === 'pay',
+      drPkgs: drPk.map((k) => { const on = !dCustomOn && d.pkg === k.id; return { key: k.id, label: k.label, num: f.num(k.credits), meta: 'після списання лишиться ' + f.cr(k.credits + (d.have || 0) - (d.need || 0)), rec: dn6 && dn6.pkg.id === k.id, checked: on ? 'true' : 'false', ring: on ? '#151412' : 'rgba(21,20,18,.28)', dot: on ? '#151412' : 'transparent', tick: on ? '✓' : '', onClick: () => this.act('drPkg', k.id) }; }),
+      drPickCustom: () => this.act('drPickCustom'),
+      drCRing: dCustomOn ? '#151412' : 'rgba(21,20,18,.28)', drCDot: dCustomOn ? '#151412' : 'transparent', drCTick: dCustomOn ? '✓' : '',
+      drCustom: d.custom || '', drOnCustom: (e) => this.act('drCustom', e.target.value),
+      drCInvalid: d.err ? 'true' : 'false', drCLine: d.err ? '#B8331F' : 'rgba(21,20,18,.16)',
+      drCustomMin: dn6 ? f.num(dn6.custom) : '5',
+      drErr: !!d.err, drErrText: 'Від 5 до 500 кредитів, лише ціле число.',
+      drSubmitLabel: dsel ? 'До оплати · ' + f.cr(dsel) : 'До оплати',
+      drAfter: d.ctx === 'start' ? 'Після оплати ролик почнеться сам.' : 'Після оплати панель закриється, а в чаті з’явиться «Повторити».',
+      drSubmit: (e) => { e.preventDefault(); this.act('drSubmit'); },
+    };
+  }
+}
+</script>
+</body>
+</html>

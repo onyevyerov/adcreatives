@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display:flex; flex-direction:column; min-height:{{ rootMinH }}; background:{{ rootBg }}; color:#151412; font-family:'Onest',sans-serif;">
+  <sc-if value="{{ isPage }}" hint-placeholder-val="{{ true }}">
+    <header style="flex:none; display:flex; align-items:center; justify-content:space-between; gap:16px; height:76px; padding:0 {{ gutter }};">
+      <button type="button" onClick="{{ goHome }}" style="display:inline-flex; align-items:center; gap:10px; padding:0; border:0; background:none; color:#151412; font:500 15px/1 'Unbounded',sans-serif; letter-spacing:-0.02em; cursor:pointer;"><span style="width:9px; height:9px; border-radius:50%; background:#D4402A;"></span>AdCreative</button>
+      <sc-if value="{{ hasUser }}"><dc-import name="AcTopbar" app="{{ app }}" part="account" hint-size="200px,32px"></dc-import></sc-if>
+    </header>
+  </sc-if>
+  <div style="flex:1; display:flex; justify-content:center; align-items:{{ align }}; padding:{{ outerPad }};">
+    <div role="dialog" aria-label="Тестова оплата" style="display:flex; flex-direction:column; gap:{{ gap }}; width:100%; max-width:{{ maxW }}; padding:{{ cardPad }}; border:{{ cardBorder }}; border-radius:{{ cardRad }}; background:{{ cardBg }}; animation:adcFade .45s cubic-bezier(.2,.8,.2,1) both;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+        <span style="display:inline-flex; align-items:center; gap:10px; padding:8px 12px; border:1px dashed rgba(21,20,18,.25); border-radius:999px; color:#151412; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Тестова оплата · гроші не списуються</span>
+        <sc-if value="{{ showClose }}"><button type="button" onClick="{{ close }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A;">{{ closeLabel }}</button></sc-if>
+      </div>
+
+      <sc-if value="{{ sLoading }}"><div role="status" style="display:flex; align-items:center; gap:10px; padding:40px 0; color:#6E6A63; font:400 12.5px/1.4 'JetBrains Mono',monospace;"><span style="width:12px; height:12px; border-radius:50%; border:1.5px solid rgba(21,20,18,.15); border-top-color:#D4402A; animation:adcSpin .8s linear infinite;"></span>Завантажую поповнення…</div></sc-if>
+
+      <sc-if value="{{ sMain }}">
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <span style="color:{{ ebColor }}; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ eyebrow }}</span>
+          <span style="display:flex; align-items:baseline; gap:14px;"><span style="font:200 {{ numSize }}/0.9 'Unbounded',sans-serif; letter-spacing:-0.06em; font-variant-numeric:tabular-nums;">{{ big }}</span><span style="color:#6E6A63; font:400 14px/1 'JetBrains Mono',monospace;">{{ bigWord }}</span></span>
+          <p style="margin:0; color:#3A3833; font:400 {{ leadSize }}/1.55 'Onest',sans-serif;">{{ lead }}</p>
+          <span style="color:#6E6A63; font:400 12px/1.5 'JetBrains Mono',monospace; overflow-wrap:anywhere;">{{ meta }}</span>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ sNotFound }}">
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <span style="color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Поповнення · {{ cid }}</span>
+          <h1 style="margin:0; font:300 {{ titleSize }}/1.04 'Unbounded',sans-serif; letter-spacing:-0.05em;">Поповнення не знайдено</h1>
+          <p style="margin:0; color:#3A3833; font:400 {{ leadSize }}/1.55 'Onest',sans-serif;">Перевірте посилання або почніть поповнення з кабінету.</p>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ sAuto }}"><div role="status" style="display:flex; align-items:center; gap:10px; color:#151412; font:400 12.5px/1.4 'JetBrains Mono',monospace;"><span style="width:12px; height:12px; border-radius:50%; border:1.5px solid rgba(21,20,18,.15); border-top-color:#D4402A; animation:adcSpin .8s linear infinite;"></span>{{ autoText }}</div></sc-if>
+
+      <sc-if value="{{ hasActions }}">
+        <div style="display:flex; flex-direction:{{ btnDir }}; flex-wrap:wrap; gap:10px; padding-top:{{ actTop }}; border-top:{{ actLine }};">
+          <sc-for list="{{ actions }}" as="b" hint-placeholder-count="2">
+            <button type="button" onClick="{{ b.onClick }}" disabled="{{ b.disabled }}" style="display:inline-flex; align-items:center; justify-content:center; gap:{{ bGap }}; height:{{ bH }}; padding:{{ bPad }}; border:{{ b.border }}; border-radius:999px; background:{{ b.bg }}; color:{{ b.fg }}; font:500 {{ bFont }}/1 'Onest',sans-serif; white-space:nowrap; opacity:{{ b.opacity }}; cursor:{{ b.cursor }}; transition:background-color .2s, border-color .2s;" style-hover="{{ b.hover }}"><sc-if value="{{ b.spin }}"><span style="width:12px; height:12px; border-radius:50%; border:1.5px solid rgba(245,243,238,.3); border-top-color:#F5F3EE; animation:adcSpin .8s linear infinite;"></span></sc-if>{{ b.label }}<sc-if value="{{ b.arrow }}"><span aria-hidden="true">→</span></sc-if></button>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ footNote }}"><span style="color:#6E6A63; font:400 11.5px/1.5 'JetBrains Mono',monospace;">{{ footNoteText }}</span></sc-if>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;app&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;object&quot;},&quot;layout&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;page&quot;,&quot;modal&quot;,&quot;drawer&quot;],&quot;default&quot;:&quot;page&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const a = this.props.app || {};
+    const act = a.act || (() => {});
+    const f = a.fmt;
+    const layout = this.props.layout || 'page';
+    const page = layout === 'page';
+    const drawer = layout === 'drawer';
+    const mob = (a.frameW || 1440) < 600;
+    const c = a.checkout || { status: 'pending', credits: 25, label: 'Кілька роликів', id: 't_8f2k' };
+    const s = c.status;
+    const ret = c.returnTo || 'cab';
+    const bal = a.balance ?? 0;
+    const prim = (label, onClick, o = {}) => ({ key: label, label, onClick, border: '0', bg: '#151412', fg: '#F5F3EE', hover: 'background:#D4402A;', opacity: o.disabled ? 0.45 : 1, cursor: o.disabled ? 'not-allowed' : 'pointer', disabled: !!o.disabled, spin: !!o.spin, arrow: !o.spin && o.arrow !== false });
+    const ghost = (label, onClick, o = {}) => ({ key: label, label, onClick, border: '1px solid rgba(21,20,18,.16)', bg: 'transparent', fg: '#151412', hover: 'border-color:#151412;', opacity: o.disabled ? 0.45 : 1, cursor: o.disabled ? 'not-allowed' : 'pointer', disabled: !!o.disabled, spin: false, arrow: false });
+    let eyebrow = '', ebColor = '#6E6A63', big = f.num(c.credits), bigWord = f.word(c.credits), lead = '', meta = 'поповнення ' + c.id + ' · створено ' + (c.at || '19.10 10:02'), actions = [], auto = '';
+    const pkgName = c.label === 'своя сума' ? 'Своя сума' : 'Пакет «' + c.label + '»';
+    if (s === 'pending' || s === 'confirming') {
+      eyebrow = 'До сплати';
+      lead = pkgName + '. Кредити зарахую одразу після підтвердження.';
+      actions = [prim(s === 'confirming' ? 'Підтверджую…' : 'Оплатити', () => act('pay', 'paid'), { disabled: s === 'confirming', spin: s === 'confirming' }), ghost('Скасувати', () => act('pay', 'failed'), { disabled: s === 'confirming' })];
+    } else if (s === 'paid') {
+      eyebrow = c.revisit ? 'Уже оплачено · ' + (c.paidAt || '19.10 10:03') : 'Зараховано';
+      big = '+' + f.num(c.credits);
+      lead = 'Зараховано ' + f.cr(c.credits) + '. Баланс: ' + f.num(bal) + '.';
+      if (c.revisit) meta = 'повторне відкриття — другого зарахування немає · ' + c.id;
+      if (ret === 'start' && !c.revisit) auto = 'Повертаю на старт — ролик для ' + (a.pendingUrl || 'zerno.example.com') + ' почнеться сам…';
+      else if (ret === 'ws' && !c.revisit) actions = [prim('Повернутися до проєкту', () => act('payReturn'))];
+      else actions = [prim(layout === 'modal' ? 'Готово' : 'До кабінету', () => act('payReturn'), { arrow: layout !== 'modal' })];
+    } else if (s === 'failed') {
+      eyebrow = c.revisit ? 'Оплату скасовано · ' + (c.paidAt || '19.10 10:03') : 'Оплату скасовано';
+      lead = 'Кредити не зараховано. Можна спробувати ще раз — я створю нове поповнення.';
+      big = '0';
+      bigWord = 'зараховано';
+      actions = [prim('Спробувати ще раз', () => act('payAgain')), ghost(ret === 'ws' ? 'До проєкту' : 'До кабінету', () => act('payReturn'))];
+    } else if (s === 'notfound') {
+      actions = [prim('До кабінету', () => act('cab', 'balance'))];
+    }
+    return {
+      app: a,
+      hasUser: !!a.user,
+      isPage: page,
+      goHome: () => act('home'),
+      gutter: mob ? '24px' : '56px',
+      rootMinH: page ? '100%' : '0',
+      rootBg: page ? '#F5F3EE' : 'transparent',
+      align: page && !mob ? 'center' : 'flex-start',
+      outerPad: page ? (mob ? '8px 24px 32px' : '0 56px 76px') : '0',
+      gap: page ? (mob ? '28px' : '36px') : '24px',
+      maxW: page ? '560px' : 'none',
+      cardPad: layout === 'modal' ? '32px' : '0',
+      cardBorder: layout === 'modal' ? '1px solid #151412' : '0',
+      cardRad: layout === 'modal' ? '20px' : '0',
+      cardBg: layout === 'modal' ? '#FCFBF8' : 'transparent',
+      showClose: layout === 'modal' && (s === 'pending' || s === 'failed' || s === 'notfound'),
+      closeLabel: s === 'pending' ? 'Пізніше' : 'Закрити',
+      close: () => act('payClose'),
+      sLoading: s === 'loading',
+      sMain: ['pending', 'confirming', 'paid', 'failed'].includes(s),
+      sNotFound: s === 'notfound',
+      cid: c.id,
+      eyebrow, ebColor, big, bigWord, lead, meta,
+      numSize: page ? (mob ? '104px' : '168px') : drawer ? '88px' : '112px',
+      titleSize: page ? (mob ? '36px' : '56px') : '32px',
+      leadSize: page ? '18px' : '15px',
+      sAuto: !!auto,
+      autoText: auto,
+      hasActions: actions.length > 0,
+      actions,
+      btnDir: mob ? 'column' : 'row',
+      actTop: page ? '28px' : '20px',
+      actLine: '1px solid rgba(21,20,18,.10)',
+      bH: page ? '52px' : '40px',
+      bPad: page ? '0 22px 0 26px' : '0 18px 0 20px',
+      bGap: page ? '14px' : '10px',
+      bFont: page ? '15px' : '14px',
+      footNote: s === 'pending',
+      footNoteText: 'Це крок-заглушка: справжнього платіжного провайдера ще немає.',
+    };
+  }
+}
+</script>
+</body>
+</html>

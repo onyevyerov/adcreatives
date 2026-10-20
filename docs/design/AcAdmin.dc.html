@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="height:100%; min-width:1024px; display:flex; flex-direction:column; background:#F5F3EE; color:#151412; font-family:'Onest',sans-serif;">
+  <div style="flex:none;"><dc-import name="AcTopbar" app="{{ appTop }}" hint-size="100%,56px"></dc-import></div>
+  <div style="flex:none; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 24px; padding:14px 24px; border-top:1px solid rgba(21,20,18,.10); border-bottom:1px solid rgba(21,20,18,.10);">
+    <div style="display:flex; align-items:center; gap:20px;">
+      <h1 style="margin:0; font:300 20px/1.1 'Unbounded',sans-serif; letter-spacing:-0.04em;">Адмінка</h1>
+      <sc-if value="{{ showTabs }}">
+        <div role="tablist" style="display:inline-flex; padding:3px; border:1px solid rgba(21,20,18,.16); border-radius:999px;">
+          <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3"><button type="button" role="tab" aria-selected="{{ t.sel }}" onClick="{{ t.onClick }}" style="height:34px; padding:0 16px; border:0; border-radius:999px; background:{{ t.bg }}; color:{{ t.fg }}; font:500 13.5px/1 'Onest',sans-serif; white-space:nowrap; cursor:pointer;">{{ t.label }} <span style="font:400 11.5px/1 'JetBrains Mono',monospace; opacity:.7;">{{ t.count }}</span></button></sc-for>
+        </div>
+      </sc-if>
+    </div>
+    <a href="#stats" style="color:#3A3833; font:500 13px/1 'Onest',sans-serif; text-decoration:none;" style-hover="color:#D4402A;">Статистика ↗</a>
+  </div>
+
+  <div style="flex:1; min-height:0; display:grid; grid-template-columns:{{ cols }};">
+    <main style="min-width:0; min-height:0; overflow:auto; background:#F8F7F3; padding:{{ mainPad }};">
+      <sc-if value="{{ loading }}"><div role="status" style="display:flex; align-items:center; gap:10px; padding:20px 0; color:#6E6A63; font:400 12.5px/1.4 'JetBrains Mono',monospace;"><span style="width:12px; height:12px; border-radius:50%; border:1.5px solid rgba(21,20,18,.15); border-top-color:#D4402A; animation:adcSpin .8s linear infinite;"></span>Завантажую…</div></sc-if>
+
+      <sc-if value="{{ forbidden }}">
+        <div style="max-width:720px; padding:20px 0;">
+          <div style="display:flex; align-items:center; gap:10px; color:#6E6A63; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">403 · Адмінка</div>
+          <h2 style="margin:18px 0 0; font:300 64px/1.02 'Unbounded',sans-serif; letter-spacing:-0.05em;">Лише для адміністратора.</h2>
+          <p style="margin:20px 0 0; max-width:520px; color:#3A3833; font:400 17px/1.55 'Onest',sans-serif;">Цей розділ недоступний для вашого акаунта. Кабінет і проєкти — на місці.</p>
+          <div style="margin-top:32px; display:flex; gap:8px;"><button type="button" onClick="{{ toCab }}" style="height:40px; padding:0 18px 0 20px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">До кабінету</button><button type="button" onClick="{{ goHome }}" style="height:40px; padding:0 18px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 14px/1 'Onest',sans-serif; cursor:pointer;" style-hover="border-color:#151412;">Новий проєкт</button></div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ tUsers }}">
+        <div style="display:flex; flex-direction:column; gap:16px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+            <label style="flex:1; max-width:420px;"><span style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0);">Пошук за e-mail</span><input type="search" value="{{ q }}" onChange="{{ onQ }}" placeholder="Пошук за e-mail" autocomplete="off" style="width:100%; height:40px; padding:0 14px; border:1px solid rgba(21,20,18,.16); border-radius:14px; background:#FCFBF8; color:#151412; font:400 13px/1 'JetBrains Mono',monospace;" style-hover="border-color:#151412;" style-focus="border-color:#151412; outline:none;"></label>
+            <span style="color:#6E6A63; font:400 12px/1 'JetBrains Mono',monospace;">{{ usersCount }}</span>
+          </div>
+          <div role="table" style="display:flex; flex-direction:column; font-variant-numeric:tabular-nums;">
+            <div role="row" style="display:grid; grid-template-columns:{{ uCols }}; gap:14px; padding:0 10px 10px; border-bottom:1px solid #151412; color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span>E-mail</span><span>Ім’я</span><span>Активація</span><span>Створено</span><span style="text-align:right;">Баланс</span></div>
+            <sc-if value="{{ usersEmpty }}"><div style="padding:20px 10px; color:#6E6A63; font:400 13.5px/1.5 'Onest',sans-serif;">{{ usersEmptyText }}</div></sc-if>
+            <sc-for list="{{ users }}" as="u" hint-placeholder-count="4">
+              <button type="button" role="row" onClick="{{ u.onClick }}" aria-selected="{{ u.selStr }}" style="display:grid; grid-template-columns:{{ uCols }}; gap:14px; align-items:center; min-height:46px; padding:0 10px; border:0; border-bottom:1px solid rgba(21,20,18,.10); border-radius:{{ u.rad }}; background:{{ u.bg }}; outline-offset:-2px; color:#151412; text-align:left; cursor:pointer;" style-hover="background:#FCFBF8;">
+                <span style="display:flex; align-items:center; gap:8px; min-width:0; font:{{ u.weight }} 12.5px/1.3 'JetBrains Mono',monospace;"><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ u.email }}</span><sc-if value="{{ u.isAdmin }}"><span style="flex:none; color:#6E6A63; font:500 10px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">адмін</span></sc-if></span>
+                <span style="font:400 13px/1.3 'Onest',sans-serif; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ u.name }}</span>
+                <span style="display:flex; align-items:center; gap:7px; color:{{ u.actColor }}; font:400 12px/1.3 'JetBrains Mono',monospace;"><span style="width:6px; height:6px; border-radius:50%; background:{{ u.actDot }};"></span>{{ u.act }}</span>
+                <span style="color:#6E6A63; font:400 12px/1.3 'JetBrains Mono',monospace;">{{ u.created }}</span>
+                <span style="text-align:right; font:500 13px/1.3 'JetBrains Mono',monospace;">{{ u.bal }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ tUserPage }}">
+        <div style="display:flex; flex-direction:column; gap:24px;">
+          <button type="button" onClick="{{ toUsers }}" style="align-self:flex-start; padding:0; border:0; background:none; color:#3A3833; font:400 13.5px/1.5 'Onest',sans-serif; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A;">← Користувачі</button>
+          <div style="display:flex; flex-direction:column; gap:10px;"><h2 style="margin:0; font:300 44px/1.05 'Unbounded',sans-serif; letter-spacing:-0.045em;">{{ selName }}</h2><span style="color:#6E6A63; font:400 12.5px/1.5 'JetBrains Mono',monospace;">{{ selEmail }} · {{ selRole }} · створено {{ selCreated }} · {{ selAct }}</span></div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showDetailInMain }}">
+        <div style="display:grid; grid-template-columns:minmax(0,380px) minmax(0,1fr); gap:40px; margin-top:28px;">
+          <div style="display:flex; flex-direction:column; gap:20px;">
+            <span style="display:flex; align-items:baseline; gap:12px;"><span style="font:200 96px/0.9 'Unbounded',sans-serif; letter-spacing:-0.06em; font-variant-numeric:tabular-nums;">{{ selBal }}</span><span style="color:#6E6A63; font:400 13px/1 'JetBrains Mono',monospace;">{{ selBalWord }}</span></span>
+            <dc-import name="AcAdjust" app="{{ app }}" hint-size="100%,300px"></dc-import>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:12px; min-width:0;">
+            <span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Історія операцій</span>
+            <sc-for list="{{ selHist }}" as="e" hint-placeholder-count="5"><div style="display:grid; grid-template-columns:96px minmax(0,1fr) 64px 56px; gap:14px; align-items:baseline; padding:11px 0; border-bottom:1px solid rgba(21,20,18,.10); font-variant-numeric:tabular-nums; animation:{{ e.anim }};"><span style="color:#6E6A63; font:400 12px/1.4 'JetBrains Mono',monospace;">{{ e.at }}</span><span style="display:flex; flex-direction:column; gap:2px; min-width:0;"><span style="font:400 13px/1.4 'Onest',sans-serif;">{{ e.label }}</span><sc-if value="{{ e.hasSub }}"><span style="color:#6E6A63; font:400 11.5px/1.4 'JetBrains Mono',monospace; overflow-wrap:anywhere;">{{ e.sub }}</span></sc-if></span><span style="text-align:right; font:500 12.5px/1.4 'JetBrains Mono',monospace;">{{ e.sum }}</span><span style="text-align:right; color:#6E6A63; font:400 12px/1.4 'JetBrains Mono',monospace;">{{ e.after }}</span></div></sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ tOutbox }}">
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <span style="color:#6E6A63; font:400 12px/1.5 'JetBrains Mono',monospace;">Листи не відправляються — це dev-outbox. Новіші зверху, до 50.</span>
+          <sc-if value="{{ outboxEmpty }}"><div style="padding:20px 0; border-top:1px solid rgba(21,20,18,.10); color:#6E6A63; font:400 13.5px/1.5 'Onest',sans-serif;">Листів ще немає.</div></sc-if>
+          <div style="border-top:1px solid #151412;">
+            <sc-for list="{{ mails }}" as="m" hint-placeholder-count="2">
+              <div style="display:grid; grid-template-columns:96px minmax(0,1fr) minmax(0,1.2fr) auto; gap:16px; align-items:center; padding:14px 0; border-bottom:1px solid rgba(21,20,18,.10);">
+                <span style="color:#6E6A63; font:400 12px/1.4 'JetBrains Mono',monospace;">{{ m.at }}</span>
+                <span style="display:flex; flex-direction:column; gap:4px; min-width:0;"><span style="font:400 13px/1.3 'Onest',sans-serif;">{{ m.subject }}</span><span style="display:flex; align-items:center; gap:8px; font:400 12px/1.3 'JetBrains Mono',monospace; color:#3A3833; min-width:0;"><span style="flex:none; padding:3px 7px; border:1px solid rgba(21,20,18,.16); border-radius:999px; color:#151412; font:500 10px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ m.kind }}</span><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ m.to }}</span></span></span>
+                <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#3A3833; font:400 12px/1.3 'JetBrains Mono',monospace;" title="{{ m.link }}">{{ m.link }}</span>
+                <span style="display:flex; gap:8px;"><button type="button" onClick="{{ m.copy }}" style="height:30px; padding:0 12px; border:1px solid {{ m.copyBorder }}; border-radius:999px; background:transparent; color:#151412; font:500 11.5px/1 'JetBrains Mono',monospace; white-space:nowrap; cursor:pointer;" style-hover="border-color:#151412;">{{ m.copyLabel }}</button><button type="button" onClick="{{ m.openLink }}" style="height:30px; padding:0 12px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 11.5px/1 'JetBrains Mono',monospace; white-space:nowrap; cursor:pointer;" style-hover="border-color:#151412;">Відкрити ↗</button></span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ tAll }}">
+        <div style="display:flex; flex-direction:column;">
+          <div style="display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) 88px 64px 64px; gap:14px; padding:0 0 10px; border-bottom:1px solid #151412; color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span>Проєкт</span><span>Власник</span><span>Статус</span><span>Формати</span><span>Дата</span><span style="text-align:right;">Собівартість</span></div>
+          <sc-for list="{{ allProjects }}" as="p" hint-placeholder-count="5">
+            <div style="display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) 88px 64px 64px; gap:14px; align-items:center; min-height:46px; padding:8px 0; border-bottom:1px solid rgba(21,20,18,.10); font-variant-numeric:tabular-nums;">
+              <span style="font:400 12.5px/1.3 'JetBrains Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.title }}</span>
+              <span style="color:{{ p.ownerColor }}; font:400 12px/1.3 'JetBrains Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.owner }}</span>
+              <span style="display:inline-flex; align-items:center; gap:8px; color:{{ p.statusColor }}; font:400 12.5px/1.3 'Onest',sans-serif;"><span style="flex:none; width:7px; height:7px; border-radius:50%; background:{{ p.dot }};"></span>{{ p.status }}</span>
+              <span style="color:#3A3833; font:400 11.5px/1.3 'JetBrains Mono',monospace;">{{ p.fmts }}</span>
+              <span style="color:#6E6A63; font:400 12px/1.3 'JetBrains Mono',monospace;">{{ p.date }}</span>
+              <span style="text-align:right; font:500 12.5px/1.3 'JetBrains Mono',monospace;">{{ p.usd }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </main>
+
+    <sc-if value="{{ sidePanel }}">
+      <aside style="min-width:0; min-height:0; overflow:auto; display:flex; flex-direction:column; gap:22px; padding:28px 28px 40px; background:#FCFBF8; border-left:1px solid rgba(21,20,18,.10);">
+        <sc-if value="{{ noSel }}"><p style="margin:0; color:#6E6A63; font:400 13.5px/1.5 'Onest',sans-serif;">Оберіть користувача в списку — деталі, баланс і коригування з’являться тут.</p></sc-if>
+        <sc-if value="{{ hasSel }}">
+          <div style="display:flex; flex-direction:column; gap:8px;"><span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ selRole }}</span><h2 style="margin:0; font:300 28px/1.1 'Unbounded',sans-serif; letter-spacing:-0.04em;">{{ selName }}</h2><span style="font:400 12px/1.5 'JetBrains Mono',monospace; color:#3A3833; overflow-wrap:anywhere;">{{ selEmail }}</span><span style="font:400 11.5px/1.5 'JetBrains Mono',monospace; color:#6E6A63;">створено {{ selCreated }} · {{ selAct }}</span></div>
+          <span style="display:flex; align-items:baseline; gap:12px; padding-top:18px; border-top:1px solid rgba(21,20,18,.10);"><span style="font:200 72px/0.9 'Unbounded',sans-serif; letter-spacing:-0.06em; font-variant-numeric:tabular-nums;">{{ selBal }}</span><span style="color:#6E6A63; font:400 13px/1 'JetBrains Mono',monospace;">{{ selBalWord }}</span></span>
+          <dc-import name="AcAdjust" app="{{ app }}" hint-size="100%,300px"></dc-import>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <span style="padding-bottom:6px; color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Останні операції</span>
+            <sc-for list="{{ selHistShort }}" as="e" hint-placeholder-count="4"><div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:baseline; padding:9px 0; border-bottom:1px solid rgba(21,20,18,.10); animation:{{ e.anim }};"><span style="display:flex; flex-direction:column; gap:2px; min-width:0;"><span style="font:400 13px/1.35 'Onest',sans-serif;">{{ e.label }}</span><span style="color:#6E6A63; font:400 11px/1.35 'JetBrains Mono',monospace; overflow-wrap:anywhere;">{{ e.at }}{{ e.subSep }}{{ e.sub }}</span></span><span style="display:flex; flex-direction:column; align-items:flex-end; gap:2px; font-variant-numeric:tabular-nums;"><b style="font:500 12.5px/1.35 'JetBrains Mono',monospace;">{{ e.sum }}</b><span style="color:#6E6A63; font:400 11px/1 'JetBrains Mono',monospace;">→ {{ e.after }}</span></span></div></sc-for>
+          </div>
+        </sc-if>
+      </aside>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;app&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;object&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const a = this.props.app || {};
+    const act = a.act || (() => {});
+    const f = a.fmt;
+    const isB = a.v && a.v.N14 === 'B';
+    const ad = a.admin || { tab: 'users' };
+    const tab = ad.tab || 'users';
+    const all = a.adminUsers || [];
+    const q = (ad.q || '').trim().toLowerCase();
+    const list = all.filter((u) => !q || u.email.includes(q));
+    const sel = all.find((u) => u.id === ad.sel) || null;
+    const forb = !!ad.forbidden;
+    const users = list.map((u) => {
+      const on = sel && sel.id === u.id && !isB;
+      return { key: u.id, email: u.email, name: u.name, isAdmin: u.isAdmin, act: u.activatedAt || 'не активовано', actColor: u.activatedAt ? '#3A3833' : '#6E6A63', actDot: u.activatedAt ? '#151412' : 'transparent', created: u.createdAt, bal: f.num(u.balance), bg: on ? '#FCFBF8' : 'transparent', rad: on ? '10px' : '0', weight: on ? 500 : 400, selStr: on ? 'true' : 'false', onClick: () => act('adminSel', u.id) };
+    });
+    const hist = (sel && a.adminHist && a.adminHist[sel.id]) || [];
+    const mapH = (e, i) => ({ key: e.id, at: e.at, label: e.label, sub: [e.proj, e.note ? '«' + e.note + '»' : '', e.by ? 'нарахував ' + e.by : ''].filter(Boolean).join(' · '), hasSub: !!(e.proj || e.note || e.by), subSep: e.proj || e.note || e.by ? ' · ' : '', sum: f.sgn(e.credits), after: f.num(e.after), anim: e.fresh ? 'adcFade .45s cubic-bezier(.2,.8,.2,1) both' : 'none' });
+    const mapHS = (e, i) => { const m = mapH(e, i); m.sub = [e.proj, e.note ? '«' + e.note + '»' : ''].filter(Boolean).join(' · '); m.subSep = m.sub ? ' · ' : ''; return m; };
+    const ST = { delivered: ['готово', '#151412'], failed: ['помилка', '#B8331F'], awaiting_script: ['чекаю на погодження текстів', '#D4402A'], rendering: ['рендерю', '#D4402A'], awaiting_brand: ['чекаю на погодження бренду', '#D4402A'] };
+    const FM = { vertical: '9:16', square: '1:1', landscape: '16:9' };
+    const showMainTab = !forb && !ad.loading;
+    return {
+      app: a,
+      appTop: { ...a, mode: 'cab', host: 'Адмінка', status: null },
+      showTabs: !forb,
+      tabs: [['users', 'Користувачі', all.length], ['outbox', 'Outbox', (a.outbox || []).length], ['all', 'Усі проєкти', (a.allProjects || []).length]].map(([k, label, n]) => { const on = tab === k || (k === 'users' && tab === 'user'); return { key: k, label, count: String(n), sel: on ? 'true' : 'false', bg: on ? '#151412' : 'transparent', fg: on ? '#F5F3EE' : '#151412', onClick: () => act('admin', k) }; }),
+      cols: !isB && tab === 'users' && !forb ? 'minmax(0,1fr) 420px' : 'minmax(0,1fr)',
+      mainPad: '24px',
+      loading: !!ad.loading,
+      forbidden: forb,
+      toCab: () => act('cab', 'balance'),
+      goHome: () => act('home'),
+      tUsers: showMainTab && tab === 'users',
+      q: ad.q || '',
+      onQ: (e) => act('adminQ', e.target.value),
+      usersCount: list.length + ' з ' + all.length,
+      uCols: !isB ? 'minmax(0,1.6fr) minmax(0,1fr) 120px 92px 64px' : 'minmax(0,1.6fr) minmax(0,1fr) 140px 110px 80px',
+      users,
+      usersEmpty: list.length === 0,
+      usersEmptyText: all.length === 0 ? 'Користувачів ще немає.' : 'Нікого не знайдено за «' + q + '».',
+      sidePanel: !isB && tab === 'users' && !forb && !ad.loading,
+      noSel: !sel,
+      hasSel: !!sel,
+      tUserPage: showMainTab && isB && tab === 'user' && !!sel,
+      showDetailInMain: showMainTab && isB && tab === 'user' && !!sel,
+      toUsers: () => act('admin', 'users'),
+      selName: sel ? sel.name : '',
+      selEmail: sel ? sel.email : '',
+      selRole: sel ? (sel.isAdmin ? 'адміністратор' : 'клієнт') : '',
+      selCreated: sel ? sel.createdAt : '',
+      selAct: sel ? (sel.activatedAt ? 'активовано ' + sel.activatedAt : 'не активовано') : '',
+      selBal: sel ? f.num(sel.balance) : '',
+      selBalWord: sel ? f.word(sel.balance) : '',
+      selHist: hist.map(mapH),
+      selHistShort: hist.slice(0, 5).map(mapHS),
+      tOutbox: showMainTab && tab === 'outbox',
+      outboxEmpty: (a.outbox || []).length === 0,
+      mails: (a.outbox || []).map((m) => ({ key: m.id, at: m.at, subject: m.subject, kind: m.kind === 'activate' ? 'активація' : 'скидання', to: m.to, link: m.link, copyLabel: ad.copied === m.id ? '✓ Скопійовано' : 'Копіювати', copyBorder: ad.copied === m.id ? '#151412' : 'rgba(21,20,18,.16)', copy: () => act('adminCopy', m.id), openLink: () => act('adminOpenLink', m) })),
+      tAll: showMainTab && tab === 'all',
+      allProjects: (a.allProjects || []).map((p) => ({ key: p.id, title: p.host || 'Без сайту', owner: p.owner || 'без власника · eval/CLI', ownerColor: p.owner ? '#3A3833' : '#6E6A63', status: (ST[p.status] || [p.status])[0], dot: (ST[p.status] || [0, '#151412'])[1], statusColor: p.status === 'failed' ? '#B8331F' : '#3A3833', fmts: p.formats.map((x) => FM[x]).join(' · '), date: p.createdAt, usd: p.usd })),
+    };
+  }
+}
+</script>
+</body>
+</html>
