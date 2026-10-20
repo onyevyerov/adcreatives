@@ -5,7 +5,7 @@
  *
  * - `n15-401`, `n15-401-err` — сесія завершилась на ЧП3: форма входу в сцені (контекст `session`),
  *   чат лишається. Акаунт у топбарі — як у кадрі (Олена, 12).
- * - `n15-404` — чужий або неіснуючий проєкт `p_7Hk2mQ9x`: стрічка порожня, хоста немає.
+ * - `n15-404` — чужий або неіснуючий проєкт `p_7Hk2mQ9x`: стрічка порожня, хоста немає, потік на зв'язку.
  * - `n15-403` — маршрут admin для клієнта (`admin.forbidden`).
  * - `n15-net` — ЧП1, з'єднання втрачено (`conn: "lost"` — точка в чаті).
  */
@@ -32,7 +32,8 @@ export default {
       fails: 1,
     }),
   }),
-  "n15-404": accountFixture({ session: "404" }, initialState("project", MISSING_PROJECT)),
+  // Потік встиг підключитися до відповіді 404 (у кадрі — «на зв'язку»).
+  "n15-404": accountFixture({ session: "404", conn: "online" }, initialState("project", MISSING_PROJECT)),
   "n15-403": accountFixture({ route: "admin", session: "403", admin: { forbidden: true } }),
   "n15-net": workspaceFixture("brand", { conn: "lost" }),
 };
