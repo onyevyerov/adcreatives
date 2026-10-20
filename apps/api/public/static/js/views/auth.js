@@ -10,11 +10,10 @@
  *
  * Форма — один набір вузлів на всі перегляди (`authModel` → `apply`): поля не перестворюються,
  * тож введення, фокус і курсор не губляться. Тексти — з кадрів Референсу дослівно; помилка сервера —
- * його `message` (`AUTH_MESSAGES`), без нього — копірайт UI.
+ * його `message` (`auth.message`), без нього — копірайт UI.
  */
 
 import { hostOf } from "../data/api.js";
-import { AUTH_MESSAGES } from "../data/auth-actions.js";
 import { clear, h, text } from "../dom.js";
 import { authState } from "../initial.js";
 import { creditWord, formatCredits, formatNumber, plural } from "../lib/credits.js";
@@ -166,19 +165,15 @@ export function passwordHint(len) {
 /** Можна закрити модалку (Esc, підкладка, «Закрити»). @param {Auth} a */
 export const closable = (a) => a.context !== "session" && (!STUCK_VIEWS.includes(a.view) || a.error !== null);
 
-/** Текст сервера для поточної помилки модалки (`null` — копірайт UI). @param {import("../contracts.js").Store} store */
-const serverMessage = (store) => (store.getState().auth?.error ? (AUTH_MESSAGES.get(store) ?? null) : null);
-
 /** Модалка видима: є стан входу і це не сцена 401 у проєкті (там форму малює B12). @param {UiState} s */
 export const modalOpen = (s) => s.auth !== null && !(s.route === "project" && s.session === "401");
 
 /**
  * Опис форми для стану (чиста функція; її ж перевіряють тести).
  * @param {UiState} s
- * @param {string | null} [serverMessage] текст сервера для `auth.error`
  * @param {number} [now]
  */
-export function authModel(s, serverMessage = null, now = Date.now()) {
+export function authModel(s, now = Date.now()) {
   const a = s.auth ?? authState("login", "session");
   const v = a.view;
   const c = VIEWS[v] ?? VIEWS.login;
@@ -202,7 +197,7 @@ export function authModel(s, serverMessage = null, now = Date.now()) {
     context = { before: "Після активації почну ролик для ", host: pendingHost, after: "." };
 
   const err = a.error;
-  const errorText = err && err !== "google" ? (serverMessage ?? ERROR_TEXT[err]) : null;
+  const errorText = err && err !== "google" ? (a.message ?? ERROR_TEXT[err]) : null;
 
   let info = null;
   if (a.resent) {
@@ -268,7 +263,7 @@ export function authModel(s, serverMessage = null, now = Date.now()) {
     shortage: short ? { host: pendingHost, need: formatCredits(need), have: formatCredits(balance) } : null,
     submit: submit ? { label: submit, busy: a.busy, disabled: a.busy || err === "rate_limited" } : null,
     links,
-    google: c.google ? { message: err === "google" ? (serverMessage ?? GOOGLE_TEXT) : null } : null,
+    google: c.google ? { message: err === "google" ? (a.message ?? GOOGLE_TEXT) : null } : null,
     closable: closable(a),
   };
 }
@@ -754,7 +749,7 @@ export function mount(el, ctx) {
   function render(s) {
     const visible = modalOpen(s);
     if (visible) {
-      const m = authModel(s, serverMessage(store));
+      const m = authModel(s);
       form.apply(m);
       timer.set(m.cooldown > 0);
     } else timer.set(false);
@@ -810,7 +805,7 @@ export function mountAuthForm(el, ctx, o) {
   let shownView = null;
   /** @param {UiState} s */
   function render(s) {
-    const m = authModel(s, serverMessage(store));
+    const m = authModel(s);
     form.apply(m);
     timer.set(m.cooldown > 0);
     if (shownView !== null && shownView !== m.view && form.el.contains(document.activeElement))

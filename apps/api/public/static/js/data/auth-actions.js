@@ -14,7 +14,8 @@
  * - `forgot` → `POST forgot` → `forgotSent`; `reset` (посилання з листа) → `POST reset` →
  *   `refreshMe()` → `resetDone`; `invalid_token` → `resetInvalid`.
  * Помилки: клієнтська перевірка (`empty`, `bad_email`, `empty_name`, `weak_password`) запиту не
- * робить; помилка сервера — `error` з коду відповіді, текст — `message` сервера (`AUTH_MESSAGES`).
+ * робить; помилка сервера — `error` з коду відповіді і `message` — текст із тіла відповіді (view
+ * показує його, а без нього — копірайт UI); зміна перегляду чи поля скидає `message`.
  * Відповідь, що прийшла після закриття модалки чи зміни перегляду, відкидається.
  */
 import { authState } from "../initial.js";
@@ -52,15 +53,6 @@ const SERVER_ERRORS = new Set([
 const isEmail = (email) => EMAIL_RE.test(email.trim());
 
 /**
- * Текст сервера (`message`) для поточної `auth.error` кожного store; немає — помилка клієнтська
- * або сервер тексту не дав, тоді view бере копірайт UI. Part-файл експортує одну функцію-фабрику,
- * тож view читає текст звідси: `AUTH_MESSAGES.get(store)` при `auth.error !== null`.
- * @type {WeakMap<Store, string>}
- */
-export const AUTH_MESSAGES = new WeakMap();
-const messages = AUTH_MESSAGES;
-
-/**
  * Помилка запиту → стан форми і текст сервера.
  * @param {unknown} err
  * @returns {{ error: AuthError, message: string | null }}
@@ -77,9 +69,6 @@ function errorOf(err) {
   // Невідома відмова (5xx, invalid_body): рядок помилки з текстом сервера, якщо він є.
   return { error: "network", message: message ?? (err instanceof Error ? err.message : null) };
 }
-
-/** @param {Store} store */
-const serverMessage = (store) => (store.getState().auth?.error ? (messages.get(store) ?? null) : null);
 
 /**
  * `?mock=1`: мережі акаунтів немає — ті самі переходи на стані (вхід — фейковий `me`).
@@ -127,16 +116,13 @@ export const authActions = (store, deps) => {
    * @param {Partial<Auth>} [patch]
    */
   function fail(error, message = null, patch = {}) {
-    if (message) messages.set(store, message);
-    else messages.delete(store);
-    setAuth({ busy: false, error, ...patch });
+    setAuth({ busy: false, error, message, ...patch });
   }
 
   /** @param {"activateInvalid" | "resetInvalid"} view */
   function toInvalid(view) {
     seq++;
-    messages.delete(store);
-    setAuth({ view, busy: false, error: null, token: null, password: "", resent: false });
+    setAuth({ view, busy: false, error: null, message: null, token: null, password: "", resent: false });
   }
 
   /**
@@ -149,8 +135,7 @@ export const authActions = (store, deps) => {
    */
   async function request(call, o = {}) {
     const my = seq;
-    messages.delete(store);
-    setAuth({ busy: true, error: null });
+    setAuth({ busy: true, error: null, message: null });
     try {
       const value = await call();
       if (my === seq && auth()) return { ok: true, value };
@@ -168,7 +153,6 @@ export const authActions = (store, deps) => {
   async function signedIn(context) {
     await deps.actions().refreshMe();
     seq++;
-    messages.delete(store);
     const s = store.getState();
     if (context === "session" && s.route === "project" && s.session === "401" && s.projectId) {
       const id = s.projectId;
@@ -279,15 +263,20 @@ export const authActions = (store, deps) => {
     const email = a.email.trim();
     if (!isEmail(email)) return fail("bad_email");
     // «Надіслати лист ще раз» під not_activated: помилка входу лишається видно разом зі статусом.
-    const keep = a.view === "login" ? { error: a.error, message: serverMessage(store) } : null;
+    const keep = a.view === "login" ? { error: a.error, message: a.message } : null;
     const res = await request(() => send(email));
     if (!res) return;
     if (!res.ok) {
       const { error, message } = errorOf(res.err);
       return fail(error, message);
     }
-    if (keep?.message) messages.set(store, keep.message);
-    setAuth({ busy: false, error: keep?.error ?? null, resent: true, ...patch });
+    setAuth({
+      busy: false,
+      error: keep?.error ?? null,
+      message: keep?.message ?? null,
+      resent: true,
+      ...patch,
+    });
   }
 
   async function forgot() {
@@ -329,13 +318,13 @@ export const authActions = (store, deps) => {
     openAuth(view, context) {
       const a = auth();
       seq++;
-      messages.delete(store);
       if (a && context === undefined) {
         // Перемикання всередині модалки: контекст і введені дані лишаються.
         setAuth({
           view,
           busy: false,
           error: null,
+          message: null,
           resent: false,
           ...(view === "register" && a.view === "check" ? { password: "" } : {}),
         });
@@ -345,7 +334,6 @@ export const authActions = (store, deps) => {
 
     closeAuth() {
       seq++;
-      messages.delete(store);
       if (auth()) store.setState({ auth: null });
     },
 
@@ -357,8 +345,7 @@ export const authActions = (store, deps) => {
       if (a[key] === text) return;
       // Правка поля знімає помилку; rate_limited тримається (кнопка заблокована до кінця ліміту).
       const keep = a.error === "rate_limited";
-      if (!keep) messages.delete(store);
-      setAuth({ [key]: text, ...(keep ? {} : { error: null }) });
+      setAuth({ [key]: text, ...(keep ? {} : { error: null, message: null }) });
     },
 
     async submitAuth() {

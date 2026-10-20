@@ -314,8 +314,9 @@ describe("authModel", () => {
   it("помилка сервера — його message; без нього — копірайт UI", () => {
     const s = guestState("login", { error: "invalid_credentials" });
     expect(authModel(s).errorText).toBe(ERROR_TEXT.invalid_credentials);
-    expect(authModel(s, "Сервер каже інакше.").errorText).toBe("Сервер каже інакше.");
-    expect(authModel(guestState("login", { error: "google" }), "Google: 501").google?.message).toBe(
+    const withMessage = guestState("login", { error: "invalid_credentials", message: "Сервер каже інакше." });
+    expect(authModel(withMessage).errorText).toBe("Сервер каже інакше.");
+    expect(authModel(guestState("login", { error: "google", message: "Google: 501" })).google?.message).toBe(
       "Google: 501",
     );
   });
@@ -326,7 +327,7 @@ describe("authModel", () => {
     expect(passwordHint(3).text).toBe("ще 5 символів");
     expect(passwordHint(8)).toEqual({ text: "✓ достатньо", ok: true });
     const now = 1_000_000;
-    const m = authModel(guestState("check", { email: "a@b.ua", cooldownUntil: now + 42_000 }), null, now);
+    const m = authModel(guestState("check", { email: "a@b.ua", cooldownUntil: now + 42_000 }), now);
     expect(m.check?.resend).toBe("Надіслати ще раз · 0:42");
     expect(m.check?.resendDisabled).toBe(true);
   });
@@ -486,9 +487,10 @@ describe("вхід", () => {
     expect($("input[name=email]").getAttribute("aria-invalid")).toBe("true");
     expect($(".au-error").getAttribute("role")).toBe("alert");
 
-    // Правка поля знімає помилку.
+    expect(store.getState().auth?.message).toBe("Невірний e-mail або пароль (сервер).");
+    // Правка поля знімає помилку разом із текстом сервера.
     type("password", "123456789");
-    expect(store.getState().auth?.error).toBeNull();
+    expect(store.getState().auth).toMatchObject({ error: null, message: null });
 
     api.login.mockRejectedValueOnce(apiError(403, "not_activated", "Ще не активовано (сервер)."));
     submit();
@@ -500,6 +502,10 @@ describe("вхід", () => {
     expect(store.getState().auth).toMatchObject({ error: "not_activated", resent: true });
     expect($(".au-error").textContent).toBe("Ще не активовано (сервер).");
     expect(formText()).toContain("Лист надіслано ще раз — перевірте пошту.");
+    // Зміна перегляду скидає помилку і текст сервера.
+    button("Забули пароль?").click();
+    expect(store.getState().auth).toMatchObject({ view: "forgot", error: null, message: null });
+    button("← До входу").click();
 
     api.login.mockRejectedValueOnce(apiError(429, "rate_limited", "Забагато спроб (сервер)."));
     type("password", "1234567890");
