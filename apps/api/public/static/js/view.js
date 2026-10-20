@@ -20,10 +20,13 @@ const STAGE_VIEW = {
 };
 
 /**
- * Який екран показує сцена (права панель) для статусу проєкту.
- * @param {Pick<UiState, "status">} state
+ * Який екран показує сцена (права панель): системний стан (`session` 401 → форма входу,
+ * 404 → «Проєкт не знайдено») перевіряється до статусу проєкту.
+ * @param {Pick<UiState, "status"> & Partial<Pick<UiState, "session">>} state
  * @returns {StageView}
  */
 export function viewFor(state) {
+  if (state.session === "401") return "session";
+  if (state.session === "404") return "notfound";
   return STAGE_VIEW[state.status] ?? "progress";
 }

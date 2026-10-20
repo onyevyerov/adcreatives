@@ -5,6 +5,10 @@
  *
  * Стани згортаються з fixture-events.js спрощеною функцією `fold` за правилами редьюсера з ТЗ
  * (B2). Еталонна реалізація — data/reduce.js; ця — лише для фікстур.
+ *
+ * Фікстури акаунтів (ТЗ фронтенду акаунтів, 2.10): кожен блок наповнює лише свій
+ * `dev/fixtures/<блок>.js` (імена — з карти станів Референсу `#M`), тут вони спредяться у
+ * `fixtureStates`. Спільні дані — `dev/fixtures/_base.js`.
  */
 import { AWAITING, BUSY } from "../js/contracts.js";
 import { initialState } from "../js/initial.js";
@@ -16,6 +20,18 @@ import {
   scriptPayloadUnverified,
   segments,
 } from "./fixture-events.js";
+import adminFixtures from "./fixtures/admin.js";
+import authFixtures from "./fixtures/auth.js";
+import cabinetFixtures from "./fixtures/cabinet.js";
+import chatFixtures from "./fixtures/chat.js";
+import checkoutFixtures from "./fixtures/checkout.js";
+import historyFixtures from "./fixtures/history.js";
+import profileFixtures from "./fixtures/profile.js";
+import projectsFixtures from "./fixtures/projects.js";
+import sessionFixtures from "./fixtures/session.js";
+import startFixtures from "./fixtures/start.js";
+import topbarFixtures from "./fixtures/topbar.js";
+import workspaceFixtures from "./fixtures/workspace.js";
 
 /** @typedef {import("../js/contracts.js").UiState} UiState */
 /** @typedef {import("../js/contracts.js").FeedItem} FeedItem */
@@ -194,6 +210,18 @@ export const fixtureStates = {
   revising: fold(upTo(eventsOf(PATHS.revision), progressLabel("Вношу правки…"))),
   /** Готово, ревізія 2 (дві ревізії відео). */
   deliveredRev2: fold(eventsOf(PATHS.revisionDelivered)),
+  ...authFixtures,
+  ...startFixtures,
+  ...topbarFixtures,
+  ...workspaceFixtures,
+  ...chatFixtures,
+  ...cabinetFixtures,
+  ...checkoutFixtures,
+  ...historyFixtures,
+  ...projectsFixtures,
+  ...profileFixtures,
+  ...adminFixtures,
+  ...sessionFixtures,
 };
 
 /** Назви станів, які вимагає ТЗ (по одному на екран). */

@@ -9,16 +9,21 @@
  *
  * Дії, що шлють повідомлення не з композера (`setFormats`, `setLanguage`), не чіпають
  * чернетку `ui.draft` і режим правки — їх скидає лише `sendMessage`.
+ *
+ * Крок 0 акаунтів: переходи старт ↔ проєкт скидають лише гілки проєкту (`projectState`), акаунт і
+ * модалку входу не чіпають; `GET /api/projects/:id` 404 → `session: "404"`, поле `credits` →
+ * `projectCredits`; `POST /api/projects` 402 → `ui.startShortage`, успіх → `refreshMe()`.
+ * Решту акаунтів (`Object.assign` поверх цього об'єкта) збирає data/account.js.
  */
 import { FORMAT_LABELS, FORMATS, FORMATS_DEBOUNCE_MS } from "../contracts.js";
-import { initialState } from "../initial.js";
+import { projectState } from "../initial.js";
 import * as api from "./api.js";
 import { createMockBackend } from "./mock.js";
 import { reduceAll } from "./reduce.js";
 import { connectEvents } from "./sse.js";
 
 /** @typedef {import("../contracts.js").Store} Store */
-/** @typedef {import("../contracts.js").Actions} Actions */
+/** @typedef {import("../contracts.js").ProjectActions} ProjectActions */
 /** @typedef {import("../contracts.js").DataOptions} DataOptions */
 /** @typedef {import("../contracts.js").UiFlags} UiFlags */
 /** @typedef {import("../contracts.js").ChatEvent} ChatEvent */
@@ -98,10 +103,19 @@ export function createApiBackend(store, deps = {}) {
         (data) => {
           if (my !== session) return;
           const site = api.hostOf(data?.project?.input.url ?? data?.intake?.input.url);
-          if (site) store.setState({ site });
+          store.setState({ projectCredits: data?.credits ?? null, ...(site ? { site } : {}) });
         },
         (err) => {
-          if (my === session) store.setState((s) => ({ ui: { ...s.ui, notice: messageOf(err) } }));
+          if (my !== session) return;
+          // 401 уже обробив setUnauthorizedHandler (форма входу в сцені).
+          if (api.isStatus(err, 401)) return;
+          // Немає або чужий (бекенд не розрізняє) — екран «Проєкт не знайдено» (B12).
+          if (api.isStatus(err, 404) && err.code === "not_found") {
+            stop();
+            store.setState({ session: "404" });
+            return;
+          }
+          store.setState((s) => ({ ui: { ...s.ui, notice: messageOf(err) } }));
         },
       );
       try {
@@ -136,22 +150,31 @@ export function createApiBackend(store, deps = {}) {
 }
 
 /**
+ * Джерело даних для параметрів сторінки: mock при `?mock=1`, інакше HTTP API + SSE.
  * @param {Store} store
  * @param {DataOptions & DataDeps} opts
- * @returns {Actions & { readonly ready: Promise<void>, dispose(): void }}
+ * @returns {Backend}
+ */
+export function createBackend(store, opts) {
+  if (opts.backend) return opts.backend;
+  if (opts.params.get("mock") === "1") return createMockBackend(store, { params: opts.params });
+  return createApiBackend(store, {
+    ...(opts.EventSource ? { EventSource: opts.EventSource } : {}),
+    ...(opts.batchMs !== undefined ? { batchMs: opts.batchMs } : {}),
+  });
+}
+
+/**
+ * `openStream(id)` — скинути гілки проєкту, перейти на нього і запустити потік даних (для
+ * `navigate` з data/account.js; URL міняє викликач).
+ * @param {Store} store
+ * @param {DataOptions & DataDeps} opts
+ * @returns {ProjectActions & { readonly ready: Promise<void>, dispose(): void, openStream(id: string): Promise<void> }}
  */
 export function createActions(store, opts) {
   const params = opts.params;
   const mock = params.get("mock") === "1";
-  /** @type {Backend} */
-  const backend =
-    opts.backend ??
-    (mock
-      ? createMockBackend(store, { params })
-      : createApiBackend(store, {
-          ...(opts.EventSource ? { EventSource: opts.EventSource } : {}),
-          ...(opts.batchMs !== undefined ? { batchMs: opts.batchMs } : {}),
-        }));
+  const backend = createBackend(store, opts);
 
   /** Поточний запуск потоку даних (тести чекають на нього). */
   let ready = Promise.resolve();
@@ -245,15 +268,32 @@ export function createActions(store, opts) {
       backend.stop();
     },
 
+    openStream(id) {
+      clearTimeout(formatsTimer);
+      formatsTimer = undefined;
+      backend.stop();
+      store.setState({ ...projectState(id), route: "project" });
+      ready = backend.start(id);
+      return ready;
+    },
+
     async createProject(form) {
-      ui({ sending: true, startError: null });
+      ui({ sending: true, startError: null, startShortage: null });
       try {
         const id = await backend.createProject(form);
         replaceUrl(pageUrl(id));
-        const base = initialState("project", id);
-        store.setState({ ...base, site: api.hostOf(form.get("url")) });
+        store.setState({ ...projectState(id), route: "project", site: api.hostOf(form.get("url")) });
         ready = backend.start(id);
+        void opts.refreshMe?.();
       } catch (err) {
+        if (api.isStatus(err, 402)) {
+          const body = err instanceof api.ApiError ? err.body : null;
+          ui({
+            sending: false,
+            startShortage: { need: Number(body?.required) || 0, have: Number(body?.available) || 0 },
+          });
+          return;
+        }
         ui({ sending: false, startError: messageOf(err) });
       }
     },
@@ -263,7 +303,7 @@ export function createActions(store, opts) {
       formatsTimer = undefined;
       backend.stop();
       replaceUrl(pageUrl(null));
-      store.setState(initialState("start", null));
+      store.setState({ ...projectState(null), route: "start" });
     },
 
     sendMessage: (text) => send(text, true),

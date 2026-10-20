@@ -1,25 +1,63 @@
 // @ts-check
 /**
- * B2 · HTTP API проєктів (перенесено з попереднього index.html). Помилки — `Error` з
- * повідомленням сервера (`message` у JSON-відповіді) або загальним текстом.
+ * HTTP API (перенесено з попереднього index.html; Крок 0 акаунтів додав `ApiError`).
+ * Помилки — `ApiError` з повідомленням сервера (`message` у JSON-відповіді) або загальним текстом,
+ * HTTP-статусом і кодом (`error` у відповіді; мережа — `status: 0, code: "network"`).
  * `fetch` береться з `globalThis` у момент виклику (тести підміняють його).
  */
 
 /** @typedef {import("../contracts.js").ProjectStatus} ProjectStatus */
+/** @typedef {import("../contracts.js").ProjectCredits} ProjectCredits */
 /**
- * Відповідь `GET /api/projects/:id` (поля, які читає UI).
+ * Відповідь `GET /api/projects/:id` (поля, які читає UI). `credits` додає B4 (може не бути).
  * @typedef {{
  *   id: string,
  *   status: ProjectStatus,
  *   project: { rev: number, input: { url: string | null } } | null,
  *   intake: { input: { url: string | null } } | null,
- *   totalUsd: number
+ *   totalUsd: number,
+ *   credits?: ProjectCredits | null
  * }} ProjectInfo
  */
 /** Тіло `POST /api/projects/:id/commands`. @typedef {{ type: "approve", rev: number | null } | { type: "retry" } | { type: "set_logo", assetId: string } | { type: "restart_confirmed" }} CommandBody */
 
+/** Текст мережевої помилки (як і до Кроку 0). */
+export const NETWORK_MESSAGE = "Немає зв'язку з сервером. Перевірте інтернет і спробуйте ще раз.";
+
+/** Помилка запиту: `status` — HTTP (0 — мережа), `code` — поле `error` відповіді, `body` — тіло. */
+export class ApiError extends Error {
+  /**
+   * @param {string} message
+   * @param {number} status
+   * @param {string | null} code
+   * @param {any} body
+   */
+  constructor(message, status, code, body) {
+    super(message);
+    this.name = "ApiError";
+    /** @type {number} */
+    this.status = status;
+    /** @type {string | null} */
+    this.code = code;
+    /** @type {any} */
+    this.body = body;
+  }
+}
+
+/** @type {((err: ApiError, path: string) => void) | null} */
+let onUnauthorized = null;
+
 /**
- * Запит до API; JSON-відповідь або виняток із повідомленням сервера.
+ * Обробник 401 `unauthorized` (немає сесії або вона скінчилась); `path` — шлях запиту.
+ * Не викликається на `invalid_credentials`. `null` — зняти.
+ * @param {((err: ApiError, path: string) => void) | null} fn
+ */
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn;
+}
+
+/**
+ * Запит до API; JSON-відповідь або `ApiError` із повідомленням сервера.
  * @param {string} path
  * @param {RequestInit} [opts]
  * @returns {Promise<any>}
@@ -30,7 +68,7 @@ export async function api(path, opts) {
   try {
     res = await globalThis.fetch(path, opts);
   } catch {
-    throw new Error("Немає зв'язку з сервером. Перевірте інтернет і спробуйте ще раз.");
+    throw new ApiError(NETWORK_MESSAGE, 0, "network", null);
   }
   let data = null;
   try {
@@ -40,10 +78,22 @@ export async function api(path, opts) {
   }
   if (!res.ok) {
     const message = data && typeof data.message === "string" && data.message ? data.message : "";
-    throw new Error(message || `Помилка ${res.status}`);
+    const code = data && typeof data.error === "string" && data.error ? data.error : null;
+    const err = new ApiError(message || `Помилка ${res.status}`, res.status, code, data);
+    if (res.status === 401 && code === "unauthorized" && onUnauthorized) {
+      try {
+        onUnauthorized(err, path);
+      } catch (handlerErr) {
+        console.error("[api] unauthorized handler", handlerErr);
+      }
+    }
+    throw err;
   }
   return data;
 }
+
+/** @param {unknown} err @param {number} status */
+export const isStatus = (err, status) => err instanceof ApiError && err.status === status;
 
 /**
  * @param {string} projectId
@@ -79,9 +129,10 @@ export function sendMessage(projectId, text) {
 }
 
 /**
- * Створення проєкту: multipart `url` | `manualText` + `photos[]`.
+ * Створення проєкту: multipart `url` | `manualText` + `photos[]`. 402 → `ApiError` з
+ * `body: {required, available}`.
  * @param {FormData} form
- * @returns {Promise<{ id: string, chatUrl: string }>}
+ * @returns {Promise<{ id: string, chatUrl: string, balance?: number }>}
  */
 export function createProject(form) {
   return api("/api/projects", { method: "POST", body: form });

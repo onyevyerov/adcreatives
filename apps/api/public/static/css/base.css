@@ -153,6 +153,39 @@ a:hover {
   background: var(--stage);
 }
 
+/*
+ * Каркас акаунтів (Крок 0): кабінет і адмінка — топбар + область розділу на всю висоту
+ * (min-width 1024, як робочий простір); чек — на всю сторінку; #overlay — модалка входу (B1).
+ */
+#cabinet,
+#admin {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 1024px;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+#cab-topbar,
+#admin-topbar {
+  flex: none;
+  min-width: 0;
+  background: var(--paper);
+}
+
+#cab-main,
+#admin-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+#checkout {
+  min-height: 100%;
+  background: var(--paper);
+}
+
 /* T4 · Рух */
 @keyframes adc-fade {
   from {
@@ -190,6 +223,34 @@ a:hover {
   }
 }
 
+/* Акаунти (Крок 0): мітка зміни балансу (--ac-delta) і поява підкладки модалки входу (.3s). */
+@keyframes ac-delta {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  25% {
+    opacity: 1;
+    transform: none;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes ac-scrim {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /*
  * T4: reduced-motion вимикає нескінченні анімації (busy, очікування, спінер) і зсув при появі
  * (лишається opacity). Keyframes перевизначаються за назвою, тож правило діє для всіх блоків,
@@ -220,6 +281,19 @@ a:hover {
   @keyframes adc-ring {
     to {
       box-shadow: none;
+    }
+  }
+
+  @keyframes ac-delta {
+    0% {
+      opacity: 0;
+    }
+    25%,
+    75% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
     }
   }
 
