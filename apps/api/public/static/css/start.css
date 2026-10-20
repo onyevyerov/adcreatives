@@ -5,6 +5,8 @@
   --st-player-h: clamp(380px, 100vh - 250px, 600px);
 
   display: grid;
+  /* Одна колонка в межах вікна: без неї довгий лід розпирає сторінку на 390. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 76px minmax(0, 1fr) auto;
   min-height: 100vh;
   background: var(--paper);
@@ -349,5 +351,9 @@
 
   .st-login {
     height: 44px;
+  }
+
+  .st-player {
+    width: 100%;
   }
 }
