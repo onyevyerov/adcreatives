@@ -1,1 +1,702 @@
-/* .adm- · B11 · адмінка (N14-A). Крок 0 — порожній файл; наповнює B11. */
+/*
+ * .adm- · B11 · адмінка (N14-A). Значення — Референс #N14 (AcAdmin, AcAdjust) і tokens.css.
+ * Корінь заповнює #admin-main: підшапка, нижче — головна область | панель 420 (вкладка
+ * «Користувачі»); кожна колонка скролиться окремо.
+ */
+
+.adm {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ───────────── Підшапка ───────────── */
+
+.adm-head {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.adm-head__left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.adm-title {
+  margin: 0;
+  font: 300 20px / 1.1 var(--f-display);
+  letter-spacing: -0.04em;
+}
+
+.adm-tabs {
+  align-self: auto;
+}
+
+.adm-tab {
+  cursor: pointer;
+}
+
+.adm-tab__count {
+  font: 400 11.5px / 1 var(--f-mono);
+  opacity: 0.7;
+}
+
+.adm-stats {
+  color: var(--ink-2);
+  font: 500 13px / 1 var(--f-ui);
+  text-decoration: none;
+  transition: color var(--t-hover);
+}
+
+.adm-stats:hover {
+  color: var(--accent);
+}
+
+/* ───────────── Колонки ───────────── */
+
+.adm-body {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+
+.adm-body--split {
+  grid-template-columns: minmax(0, 1fr) 420px;
+}
+
+.adm-main {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+  background: var(--stage);
+}
+
+.adm-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 0;
+  color: var(--muted);
+  font: 400 12.5px / 1.4 var(--f-mono);
+}
+
+.adm-num {
+  text-align: right;
+}
+
+.adm-thead {
+  border-bottom: 1px solid var(--ink);
+}
+
+.adm-empty {
+  color: var(--muted);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+/* ───────────── Користувачі ───────────── */
+
+.adm-users {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.adm-users__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.adm-search {
+  flex: 1;
+  max-width: 420px;
+}
+
+.adm-search__input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-14);
+  background: var(--card);
+  color: var(--ink);
+  font: 400 13px / 1 var(--f-mono);
+  transition: border-color var(--t-hover);
+}
+
+.adm-search__input::placeholder,
+.adm-field__input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.adm-search__input:hover,
+.adm-search__input:focus {
+  border-color: var(--ink);
+}
+
+.adm-count {
+  color: var(--muted);
+  font: 400 12px / 1 var(--f-mono);
+}
+
+.adm-table {
+  display: flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+}
+
+.adm-urow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 120px 92px 64px;
+  gap: 14px;
+}
+
+.adm-urow.adm-thead {
+  padding: 0 10px 10px;
+}
+
+.adm-empty--table {
+  padding: 20px 10px;
+}
+
+.adm-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.adm-urow--user {
+  align-items: center;
+  min-height: 46px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline-offset: -2px;
+  transition: background-color var(--t-hover);
+}
+
+.adm-urow--user:hover {
+  background: var(--card);
+}
+
+.adm-urow--user.is-on {
+  border-radius: var(--r-10);
+  background: var(--card);
+}
+
+.adm-urow__email {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font: 400 12.5px / 1.3 var(--f-mono);
+}
+
+.adm-urow--user.is-on .adm-urow__email {
+  font-weight: 500;
+}
+
+.adm-urow__email-text,
+.adm-urow__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm-urow__admin {
+  flex: none;
+  color: var(--muted);
+  font: 500 10px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.adm-urow__name {
+  font: 400 13px / 1.3 var(--f-ui);
+}
+
+.adm-urow__act {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+  font: 400 12px / 1.3 var(--f-mono);
+}
+
+.adm-urow__act--none {
+  color: var(--muted);
+}
+
+.adm-urow__act--none .adm-urow__dot {
+  background: transparent;
+}
+
+.adm-urow__created {
+  color: var(--muted);
+  font: 400 12px / 1.3 var(--f-mono);
+}
+
+.adm-urow__bal {
+  font: 500 13px / 1.3 var(--f-mono);
+}
+
+/* ───────────── Outbox ───────────── */
+
+.adm-outbox {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.adm-note {
+  color: var(--muted);
+  font: 400 12px / 1.5 var(--f-mono);
+}
+
+.adm-empty--outbox {
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+
+.adm-mails {
+  border-top: 1px solid var(--ink);
+}
+
+.adm-mail {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1.2fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.adm-mail__at {
+  color: var(--muted);
+  font: 400 12px / 1.4 var(--f-mono);
+}
+
+.adm-mail__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.adm-mail__subject {
+  font: 400 13px / 1.3 var(--f-ui);
+}
+
+.adm-mail__line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink-2);
+  font: 400 12px / 1.3 var(--f-mono);
+}
+
+.adm-mail__kind {
+  flex: none;
+  padding: 3px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  color: var(--ink);
+  font: 500 10px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.adm-mail__to,
+.adm-mail__link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm-mail__link {
+  min-width: 0;
+  color: var(--ink-2);
+  font: 400 12px / 1.3 var(--f-mono);
+}
+
+.adm-mail__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.adm-tag {
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.adm-tag--on {
+  border-color: var(--ink);
+}
+
+/* ───────────── Усі проєкти ───────────── */
+
+.adm-all {
+  display: flex;
+  flex-direction: column;
+}
+
+.adm-prow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 1fr) 88px 64px 64px;
+  gap: 14px;
+}
+
+.adm-prow.adm-thead {
+  padding: 0 0 10px;
+}
+
+.adm-prow:not(.adm-thead) {
+  align-items: center;
+  min-height: 46px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.adm-prow__title,
+.adm-prow__owner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm-prow__title {
+  font: 400 12.5px / 1.3 var(--f-mono);
+}
+
+.adm-prow__owner {
+  color: var(--ink-2);
+  font: 400 12px / 1.3 var(--f-mono);
+}
+
+.adm-prow__owner--none {
+  color: var(--muted);
+}
+
+.adm-prow__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font: 400 12.5px / 1.3 var(--f-ui);
+}
+
+.adm-prow__status--busy .adm-prow__dot,
+.adm-prow__status--awaiting .adm-prow__dot {
+  background: var(--accent);
+}
+
+.adm-prow__status--failed {
+  color: var(--danger);
+}
+
+.adm-prow__status--failed .adm-prow__dot {
+  background: var(--danger);
+}
+
+.adm-prow__fmts {
+  color: var(--ink-2);
+  font: 400 11.5px / 1.3 var(--f-mono);
+}
+
+.adm-prow__date {
+  color: var(--muted);
+  font: 400 12px / 1.3 var(--f-mono);
+}
+
+.adm-prow__usd {
+  font: 500 12.5px / 1.3 var(--f-mono);
+}
+
+/* ───────────── Панель користувача ───────────── */
+
+.adm-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px 28px 40px;
+  border-left: 1px solid var(--line);
+  background: var(--card);
+}
+
+.adm-panel__hint {
+  margin: 0;
+  color: var(--muted);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.adm-panel__details {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.adm-panel__who {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.adm-panel__name {
+  margin: 0;
+  font: 300 28px / 1.1 var(--f-display);
+  letter-spacing: -0.04em;
+}
+
+.adm-panel__email {
+  color: var(--ink-2);
+  font: 400 12px / 1.5 var(--f-mono);
+  overflow-wrap: anywhere;
+}
+
+.adm-panel__meta {
+  color: var(--muted);
+  font: 400 11.5px / 1.5 var(--f-mono);
+}
+
+.adm-balance {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.adm-balance__num {
+  font: 200 72px / 0.9 var(--f-display);
+  letter-spacing: -0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.adm-balance__word {
+  color: var(--muted);
+  font: 400 13px / 1 var(--f-mono);
+}
+
+/* Коригування (AcAdjust) */
+
+.adm-adjust {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.adm-adjust__title {
+  font: 500 15px / 1.3 var(--f-ui);
+}
+
+.adm-adjust__fields {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.adm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.adm-field__label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.adm-field__count {
+  color: var(--muted);
+  font: 400 11px / 1.2 var(--f-mono);
+  letter-spacing: 0;
+}
+
+.adm-field__count.is-over {
+  color: var(--danger);
+}
+
+.adm-field__input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-14);
+  background: var(--card);
+  color: var(--ink);
+  transition: border-color var(--t-hover);
+}
+
+.adm-field__input--credits {
+  font: 500 15px / 1 var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.adm-field__input--note {
+  font: 400 14px / 1 var(--f-ui);
+}
+
+.adm-field__input:hover,
+.adm-field__input:focus {
+  border-color: var(--ink);
+}
+
+.adm-field__input.is-invalid {
+  border-color: var(--danger-field);
+}
+
+.adm-adjust__preview {
+  color: var(--ink-2);
+  font: 400 12px / 1.4 var(--f-mono);
+}
+
+.adm-adjust__error,
+.adm-adjust__done {
+  margin: 0;
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.adm-adjust__error {
+  color: var(--danger);
+}
+
+.adm-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--ink);
+  border-radius: var(--r-14);
+  background: var(--card);
+  animation: adc-fade 0.35s var(--ease) both;
+}
+
+.adm-confirm__title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 500 10.5px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.adm-confirm__title .diamond {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.adm-confirm__text {
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.adm-confirm__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.adm-confirm .btn,
+.adm-submit {
+  cursor: pointer;
+}
+
+.adm-submit {
+  align-self: flex-start;
+}
+
+/* Спінер на --ink: трек --on-ink 30%, дуга --on-ink. */
+.adm-submit__spinner {
+  border-color: color-mix(in srgb, var(--on-ink) 30%, transparent);
+  border-top-color: var(--on-ink);
+}
+
+.adm-adjust__rule {
+  color: var(--muted);
+  font: 400 11px / 1.5 var(--f-mono);
+}
+
+/* Останні операції */
+
+.adm-ops,
+.adm-ops__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.adm-ops__title {
+  padding-bottom: 6px;
+}
+
+.adm-op {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.adm-op--fresh {
+  animation: adc-fade 0.45s var(--ease) both;
+}
+
+.adm-op__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.adm-op__label {
+  font: 400 13px / 1.35 var(--f-ui);
+}
+
+.adm-op__meta {
+  color: var(--muted);
+  font: 400 11px / 1.35 var(--f-mono);
+  overflow-wrap: anywhere;
+}
+
+.adm-op__sums {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.adm-op__sum {
+  font: 500 12.5px / 1.35 var(--f-mono);
+}
+
+.adm-op__after {
+  color: var(--muted);
+  font: 400 11px / 1 var(--f-mono);
+}
