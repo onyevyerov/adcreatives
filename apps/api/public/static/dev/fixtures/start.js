@@ -8,7 +8,7 @@
  */
 import { LOGOUT_FLASH } from "../../js/data/account.js";
 import { initialState } from "../../js/initial.js";
-import { accountFixture, at, ME, meOf, OLENA } from "./_base.js";
+import { accountFixture, at, ME, meOf, OLENA, PRICES } from "./_base.js";
 
 /** @typedef {import("../../js/contracts.js").UiState} UiState */
 /** @typedef {import("../../js/contracts.js").PendingStart} PendingStart */
@@ -20,7 +20,7 @@ const HOST = "zerno.example.com";
 const PENDING = { url: HOST, manualText: null, hadPhotos: false, at: at("19.10 11:20") };
 
 /**
- * Гість: `me` визначився як 401.
+ * Гість: `me` визначився як 401, ціни — з публічного `packages()`.
  * @param {Partial<UiState["account"]>} [account]
  * @param {Partial<UiState["ui"]>} [ui]
  * @returns {UiState}
@@ -29,7 +29,7 @@ function guest(account = {}, ui = {}) {
   const base = initialState("start", null);
   return {
     ...base,
-    account: { ...base.account, meStatus: "anon", ...account },
+    account: { ...base.account, meStatus: "anon", prices: PRICES, ...account },
     ui: { ...base.ui, ...ui },
   };
 }

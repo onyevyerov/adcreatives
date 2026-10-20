@@ -197,14 +197,13 @@ export function mount(el, ctx) {
     h("span", { "aria-hidden": "true", text: "·" }),
     topupBtn,
   );
-  const priceEl = h(
-    "p",
-    { class: "st-price", hidden: true },
+  const pricePart = h(
+    "span",
+    { class: "st-price__head" },
     h("span", {}, "Ролик — ", priceValue),
     h("span", { "aria-hidden": "true", text: "·" }),
-    priceTail,
-    topupPart,
   );
+  const priceEl = h("p", { class: "st-price", hidden: true }, pricePart, priceTail, topupPart);
 
   const shortageEl = h("div", { class: "st-shortage", hidden: true });
   /** @type {UiState["ui"]["startShortage"]} */
@@ -398,14 +397,14 @@ export function mount(el, ctx) {
     text(flashText, showFlash ? (flash ?? "") : "");
     flashEl.hidden = !showFlash;
 
-    // Рядок ціни: гість — «правки безкоштовні», користувач — баланс і «поповнити» при нестачі.
-    const prices = user?.prices ?? null;
-    priceEl.hidden = !prices || autostart !== null;
-    if (prices) {
-      text(priceValue, formatCredits(prices.video));
-      text(priceTail, user ? `у вас ${formatNumber(user.balance)}` : "правки на чекпоінтах безкоштовні");
-      topupPart.hidden = !(user && user.balance < prices.video);
-    }
+    // Рядок ціни (ціни — лише `account.prices`): гість — «правки безкоштовні», користувач — баланс
+    // і «поповнити» при нестачі. Цін немає (збій) — рядок без числа; `me` вантажиться — без рядка.
+    const { prices } = state.account;
+    priceEl.hidden = meStatus === "loading" || autostart !== null;
+    pricePart.hidden = !prices;
+    if (prices) text(priceValue, formatCredits(prices.video));
+    text(priceTail, user ? `у вас ${formatNumber(user.balance)}` : "правки на чекпоінтах безкоштовні");
+    topupPart.hidden = !(user && prices && user.balance < prices.video);
 
     if (short !== shownShortage || (short && me !== shortageMe)) {
       shownShortage = short;

@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixtureStates } from "../../public/static/dev/fixture-states.js";
-import { ME, meOf, OLENA } from "../../public/static/dev/fixtures/_base.js";
+import { ME, meOf, OLENA, PRICES } from "../../public/static/dev/fixtures/_base.js";
 import type { Actions, Me, PartDeps, UiState } from "../../public/static/js/contracts.js";
 import { SEGMENTS } from "../../public/static/js/contracts.js";
 import { LOGOUT_FLASH } from "../../public/static/js/data/account.js";
@@ -34,11 +34,21 @@ const plain = (node: Element | null) => (node?.textContent ?? "").replaceAll(NBS
 const user = (balance: number): Me => meOf(OLENA, balance);
 const guest = (patch: Partial<UiState["account"]> = {}): UiState => {
   const s = initialState("start", null);
-  return { ...s, account: { ...s.account, meStatus: "anon", ...patch } };
+  return { ...s, account: { ...s.account, meStatus: "anon", prices: PRICES, ...patch } };
 };
 const signedIn = (balance = 12, patch: Partial<UiState["account"]> = {}): UiState => {
   const s = initialState("start", null);
-  return { ...s, account: { ...s.account, me: user(balance), meStatus: "ready", projectCount: 4, ...patch } };
+  return {
+    ...s,
+    account: {
+      ...s.account,
+      me: user(balance),
+      meStatus: "ready",
+      projectCount: 4,
+      prices: PRICES,
+      ...patch,
+    },
+  };
 };
 
 /** Дії view: усе — моки. */
@@ -340,10 +350,31 @@ describe("N3-A · рядок ціни", () => {
     expect(actions.openTopup).toHaveBeenCalledWith({ from: "start" });
   });
 
-  it("ціни невідомі (гість, me вантажиться) — рядка немає", () => {
-    expect(setup(guest()).q<HTMLElement>(".st-price").hidden).toBe(true);
+  it("гість: «Ролик — 10 кредитів · правки на чекпоінтах безкоштовні» з account.prices", () => {
+    const { q } = setup(guest());
+    const price = q<HTMLElement>(".st-price");
+    expect(price.hidden).toBe(false);
+    const visible = [...price.querySelectorAll<HTMLElement>(":scope > :not([hidden])")].map(plain);
+    expect(visible.join(" ")).toBe("Ролик — 10 кредитів· правки на чекпоінтах безкоштовні");
+    expect(q<HTMLElement>(".st-price__more").hidden).toBe(true);
+  });
+
+  it("цін немає (збій packages) — рядок без числа; me вантажиться — рядка немає", () => {
+    const { q, setAccount } = setup(guest({ prices: null }));
+    const price = q<HTMLElement>(".st-price");
+    expect(price.hidden).toBe(false);
+    const visible = [...price.querySelectorAll<HTMLElement>(":scope > :not([hidden])")].map(plain);
+    expect(visible).toEqual(["правки на чекпоінтах безкоштовні"]);
+    expect(plain(price)).not.toMatch(/\d/);
+    setAccount({ prices: PRICES });
+    expect(plain(q(".st-price__value"))).toBe("10 кредитів");
     document.body.textContent = "";
     expect(setup(fixture("start")).q<HTMLElement>(".st-price").hidden).toBe(true);
+  });
+
+  it("ціна — лише з account.prices (не з me)", () => {
+    const { q } = setup(signedIn(12, { prices: { video: 7, revision: 3, extraFormat: 2 } }));
+    expect(plain(q(".st-price__value"))).toBe("7 кредитів");
   });
 });
 
