@@ -5,7 +5,15 @@
  */
 import { I18N_KEYS, type I18nKey, t } from "@adc/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ADMIN_ME, HISTORY, ME, PACKAGES, PRICES, PROJECTS } from "../../public/static/dev/fixtures/_base.js";
+import {
+  ADMIN_ME,
+  accountFixture,
+  HISTORY,
+  ME,
+  PACKAGES,
+  PRICES,
+  PROJECTS,
+} from "../../public/static/dev/fixtures/_base.js";
 import type { AccountActions, Me, PartDeps, Route, UiState } from "../../public/static/js/contracts.js";
 import {
   applyRoute,
@@ -1185,6 +1193,17 @@ describe("data/actions.js", () => {
     expect(lost.getState().session).toBe("404");
     expect(lost.getState().ui.notice).toBeNull();
     a2.dispose();
+  });
+});
+
+describe("initial.js · cabinet", () => {
+  it("дефолти history.topups і profile.pwMessage; accountFixture — карта топапів Олени", () => {
+    const cab = initialState("start", null).cabinet;
+    expect(cab.history.topups).toEqual({});
+    expect(cab.profile.pwMessage).toBeNull();
+    expect(accountFixture().cabinet.history.topups).toEqual({ t_c22: "custom", t_8f2k: "standard" });
+    for (const e of HISTORY.filter((h) => h.kind === "topup"))
+      expect(accountFixture().cabinet.history.topups, e.id).toHaveProperty(e.ref.topupId ?? "?");
   });
 });
 
