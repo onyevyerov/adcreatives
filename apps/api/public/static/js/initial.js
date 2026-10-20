@@ -96,6 +96,7 @@ export function authState(view, context = null, patch = {}) {
     token: null,
     busy: false,
     error: null,
+    message: null,
     resent: false,
     cooldownUntil: null,
     bonus: 0,

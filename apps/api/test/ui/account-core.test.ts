@@ -17,7 +17,7 @@ import * as realApi from "../../public/static/js/data/account-api.js";
 import type { Backend } from "../../public/static/js/data/actions.js";
 import { createActions } from "../../public/static/js/data/actions.js";
 import { ApiError, api, NETWORK_MESSAGE, setUnauthorizedHandler } from "../../public/static/js/data/api.js";
-import { initialState } from "../../public/static/js/initial.js";
+import { authState, initialState } from "../../public/static/js/initial.js";
 import { CREDIT_TEMPLATES, parseCreditMessage } from "../../public/static/js/lib/credit-messages.js";
 import {
   closingPackage,
@@ -775,7 +775,13 @@ describe("createAccountActions", () => {
     await expect(api("/api/projects/p1")).rejects.toBeInstanceOf(ApiError);
     const s = store.getState();
     expect(s.session).toBe("401");
-    expect(s.auth).toMatchObject({ view: "login", context: "session", email: "", busy: false });
+    expect(s.auth).toMatchObject({
+      view: "login",
+      context: "session",
+      email: "",
+      busy: false,
+      message: null,
+    });
     expect(s.account).toMatchObject({ meStatus: "anon", me: null });
     expect(log.at(-1)).toBe("stop");
   });
@@ -912,7 +918,13 @@ describe("createAccountActions", () => {
     history.replaceState(null, "", "/?auth=activate&token=tok1");
     const a = make({ query: "auth=activate&token=tok1" });
     expect(location.search).toBe("");
-    expect(a.store.getState().auth).toMatchObject({ view: "activating", token: "tok1", context: null });
+    expect(a.store.getState().auth).toMatchObject({
+      view: "activating",
+      token: "tok1",
+      context: null,
+      error: null,
+      message: null,
+    });
     expect(fn("submitAuth")).toHaveBeenCalledOnce();
     a.actions.dispose();
     history.replaceState(null, "", "/?auth=reset&token=tok2");
@@ -1126,6 +1138,34 @@ describe("data/actions.js", () => {
     expect(lost.getState().session).toBe("404");
     expect(lost.getState().ui.notice).toBeNull();
     a2.dispose();
+  });
+});
+
+describe("initial.js · authState", () => {
+  it("усі поля AuthState з дефолтами; patch перекриває", () => {
+    expect(authState("login")).toEqual({
+      view: "login",
+      context: null,
+      name: "",
+      email: "",
+      password: "",
+      showPassword: false,
+      token: null,
+      busy: false,
+      error: null,
+      message: null,
+      resent: false,
+      cooldownUntil: null,
+      bonus: 0,
+      fails: 0,
+    });
+    expect(
+      authState("login", "header", { error: "invalid_credentials", message: "Невірний e-mail або пароль." }),
+    ).toMatchObject({
+      context: "header",
+      error: "invalid_credentials",
+      message: "Невірний e-mail або пароль.",
+    });
   });
 });
 
