@@ -2,9 +2,26 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDevActions } from "../../public/static/dev/dev-actions.js";
 import { fixtureStates } from "../../public/static/dev/fixture-states.js";
+import { workspaceFixture } from "../../public/static/dev/fixtures/_base.js";
 import type { FeedItem, UiState } from "../../public/static/js/contracts.js";
 import { createStore } from "../../public/static/js/store.js";
-import { cardState, clock, liveOwners, mount, richText } from "../../public/static/js/views/chat.js";
+import {
+  cardState,
+  clock,
+  liveOwners,
+  liveRefusal,
+  mount,
+  richText,
+  storyboardCharge,
+} from "../../public/static/js/views/chat.js";
+
+// session.js належить B12: тут лише контракт `emptyChatText(state): string | null`.
+const session = vi.hoisted(() => ({ emptyChatText: vi.fn((_s: unknown): string | null => null) }));
+vi.mock("../../public/static/js/views/session.js", () => ({
+  emptyChatText: session.emptyChatText,
+  mount: vi.fn(),
+  mountForbidden: vi.fn(),
+}));
 
 type Item = Extract<FeedItem, { kind: string }>;
 
@@ -463,5 +480,278 @@ describe("chat · хелпери", () => {
     expect(notice.textContent).toBe("Не вдалося надіслати");
     store.setState((s) => ({ ui: { ...s.ui, notice: null } }));
     expect(notice.hidden).toBe(true);
+  });
+});
+
+// ───────────── B6 · кредити в чаті (N6-A, N7-A) ─────────────
+
+const NB = " ";
+const EDIT = "Зроби заголовок коротшим";
+const ADVICE =
+  `Різницю закриє пакет «Старт» — 10${NB}кредитів або своя сума від 5. ` +
+  "Після оплати поверну сюди — натисніть «Повторити».";
+
+/** Дописує повідомлення в стрічку (id — далі за останнім). */
+function withMessages(s: UiState, ...msgs: Array<{ role: "user" | "assistant"; text: string }>): UiState {
+  const feed = [...s.feed];
+  for (const [i, m] of msgs.entries())
+    feed.push({
+      kind: "message",
+      id: `zz-${feed.length}-${i}`,
+      at: new Date().toISOString(),
+      role: m.role,
+      text: m.text,
+      buttons: [],
+    });
+  return { ...s, feed };
+}
+
+const refusalRow = (el: HTMLElement) =>
+  el.querySelector<HTMLElement>(".ch-shortage")?.closest<HTMLElement>("[data-id]");
+
+describe("chat · K3 під відмовою (N6-A)", () => {
+  it("n7-fmt-short: K3 «Не вистачає на формати» у рядку відмови; повідомлення — дослівно", () => {
+    const state = fixture("n7-fmt-short");
+    const { el, $$ } = setup(state);
+    const cards = $$(".ch-shortage");
+    expect(cards).toHaveLength(1);
+    const card = cards[0] as HTMLElement;
+    const last = state.feed.at(-1) as Item;
+    expect(refusalRow(el)?.dataset.id).toBe(last.id);
+    expect(refusalRow(el)?.querySelector(".ch-msg__text")?.textContent).toBe(
+      "Не вистачає кредитів на додаткові формати: потрібно 2, у вас 1. Поповніть баланс або лишіть один формат.",
+    );
+    expect(card.getAttribute("role")).toBe("alert");
+    expect(card.classList.contains("sh--chat")).toBe(true);
+    expect(card.querySelector(".sh-title")?.textContent).toBe("Не вистачає на формати");
+    expect([...card.querySelectorAll(".sh-num__value")].map((n) => n.textContent)).toEqual(["2", "1", "1"]);
+    expect(card.querySelector(".sh-advice")?.textContent).toBe(ADVICE);
+    expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
+      "Поповнити",
+      "Лишити один формат",
+    ]);
+  });
+
+  it("«Поповнити» → openTopup(ws, cp3, пакет); «Лишити один формат» → setFormats([перший])", () => {
+    const { $, actions } = setup(fixture("n7-fmt-short"));
+    ($(".ch-shortage .sh-primary") as HTMLButtonElement).click();
+    ($(".ch-shortage .sh-secondary") as HTMLButtonElement).click();
+    const calls = actions.calls.filter((c) => c.name === "openTopup" || c.name === "setFormats");
+    expect(calls).toEqual([
+      { name: "openTopup", args: [{ from: "ws", ctx: "cp3", text: null, packageId: "starter" }] },
+      { name: "setFormats", args: [["vertical"]] },
+    ]);
+  });
+
+  it("n7-rev-short: «Не вистачає на правку», лише «Поповнити» з текстом правки", () => {
+    const { $, $$, actions } = setup(fixture("n7-rev-short"));
+    expect($$(".ch-shortage")).toHaveLength(1);
+    expect($(".ch-shortage .sh-title")?.textContent).toBe("Не вистачає на правку");
+    expect($$(".ch-shortage button").map((b) => b.textContent)).toEqual(["Поповнити"]);
+    ($(".ch-shortage .sh-primary") as HTMLButtonElement).click();
+    expect(actions.calls.find((c) => c.name === "openTopup")?.args).toEqual([
+      { from: "ws", ctx: "rev", text: EDIT, packageId: "starter" },
+    ]);
+  });
+
+  it("лише під останньою відмовою; після успішної дії того ж типу — без картки", () => {
+    const twice = withMessages(
+      fixture("n7-rev-short"),
+      { role: "user", text: "Ще коротше" },
+      {
+        role: "assistant",
+        text: "Не вистачає кредитів: потрібно 3, у вас 2. Поповніть баланс у кабінеті — і я продовжу.",
+      },
+    );
+    const { el, $$, store } = setup(twice);
+    expect($$(".ch-shortage")).toHaveLength(1);
+    expect(refusalRow(el)?.dataset.id).toBe((twice.feed.at(-1) as Item).id);
+    expect(liveRefusal(twice)?.text).toBe("Ще коротше");
+
+    store.setState(
+      withMessages(store.getState(), {
+        role: "assistant",
+        text: "Списано 3 кредитів за правку. Залишок: 9.",
+      }),
+    );
+    expect($$(".ch-shortage")).toHaveLength(0);
+  });
+
+  it("K3 зникає, коли проєкт пішов далі або доплати вже немає", () => {
+    const { $$, store } = setup(fixture("n7-fmt-short"));
+    expect($$(".ch-shortage")).toHaveLength(1);
+    // «Лишити один формат»: вибір ще не надіслано — доплати вже немає.
+    store.setState((s) => ({ ui: { ...s.ui, pendingFormats: ["vertical"] } }));
+    expect($$(".ch-shortage")).toHaveLength(0);
+    store.setState((s) => ({ ui: { ...s.ui, pendingFormats: null } }));
+    expect($$(".ch-shortage")).toHaveLength(1);
+    store.setState({ status: "directing" });
+    expect($$(".ch-shortage")).toHaveLength(0);
+  });
+
+  it("правка: K3 лише в статусі «готово»; списання й повернення — без K3", () => {
+    expect(liveRefusal(fixture("n7-rev-short"))?.ctx).toBe("rev");
+    expect(liveRefusal({ ...fixture("n7-rev-short"), status: "revising" })).toBeNull();
+    expect(liveRefusal(fixture("n7-rev"))).toBeNull();
+    expect(liveRefusal(fixture("n7-fmt"))).toBeNull();
+    expect(liveRefusal(fixture("n7-refund"))).toBeNull();
+  });
+
+  it("без пакетів у me — порада лише про повернення", () => {
+    const s = fixture("n7-fmt-short");
+    const { $ } = setup({ ...s, account: { ...s.account, me: null } });
+    expect($(".ch-shortage .sh-advice")?.textContent).toBe(
+      "Після оплати поверну сюди — натисніть «Повторити».",
+    );
+  });
+});
+
+describe("chat · картка ЧП3 із сумою", () => {
+  const approveLabel = (el: HTMLElement) =>
+    el.querySelector<HTMLElement>('[data-kind="checkpoint"][data-state="active"] [data-action="approve"]')
+      ?.textContent;
+
+  it("доплата за формати → «Затвердити · 2 кредити» і «правки до видачі — безкоштовно»", () => {
+    const { el, visible } = setup(fixture("n7-fmt-short"));
+    expect(approveLabel(el)).toBe(`Затвердити · 2${NB}кредити`);
+    const free = visible(".ch-card__free");
+    expect(free).toHaveLength(1);
+    expect(free[0]?.textContent).toBe("правки до видачі — безкоштовно");
+    expect(free[0]?.closest('[data-kind="checkpoint"]')?.getAttribute("data-state")).toBe("active");
+  });
+
+  it("ціни — лише account.prices; оплачені формати — з projectCredits", () => {
+    const s = fixture("n7-fmt-short");
+    const { el, store } = setup({ ...s, account: { ...s.account, prices: null } });
+    expect(approveLabel(el)).toBe("Затвердити");
+    store.setState({ account: s.account });
+    expect(approveLabel(el)).toBe(`Затвердити · 2${NB}кредити`);
+    store.setState({
+      projectCredits: {
+        charged: 12,
+        refunded: 0,
+        parts: [
+          { kind: "video", credits: -10 },
+          { kind: "format", credits: -2, format: "square" },
+        ],
+      },
+    });
+    expect(approveLabel(el)).toBe("Затвердити");
+    expect(el.querySelector(".ch-shortage")).toBeNull();
+  });
+
+  it("один формат — без суми", () => {
+    const { el, store } = setup(fixture("n7-fmt-short"));
+    store.setState((s) => ({ ui: { ...s.ui, pendingFormats: ["vertical"] } }));
+    expect(approveLabel(el)).toBe("Затвердити");
+  });
+
+  it("ЧП1 — без суми, з підписом про безкоштовні правки (як у Референсі)", () => {
+    const { el, visible } = setup(fixture("awaitingBrand"));
+    expect(approveLabel(el)).toBe("Затвердити");
+    expect(visible(".ch-card__free")).toHaveLength(1);
+  });
+
+  it("після першої видачі правки платні — підпису й суми немає", () => {
+    const s = workspaceFixture("revision");
+    expect(s.artifacts.videos.length).toBeGreaterThan(0);
+    const { visible } = setup(s);
+    expect(visible('[data-kind="checkpoint"][data-state="active"]')).toHaveLength(1);
+    expect(visible(".ch-card__free")).toHaveLength(0);
+    expect(storyboardCharge(s).need).toBe(0);
+  });
+});
+
+describe("chat · «Баланс поповнено · Повторити» (N6-A)", () => {
+  it("n6-retry: остання в стрічці, «+10 · тепер 11», опис і «Повторити» → retryAfterTopup", async () => {
+    const { el, $, actions } = setup(fixture("n6-retry"));
+    const card = $(".ch-retry") as HTMLElement;
+    expect(el.querySelector(".ch-list")?.lastElementChild).toBe(card);
+    expect(card.querySelector(".ch-retry__head")?.textContent).toBe("Баланс поповнено · +10 · тепер 11");
+    expect(card.querySelector(".ch-retry__text")?.textContent).toBe(
+      `Затверджу розкадровку ще раз — спишу 2${NB}кредити за 1:1.`,
+    );
+    // K3 під відмовою лишається (кадр n6-retry).
+    expect($(".ch-shortage")).not.toBeNull();
+    const btn = card.querySelector("button") as HTMLButtonElement;
+    expect(btn.textContent).toBe("Повторити");
+    btn.click();
+    await Promise.resolve();
+    expect(actions.calls.map((c) => c.name)).toContain("retryAfterTopup");
+  });
+
+  it("n6-retry-rev: текст правки й ціна правки", () => {
+    const { $ } = setup(fixture("n6-retry-rev"));
+    expect($(".ch-retry__head")?.textContent).toBe("Баланс поповнено · +10 · тепер 12");
+    expect($(".ch-retry__text")?.textContent).toBe(`Надішлю правку ще раз: «${EDIT}» — 3${NB}кредити.`);
+  });
+
+  it("з'являється з ui.retry, тримається в кінці стрічки, зникає з null", () => {
+    const { el, $, store } = setup(fixture("n7-fmt-short"));
+    expect($(".ch-retry")).toBeNull();
+    store.setState((s) => ({ ui: { ...s.ui, retry: { ctx: "cp3", plus: 10, text: null } } }));
+    const card = $(".ch-retry") as HTMLElement;
+    expect(card).not.toBeNull();
+    store.setState(withMessages(store.getState(), { role: "assistant", text: "Ще одне повідомлення" }));
+    expect(el.querySelector(".ch-list")?.lastElementChild).toBe(card);
+    expect(rowsOf(el).at(-1)?.textContent).toContain("Ще одне повідомлення");
+    store.setState((s) => ({ ui: { ...s.ui, retry: null } }));
+    expect($(".ch-retry")).toBeNull();
+  });
+
+  it("кнопка неактивна, поки повтор виконується", async () => {
+    const { $, actions } = setup(fixture("n6-retry"));
+    let release = () => {};
+    const spy = vi.spyOn(actions, "retryAfterTopup").mockImplementation(
+      () =>
+        new Promise<void>((r) => {
+          release = r;
+        }),
+    );
+    const btn = $(".ch-retry button") as HTMLButtonElement;
+    btn.click();
+    expect(btn.disabled).toBe(true);
+    btn.click();
+    expect(spy).toHaveBeenCalledTimes(1);
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(btn.disabled).toBe(false);
+  });
+});
+
+describe("chat · списання й повернення (N7-A)", () => {
+  it.each([
+    ["n7-rev", "Списано 3 кредитів за правку. Залишок: 9."],
+    ["n7-fmt", "Списано 2 кредитів за додаткові формати (1). Залишок: 10."],
+    ["n7-refund", "Не вдалося завершити ролик — 10 кредитів повернуто на баланс."],
+  ])("%s: текст дослівно, без K3 і без картки повтору", (name, value) => {
+    const { $$ } = setup(fixture(name));
+    expect($$('[data-role="assistant"] .ch-msg__text').map((n) => n.textContent)).toContain(value);
+    expect($$(".ch-shortage")).toHaveLength(0);
+    expect($$(".ch-retry")).toHaveLength(0);
+  });
+});
+
+describe("chat · порожній чат системного стану (B12)", () => {
+  afterEach(() => {
+    session.emptyChatText.mockReset();
+    session.emptyChatText.mockReturnValue(null);
+  });
+
+  it("emptyChatText(state) показується лише в порожній стрічці", () => {
+    const TEXT = "Порожній чат для 404";
+    session.emptyChatText.mockImplementation((s) => ((s as UiState).session === "404" ? TEXT : null));
+    const { $, store } = setup({ ...fixture("n7-fmt-short"), feed: [], session: "404" });
+    const p = $(".ch-empty") as HTMLElement;
+    expect(p.hidden).toBe(false);
+    expect(p.textContent).toBe(TEXT);
+    store.setState({ session: null });
+    expect(p.hidden).toBe(true);
+  });
+
+  it("null — нічого не показує; непорожня стрічка — теж", () => {
+    session.emptyChatText.mockReturnValue("текст");
+    const { $ } = setup(fixture("n7-fmt-short"));
+    expect(($(".ch-empty") as HTMLElement).hidden).toBe(true);
   });
 });
