@@ -114,7 +114,7 @@ export function initialCabinet() {
     backTo: null,
     topup: { mode: "package", packageId: null, custom: "", error: false, busy: false },
     pendingTopups: [],
-    history: { entries: [], nextBefore: null, loading: false, more: false },
+    history: { entries: [], nextBefore: null, loading: false, more: false, topups: {} },
     projects: { rows: null, loading: false, open: null },
     profile: {
       nameDraft: "",
@@ -125,6 +125,7 @@ export function initialCabinet() {
       next: "",
       pwBusy: false,
       pwError: null,
+      pwMessage: null,
       pwDone: false,
     },
   };
