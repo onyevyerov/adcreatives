@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@keyframes acDelta{0%{opacity:0;transform:translateY(4px)}25%{opacity:1;transform:none}75%{opacity:1}100%{opacity:0;transform:translateY(-6px)}}
+@media (prefers-reduced-motion: reduce){@keyframes acDelta{0%{opacity:0}25%{opacity:1}75%{opacity:1}100%{opacity:0}}}
+</style>
+</helmet>
+<div style="position:relative; z-index:30; display:flex; align-items:center; justify-content:space-between; gap:24px; height:{{ rootH }}; padding:{{ rootPad }}; background:{{ rootBg }}; font-family:'Onest',sans-serif; color:#151412;">
+  <sc-if value="{{ full }}" hint-placeholder-val="{{ true }}">
+  <div style="display:flex; flex:1 1 auto; align-items:center; gap:12px; min-width:0;">
+    <button type="button" onClick="{{ goStart }}" style="flex:none; display:inline-flex; align-items:center; gap:9px; padding:0; border:0; background:none; font:500 14px/1 'Unbounded',sans-serif; letter-spacing:-0.02em; color:#151412; cursor:pointer;"><span style="width:8px; height:8px; border-radius:50%; background:#D4402A;"></span>AdCreative</button>
+    <sc-if value="{{ hasHost }}" hint-placeholder-val="{{ true }}">
+      <span style="flex:none; color:#6E6A63; font:400 13px/1 'JetBrains Mono',monospace;">/</span>
+      <span title="{{ host }}" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#3A3833; font:400 12.5px/1 'JetBrains Mono',monospace;">{{ host }}</span>
+    </sc-if>
+  </div>
+  </sc-if>
+  <div style="display:flex; flex:none; align-items:center; gap:20px;">
+    <sc-if value="{{ showStatus }}" hint-placeholder-val="{{ true }}">
+      <span role="status" style="display:inline-flex; align-items:center; gap:8px; color:{{ statusColor }}; font:{{ statusWeight }} 13px/1 'Onest',sans-serif; white-space:nowrap;"><span style="width:7px; height:7px; border-radius:50%; background:{{ dotColor }}; animation:{{ dotAnim }};"></span>{{ statusLabel }}</span>
+    </sc-if>
+    <sc-if value="{{ showStats }}">
+      <span style="color:#6E6A63; font:400 12.5px/1 'JetBrains Mono',monospace; white-space:nowrap;">Витрачено <b style="color:#151412; font-weight:500;">$2.31</b></span>
+    </sc-if>
+
+    <sc-if value="{{ loading }}">
+      <span aria-label="Баланс завантажується" style="display:inline-flex; align-items:center; gap:8px; color:#6E6A63; font:400 12.5px/1 'JetBrains Mono',monospace; white-space:nowrap;"><span style="width:12px; height:12px; border-radius:50%; border:1.5px solid rgba(21,20,18,.15); border-top-color:#D4402A; animation:adcSpin .8s linear infinite;"></span>баланс…</span>
+    </sc-if>
+
+    <sc-if value="{{ showA }}" hint-placeholder-val="{{ true }}">
+      <span style="position:relative; display:inline-flex; align-items:baseline; gap:6px; color:#6E6A63; font:400 12.5px/1 'JetBrains Mono',monospace; white-space:nowrap;">
+        <b style="color:#151412; font-weight:500; font-variant-numeric:tabular-nums;">{{ balNum }}</b><span>{{ balWord }}</span>
+        <sc-if value="{{ low }}"><span aria-hidden="true">·</span><button type="button" onClick="{{ topup }}" style="padding:0; border:0; background:none; color:#3A3833; font:400 12.5px/1 'JetBrains Mono',monospace; text-decoration:underline; text-decoration-color:rgba(21,20,18,.16); text-underline-offset:3px; cursor:pointer;" style-hover="color:#D4402A; text-decoration-color:currentColor;">поповнити</button></sc-if>
+        {{ deltaEl }}
+      </span>
+    </sc-if>
+
+    <sc-if value="{{ showB }}">
+      <span style="position:relative; display:inline-flex; align-items:stretch; height:32px; border:1px solid rgba(21,20,18,.16); border-radius:999px; white-space:nowrap;">
+        <button type="button" onClick="{{ openBalance }}" aria-label="{{ balAria }}" style="display:inline-flex; align-items:center; gap:6px; padding:0 12px 0 14px; border:0; border-radius:999px 0 0 999px; background:transparent; color:#6E6A63; font:400 12.5px/1 'JetBrains Mono',monospace; cursor:pointer;" style-hover="color:#151412;"><b style="color:#151412; font-weight:500; font-variant-numeric:tabular-nums;">{{ balNum }}</b>{{ balWord }}</button>
+        <span style="width:1px; background:rgba(21,20,18,.16);"></span>
+        <button type="button" onClick="{{ topup }}" aria-label="Поповнити баланс" style="display:inline-flex; align-items:center; gap:6px; min-width:32px; justify-content:center; padding:0 {{ plusPad }}; border:0; border-radius:0 999px 999px 0; background:transparent; color:#151412; font:500 13px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#151412; color:#F5F3EE;"><span style="font:400 15px/1 'Onest',sans-serif;">+</span>{{ plusLabel }}</button>
+        {{ deltaEl }}
+      </span>
+    </sc-if>
+
+    <sc-if value="{{ full }}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{ newProject }}" style="height:32px; padding:0 14px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 13px/1 'Onest',sans-serif; white-space:nowrap; cursor:pointer; transition:border-color .2s;" style-hover="border-color:#151412;">Новий проєкт</button></sc-if>
+    <sc-if value="{{ showStats }}">
+      <a href="#stats" style="color:#3A3833; font:500 13px/1 'Onest',sans-serif; text-decoration:none; white-space:nowrap;" style-hover="color:#D4402A;">Статистика</a>
+    </sc-if>
+
+    <sc-if value="{{ hasUser }}" hint-placeholder-val="{{ true }}">
+      <sc-if value="{{ isAdmin }}"><span style="margin-right:-10px; color:#6E6A63; font:500 10.5px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">адмін</span></sc-if>
+      <sc-if value="{{ triggerA }}" hint-placeholder-val="{{ true }}">
+        <button type="button" onClick="{{ toggleMenu }}" aria-haspopup="menu" aria-expanded="{{ menuOpenStr }}" style="height:32px; padding:0; border:0; background:none; color:{{ trigColor }}; font:500 13px/1 'Onest',sans-serif; text-decoration:underline; text-decoration-color:{{ trigLine }}; text-underline-offset:4px; white-space:nowrap; cursor:pointer;" style-hover="color:#151412; text-decoration-color:#151412;">{{ shortName }}</button>
+      </sc-if>
+      <sc-if value="{{ triggerB }}">
+        <button type="button" onClick="{{ toggleMenu }}" aria-haspopup="menu" aria-expanded="{{ menuOpenStr }}" aria-label="Меню акаунта" style="width:32px; height:32px; padding:0; border:1px solid {{ trigRing }}; border-radius:50%; background:{{ trigBg }}; color:{{ trigFg }}; font:500 11.5px/1 'Onest',sans-serif; letter-spacing:.02em; cursor:pointer; transition:border-color .2s;" style-hover="border-color:#151412;">{{ initials }}</button>
+      </sc-if>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{ menuOpen }}">
+    <div role="menu" style="position:absolute; top:{{ menuTop }}; right:{{ menuRight }}; width:272px; padding:6px; background:#FCFBF8; border:1px solid #151412; border-radius:14px; display:flex; flex-direction:column; animation:adcFade .25s cubic-bezier(.2,.8,.2,1) both;">
+      <div style="display:flex; flex-direction:column; gap:6px; padding:12px 12px 14px; border-bottom:1px solid rgba(21,20,18,.10);">
+        <span style="font:500 14px/1.2 'Onest',sans-serif;">{{ name }}</span>
+        <span style="font:400 11.5px/1.3 'JetBrains Mono',monospace; color:#6E6A63; overflow-wrap:anywhere;">{{ email }}</span>
+        <sc-if value="{{ isAdmin }}"><span style="font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; color:#6E6A63;">роль · адміністратор</span></sc-if>
+      </div>
+      <div style="display:flex; flex-direction:column; padding:6px 0;">
+        <sc-for list="{{ items }}" as="it" hint-placeholder-count="4">
+          <button type="button" role="menuitem" onClick="{{ it.onClick }}" style="display:flex; align-items:center; justify-content:space-between; gap:12px; height:40px; padding:0 12px; border:0; border-radius:10px; background:transparent; color:#151412; font:500 13.5px/1 'Onest',sans-serif; text-align:left; cursor:pointer;" style-hover="background:#F5F3EE;"><span>{{ it.label }}</span><span style="color:#6E6A63; font:400 11.5px/1 'JetBrains Mono',monospace;">{{ it.meta }}</span></button>
+        </sc-for>
+      </div>
+      <div style="border-top:1px solid rgba(21,20,18,.10); padding-top:6px;">
+        <button type="button" role="menuitem" onClick="{{ logout }}" style="display:flex; align-items:center; width:100%; height:40px; padding:0 12px; border:0; border-radius:10px; background:transparent; color:#3A3833; font:500 13.5px/1 'Onest',sans-serif; text-align:left; cursor:pointer;" style-hover="background:#F5F3EE; color:#151412;">Вийти</button>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:360},&quot;app&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;object&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const a = this.props.app || {};
+    const f = a.fmt || { num: (n) => String(n), word: () => 'кредитів' };
+    const act = a.act || (() => {});
+    const isB = a.v && a.v.N4 === 'B';
+    const st = a.status;
+    const BUSY = ['intake', 'crawling', 'brandkit', 'scripting', 'directing', 'rendering', 'revising'];
+    const AW = ['awaiting_brand', 'awaiting_script', 'awaiting_storyboard'];
+    const kind = BUSY.includes(st) ? 'busy' : AW.includes(st) ? 'awaiting' : st === 'delivered' ? 'delivered' : st === 'failed' ? 'failed' : 'idle';
+    const DOT = { busy: '#D4402A', awaiting: '#D4402A', delivered: '#151412', failed: '#B8331F', idle: '#6E6A63' };
+    const bal = a.balance ?? 0;
+    const user = a.user;
+    const low = bal < (a.low ?? 5);
+    const loading = !!a.meLoading;
+    const menuOpen = !!a.menu && !!user;
+    const d = a.delta;
+    const deltaEl = d ? React.createElement('span', {
+      key: 'd' + d.key,
+      'aria-hidden': 'true',
+      style: { position: 'absolute', right: isB ? 'calc(100% + 8px)' : '0', top: isB ? '9px' : '-14px', font: "500 11px/1 'JetBrains Mono',monospace", color: '#3A3833', whiteSpace: 'nowrap', pointerEvents: 'none', animation: 'acDelta 1.6s cubic-bezier(.2,.8,.2,1) forwards' }
+    }, f.sgn ? f.sgn(d.n) : String(d.n)) : null;
+    const items = [
+      { label: 'Кабінет', meta: '', onClick: () => act('cab', 'balance') },
+      { label: 'Мої проєкти', meta: String(a.projectsCount ?? ''), onClick: () => act('cab', 'projects') },
+      { label: 'Історія', meta: '', onClick: () => act('cab', 'history') },
+      { label: 'Профіль', meta: '', onClick: () => act('cab', 'profile') },
+    ];
+    if (user && user.isAdmin) {
+      items.push({ label: 'Адмінка', meta: '', onClick: () => act('admin', 'users') });
+      items.push({ label: 'Статистика', meta: '↗', onClick: () => {} });
+    }
+    const nm = (user && user.name) || '';
+    const parts = nm.split(' ');
+    const full = this.props.part !== 'account';
+    return {
+      full,
+      rootH: full ? '56px' : '32px',
+      rootPad: full ? '0 24px' : '0',
+      rootBg: full ? '#F5F3EE' : 'transparent',
+      menuTop: full ? '50px' : '42px',
+      menuRight: full ? '16px' : '-8px',
+      showStats: full && !!(user && user.isAdmin),
+      goStart: () => act('home'),
+      hasHost: !!a.host,
+      host: a.host || '',
+      showStatus: a.mode !== 'cab' && !!st && !!a.statusLabel,
+      statusLabel: a.statusLabel || '',
+      statusColor: kind === 'failed' ? '#B8331F' : '#3A3833',
+      statusWeight: kind === 'failed' ? 500 : 400,
+      dotColor: DOT[kind],
+      dotAnim: kind === 'busy' ? 'adcPulse 1.1s ease-in-out infinite' : 'none',
+      isAdmin: !!(user && user.isAdmin),
+      loading,
+      showA: !isB && !loading && !!user,
+      showB: isB && !loading && !!user,
+      balNum: f.num(bal),
+      balWord: f.word(bal),
+      balAria: 'Баланс: ' + f.num(bal) + ' ' + f.word(bal) + '. Відкрити кабінет',
+      low,
+      plusLabel: low ? 'Поповнити' : '',
+      plusPad: low ? '14px 0 10px' : '0',
+      deltaEl,
+      topup: () => act('openTopup', { from: 'topbar' }),
+      openBalance: () => act('cab', 'balance'),
+      newProject: () => act('home'),
+      hasUser: !!user || loading,
+      triggerA: !isB,
+      triggerB: isB,
+      shortName: parts[0] ? parts[0] + (parts[1] ? ' ' + parts[1][0] + '.' : '') : '…',
+      initials: parts.map((p) => p[0] || '').join('').slice(0, 2).toUpperCase() || '·',
+      trigColor: menuOpen ? '#151412' : '#3A3833',
+      trigLine: menuOpen ? '#151412' : 'rgba(21,20,18,.16)',
+      trigRing: menuOpen ? '#151412' : 'rgba(21,20,18,.16)',
+      trigBg: menuOpen ? '#151412' : 'transparent',
+      trigFg: menuOpen ? '#F5F3EE' : '#151412',
+      menuOpen,
+      menuOpenStr: menuOpen ? 'true' : 'false',
+      toggleMenu: () => act('menu'),
+      name: nm,
+      email: (user && user.email) || '',
+      items,
+      logout: () => act('logout'),
+    };
+  }
+}
+</script>
+</body>
+</html>

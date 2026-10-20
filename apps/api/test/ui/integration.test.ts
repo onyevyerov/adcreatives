@@ -3,6 +3,8 @@
 /**
  * B10 · Інтеграція: справжній index.html + app.js + шар даних у режимі `?mock=1`.
  * Повний прохід від старту до «Готово», ревізія після видачі, помилка й «Спробувати ще раз».
+ * Крок 0 акаунтів: у mock-режимі акаунт фейковий (Олена, 12) і мережі немає зовсім; переходи
+ * між маршрутами зупиняють і відновлюють потік проєкту.
  * Таймери mock-бекенду — фейкові, тож тест іде за мілісекунди реального часу.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -67,9 +69,14 @@ async function compose(text: string) {
 
 let app: App | null = null;
 const errors = vi.spyOn(console, "error");
+/** У mock-режимі мережі немає: будь-який fetch — помилка тесту. */
+const network = vi.fn(async (url: string) => {
+  throw new Error(`fetch у mock-режимі: ${url}`);
+});
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+  vi.stubGlobal("fetch", network);
   history.replaceState(null, "", "/");
   mountIndexHtml();
 });
@@ -78,8 +85,10 @@ afterEach(() => {
   app?.destroy();
   app = null;
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   document.body.textContent = "";
   errors.mockClear();
+  network.mockClear();
 });
 
 describe("повний прохід у ?mock=1", () => {
@@ -87,9 +96,11 @@ describe("повний прохід у ?mock=1", () => {
     app = await boot({ params: new URLSearchParams("mock=1&speed=10") });
     const a = app;
 
-    // Старт.
+    // Старт; акаунт — фейковий me без мережі.
     expect($("#app").dataset.route).toBe("start");
     expect($("#workspace").hidden).toBe(true);
+    await until(a, (s) => s.account.meStatus === "ready", "me");
+    expect(a.store.getState().account.me).toMatchObject({ balance: 12, user: { name: "Олена Коваль" } });
     const url = $<HTMLInputElement>('#start input[name="url"]');
     url.value = "zerno.example.com";
     url.dispatchEvent(new Event("input", { bubbles: true }));
@@ -177,10 +188,12 @@ describe("повний прохід у ?mock=1", () => {
     expect(new Set(a.store.getState().artifacts.videos.map((v) => v.rev))).toEqual(new Set([1, 2]));
     expect($<HTMLVideoElement>("#stage video").getAttribute("src")).toContain("rev=2");
 
-    // Новий проєкт → старт.
+    // Новий проєкт → старт; акаунт лишається.
     click("#topbar .btn--ghost");
     await vi.advanceTimersByTimeAsync(0);
     expect($("#app").dataset.route).toBe("start");
+    expect(a.store.getState().account.meStatus).toBe("ready");
+    expect(network).not.toHaveBeenCalled();
     expect(errors).not.toHaveBeenCalled();
   });
 
@@ -210,6 +223,32 @@ describe("повний прохід у ?mock=1", () => {
     await until(app, (s) => delivered(s, 1), "delivered");
     expect(stage()?.classList.contains("dn")).toBe(true);
     expect(document.querySelectorAll("#stage .dn-scrub__seg").length).toBe(3);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("проєкт → кабінет → «назад» у браузері: потік зупиняється і відновлюється", async () => {
+    app = await boot({ params: new URLSearchParams("mock=1&speed=10&jump=delivered") });
+    const a = app;
+    await until(a, (s) => delivered(s, 1) && s.account.meStatus === "ready", "delivered");
+    a.actions.navigate({ route: "cabinet", section: "balance" });
+    expect(location.search).toBe("?mock=1&speed=10&cabinet=balance");
+    expect($("#app").dataset.route).toBe("cabinet");
+    expect($("#workspace").hidden).toBe(true);
+    expect($("#cabinet").hidden).toBe(false);
+    expect($("#stage").childNodes.length).toBe(0);
+    expect($("#cab-main").childNodes.length).toBeGreaterThan(0);
+    // Потік стоїть: таймери mock-бекенду не міняють стан.
+    const parked = a.store.getState();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(a.store.getState().feed).toBe(parked.feed);
+
+    history.replaceState(null, "", "/?mock=1&speed=10&project=p1");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect($("#app").dataset.route).toBe("project");
+    expect($("#cab-main").childNodes.length).toBe(0);
+    await until(a, (s) => s.status === "awaiting_brand", "потік відновлено");
+    expect(stage()?.classList.contains("cb")).toBe(true);
+    expect(network).not.toHaveBeenCalled();
     expect(errors).not.toHaveBeenCalled();
   });
 });

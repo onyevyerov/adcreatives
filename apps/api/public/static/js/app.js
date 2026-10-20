@@ -1,24 +1,30 @@
 // @ts-check
 /**
- * Точка входу сторінки чату (Крок 0; блоки цей файл не правлять).
+ * Точка входу сторінки (Крок 0; блоки цей файл не правлять).
  *
- * - `?project=<id>` → робочий простір, інакше — старт;
- * - `?mock=1[&jump=…][&speed=…]` → шар даних програє фікстуру подій (B2, data/mock.js);
+ * - маршрут — з адреси (router.js): старт, `?project=<id>` → робочий простір, `?cabinet=…`,
+ *   `?checkout=<id>`, `?admin=…`; `?auth=activate|reset&token=…` — старт + модалка входу;
+ * - `?mock=1[&jump=…][&speed=…]` → шар даних програє фікстуру подій (data/mock.js), акаунт — фейковий;
  * - `?fixture=<стан>` → статичний стан з dev/fixture-states.js і dev-дії, без шару даних.
  *
- * Монтує view в точки з index.html і перемикає екран сцени за `viewFor(state)`.
+ * Монтує view в точки з index.html: на кожен маршрут — свій корінь з областями; у робочому
+ * просторі перемикає екран сцени за `viewFor(state)`; модалка входу (`#overlay`) змонтована завжди.
  */
-import { createActions } from "./data/actions.js";
+import { createAccountActions, stateForUrl } from "./data/account.js";
 import { clear } from "./dom.js";
-import { initialState } from "./initial.js";
 import { createStore } from "./store.js";
 import { viewFor } from "./view.js";
+import * as admin from "./views/admin.js";
+import * as auth from "./views/auth.js";
+import * as cabinet from "./views/cabinet.js";
 import * as chat from "./views/chat.js";
+import * as checkout from "./views/checkout.js";
 import * as cpBoard from "./views/cp-board.js";
 import * as cpBrand from "./views/cp-brand.js";
 import * as cpScript from "./views/cp-script.js";
 import * as done from "./views/done.js";
 import * as failed from "./views/failed.js";
+import * as session from "./views/session.js";
 import * as stageProgress from "./views/stage-progress.js";
 import * as start from "./views/start.js";
 import * as timeline from "./views/timeline.js";
@@ -31,6 +37,7 @@ import * as topbar from "./views/topbar.js";
 /** @typedef {import("./contracts.js").MountFn} MountFn */
 /** @typedef {import("./contracts.js").ViewHandle} ViewHandle */
 /** @typedef {import("./contracts.js").StageView} StageView */
+/** @typedef {UiState["route"]} RouteName */
 
 /** Екрани сцени. @type {Record<StageView, MountFn>} */
 export const STAGE_VIEWS = {
@@ -40,14 +47,44 @@ export const STAGE_VIEWS = {
   board: cpBoard.mount,
   done: done.mount,
   failed: failed.mount,
+  session: session.mount,
+  notfound: session.mount,
 };
 
-/** Постійні області робочого простору: id точки монтування → view. @type {[string, MountFn][]} */
-const WORKSPACE_VIEWS = [
-  ["topbar", topbar.mount],
-  ["timeline", timeline.mount],
-  ["chat", chat.mount],
-];
+/**
+ * Екрани маршрутів: корінь з index.html (видимий лише на своєму маршруті) і його області —
+ * id точки монтування → view. Сцена робочого простору (`#stage`) — окремо, за `viewFor`.
+ * @type {Record<RouteName, { root: string, areas: [string, MountFn][] }>}
+ */
+export const SCREENS = {
+  start: { root: "start", areas: [["start", start.mount]] },
+  project: {
+    root: "workspace",
+    areas: [
+      ["topbar", topbar.mount],
+      ["timeline", timeline.mount],
+      ["chat", chat.mount],
+    ],
+  },
+  cabinet: {
+    root: "cabinet",
+    areas: [
+      ["cab-topbar", topbar.mount],
+      ["cab-main", cabinet.mount],
+    ],
+  },
+  checkout: { root: "checkout", areas: [["checkout", checkout.mount]] },
+  admin: {
+    root: "admin",
+    areas: [
+      ["admin-topbar", topbar.mount],
+      ["admin-main", admin.mount],
+    ],
+  },
+};
+
+/** @type {readonly RouteName[]} */
+const ROUTES = /** @type {RouteName[]} */ (Object.keys(SCREENS));
 
 /**
  * Помилка одного view не валить решту сторінки.
@@ -94,20 +131,23 @@ function byId(doc, id) {
 export async function boot(opts = {}) {
   const doc = opts.doc ?? document;
   const params = opts.params ?? new URLSearchParams(doc.location?.search ?? "");
-  const projectId = params.get("project");
   const fixture = params.get("fixture");
 
-  let state = opts.state ?? initialState(projectId ? "project" : "start", projectId);
+  let state = opts.state ?? stateForUrl(params);
   /** @type {(store: Store) => Actions} */
-  let makeActions = opts.actions ?? ((s) => createActions(s, { params }));
+  let makeActions = opts.actions ?? ((s) => createAccountActions(s, { params }));
   if (!opts.state && fixture) {
-    const [{ fixtureStates }, { createDevActions }] = await Promise.all([
+    const [{ fixtureStates }, { createDevActions }, { ME }] = await Promise.all([
       import("../dev/fixture-states.js"),
       import("../dev/dev-actions.js"),
+      import("../dev/fixtures/_base.js"),
     ]);
     const preset = fixtureStates[fixture];
     if (preset) state = preset;
     else console.warn(`[app] немає фікстури «${fixture}»: ${Object.keys(fixtureStates).join(", ")}`);
+    // Фікстури без акаунта (стани проєкту до Кроку 0) — з фейковим me (Олена, 12).
+    if (state.account.meStatus === "loading")
+      state = { ...state, account: { ...state.account, me: ME, meStatus: "ready" } };
     if (!opts.actions) makeActions = createDevActions;
   }
 
@@ -117,70 +157,74 @@ export async function boot(opts = {}) {
   const ctx = { store, actions };
 
   const app = byId(doc, "app");
-  const startEl = byId(doc, "start");
-  const workspaceEl = byId(doc, "workspace");
+  const roots = Object.fromEntries(ROUTES.map((r) => [r, byId(doc, SCREENS[r].root)]));
   const stageEl = byId(doc, "stage");
+  const overlayEl = byId(doc, "overlay");
 
-  /** @type {ViewHandle | null} */
-  let startView = null;
-  /** @type {{ name: string, el: HTMLElement, view: ViewHandle | null }[] | null} */
-  let workspace = null;
+  /** @type {{ route: RouteName, areas: { name: string, el: HTMLElement, view: ViewHandle | null }[] } | null} */
+  let screen = null;
   /** @type {{ kind: StageView, view: ViewHandle | null } | null} */
   let stage = null;
+  /** @type {ViewHandle | null} */
+  let overlay = null;
 
-  function leaveWorkspace() {
+  function leaveStage() {
     if (stage) destroyView(stage.view, `stage:${stage.kind}`);
     stage = null;
     clear(stageEl);
-    for (const area of workspace ?? []) {
+  }
+
+  function leaveScreen() {
+    if (!screen) return;
+    if (screen.route === "project") leaveStage();
+    for (const area of screen.areas) {
       destroyView(area.view, area.name);
       clear(area.el);
     }
-    workspace = null;
-  }
-
-  function leaveStart() {
-    destroyView(startView, "start");
-    startView = null;
-    clear(startEl);
+    screen = null;
   }
 
   /** @param {UiState} next @param {UiState} prev */
-  function render(next, prev) {
-    app.dataset.route = next.route;
-    startEl.hidden = next.route !== "start";
-    workspaceEl.hidden = next.route !== "project";
-
-    if (next.route === "start") {
-      leaveWorkspace();
-      if (startView) {
-        const view = startView;
-        guard("update start", () => view.update(next, prev));
-      } else startView = mountView(startEl, start.mount, ctx, "start");
-      return;
-    }
-
-    leaveStart();
-    if (workspace) {
-      for (const { name, view } of workspace)
-        if (view) guard(`update ${name}`, () => view.update(next, prev));
-    } else {
-      workspace = WORKSPACE_VIEWS.map(([name, mount]) => {
-        const el = byId(doc, name);
-        return { name, el, view: mountView(el, mount, ctx, name) };
-      });
-    }
-
+  function renderStage(next, prev) {
     const kind = viewFor(next);
     if (stage?.kind === kind) {
       const view = stage.view;
       if (view) guard(`update stage:${kind}`, () => view.update(next, prev));
       return;
     }
-    if (stage) destroyView(stage.view, `stage:${stage.kind}`);
-    clear(stageEl);
+    leaveStage();
     stageEl.scrollTop = 0;
     stage = { kind, view: mountView(stageEl, STAGE_VIEWS[kind], ctx, `stage:${kind}`) };
+  }
+
+  /** @param {UiState} next @param {UiState} prev */
+  function render(next, prev) {
+    const route = SCREENS[next.route] ? next.route : "start";
+    app.dataset.route = route;
+    for (const r of ROUTES) {
+      const el = roots[r];
+      if (el) el.hidden = r !== route;
+    }
+
+    if (screen && screen.route !== route) leaveScreen();
+    if (screen) {
+      for (const { name, view } of screen.areas)
+        if (view) guard(`update ${name}`, () => view.update(next, prev));
+    } else {
+      screen = {
+        route,
+        areas: SCREENS[route].areas.map(([name, mount]) => {
+          const el = byId(doc, name);
+          return { name, el, view: mountView(el, mount, ctx, name) };
+        }),
+      };
+    }
+    if (route === "project") renderStage(next, prev);
+
+    if (overlay) {
+      const view = overlay;
+      guard("update overlay", () => view.update(next, prev));
+    } else overlay = mountView(overlayEl, auth.mount, ctx, "overlay");
   }
 
   // setState зсередини mount/update не рендерить повторно посеред рендеру: зміни збираються
@@ -215,8 +259,12 @@ export async function boot(opts = {}) {
     actions,
     destroy() {
       unsubscribe();
-      leaveStart();
-      leaveWorkspace();
+      leaveScreen();
+      destroyView(overlay, "overlay");
+      overlay = null;
+      clear(overlayEl);
+      const dispose = /** @type {{ dispose?: () => void }} */ (actions).dispose;
+      if (typeof dispose === "function") guard("dispose", () => dispose.call(actions));
     },
   };
 }

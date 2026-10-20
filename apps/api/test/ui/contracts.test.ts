@@ -4,10 +4,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { BUSY_STATUSES, ChatEvent, compareStreamIds, computeTimeline, PROJECT_STATUSES } from "@adc/shared";
 import { fixtureBrandKitFile, fixtureStoryboard } from "@adc/shared/fixtures";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as events from "../../public/static/dev/fixture-events.js";
 import { fixtureStates, REQUIRED_STATES } from "../../public/static/dev/fixture-states.js";
-import { boot, STAGE_VIEWS } from "../../public/static/js/app.js";
+import { boot, SCREENS, STAGE_VIEWS } from "../../public/static/js/app.js";
 import type { StageView, UiState } from "../../public/static/js/contracts.js";
 import {
   AWAITING,
@@ -49,7 +49,22 @@ const STAGE_FILES: Record<StageView, string> = {
   board: "cp-board",
   done: "done",
   failed: "failed",
+  session: "session",
+  notfound: "session",
 };
+
+/** Відповідь `GET /api/auth/me` для гостя: boot() без бекенду не падає й не ходить у мережу. */
+function stubGuest() {
+  const fn = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ error: "unauthorized", message: "Потрібно увійти." }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  vi.stubGlobal("fetch", fn);
+  return fn;
+}
 
 const stubs = () => [...document.querySelectorAll("[data-stub]")].map((n) => n.getAttribute("data-stub"));
 
@@ -131,10 +146,18 @@ describe("fixture-states.js", () => {
     for (const name of REQUIRED_STATES) expect(fixtureStates, name).toHaveProperty(name);
   });
 
+  const accountKeys = Object.keys(initialState("start", null).account).sort();
+  const cabinetKeys = Object.keys(initialState("start", null).cabinet).sort();
+  const adminKeys = Object.keys(initialState("start", null).admin).sort();
+
   it.each(Object.keys(fixtureStates))("%s має всі ключі UiState", (name) => {
     const s = fixture(name);
     expect(Object.keys(s).sort()).toEqual(uiKeys);
     expect(Object.keys(s.ui).sort()).toEqual(flagKeys);
+    expect(Object.keys(s.account).sort()).toEqual(accountKeys);
+    expect(Object.keys(s.cabinet).sort()).toEqual(cabinetKeys);
+    expect(Object.keys(s.admin).sort()).toEqual(adminKeys);
+    expect(Object.keys(SCREENS)).toContain(s.route);
     expect(Object.keys(s.checkpoints).sort()).toEqual(["brand", "script", "storyboard"]);
     expect(Object.keys(s.artifacts).sort()).toEqual(["music", "poster", "videos"]);
     expect(STATUSES).toContain(s.status);
@@ -188,6 +211,13 @@ describe("contracts.js / view.js", () => {
 
   it.each([...PROJECT_STATUSES])("viewFor(%s) — відомий екран сцени", (status) => {
     expect(Object.keys(STAGE_VIEWS)).toContain(viewFor({ status }));
+  });
+
+  it("viewFor: системний стан сцени перевіряється до статусу", () => {
+    expect(viewFor({ status: "delivered", session: "401" })).toBe("session");
+    expect(viewFor({ status: "awaiting_brand", session: "404" })).toBe("notfound");
+    expect(viewFor({ status: "delivered", session: "403" })).toBe("done");
+    expect(viewFor({ status: "failed", session: null })).toBe("failed");
   });
 
   it("viewFor мапить статуси за ТЗ", () => {
@@ -271,22 +301,111 @@ describe("store.js / dom.js", () => {
 
 describe("app.js", () => {
   const errors = vi.spyOn(console, "error");
+  const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+  beforeEach(() => {
+    stubGuest();
+    history.replaceState(null, "", "/");
+  });
   afterEach(() => {
     errors.mockClear();
+    warns.mockClear();
+    vi.unstubAllGlobals();
     document.body.textContent = "";
   });
 
-  it("старт: монтує лише start, workspace прихований", async () => {
+  it("index.html має точки монтування всіх маршрутів і #overlay", () => {
+    mountIndexHtml();
+    for (const { root, areas } of Object.values(SCREENS)) {
+      expect(document.getElementById(root), root).not.toBeNull();
+      for (const [id] of areas) expect(document.getElementById(id), id).not.toBeNull();
+    }
+    expect(document.getElementById("stage")).not.toBeNull();
+    expect(document.getElementById("overlay")).not.toBeNull();
+    expect(document.getElementById("app")?.dataset.route).toBe("start");
+    for (const id of ["workspace", "cabinet", "checkout", "admin"])
+      expect(document.getElementById(id)?.hidden, id).toBe(true);
+  });
+
+  it("старт: монтує лише start і модалку входу, workspace прихований", async () => {
     mountIndexHtml();
     const app = await boot({ params: new URLSearchParams() });
     expect(mounted()).toEqual(["start"]);
     expect(document.getElementById("app")?.dataset.route).toBe("start");
     expect(document.getElementById("workspace")?.hidden).toBe(true);
+    expect(document.getElementById("overlay")?.childNodes.length).toBe(1);
+    app.destroy();
+    expect(document.getElementById("overlay")?.childNodes.length).toBe(0);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("boot() без бекенду: me 401 → гість, мережева помилка → гість, без падінь", async () => {
+    mountIndexHtml();
+    const app = await boot({ params: new URLSearchParams() });
+    await vi.waitFor(() => expect(app.store.getState().account.meStatus).toBe("anon"));
+    app.destroy();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    mountIndexHtml();
+    const offline = await boot({ params: new URLSearchParams("project=p1") });
+    await vi.waitFor(() => expect(offline.store.getState().account.meStatus).toBe("anon"));
+    expect(offline.store.getState().route).toBe("project");
+    offline.destroy();
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["cabinet=history", "cabinet", ["cab-topbar", "cab-main"]],
+    ["checkout=t_1", "checkout", ["checkout"]],
+    ["admin=outbox", "admin", ["admin-topbar", "admin-main"]],
+  ] as const)("?%s: маршрут %s монтує свої області, решта прихована", async (query, route, ids) => {
+    mountIndexHtml();
+    const app = await boot({ params: new URLSearchParams(query) });
+    expect(document.getElementById("app")?.dataset.route).toBe(route);
+    expect(document.getElementById(SCREENS[route].root)?.hidden).toBe(false);
+    for (const r of Object.keys(SCREENS) as (keyof typeof SCREENS)[])
+      if (r !== route) expect(document.getElementById(SCREENS[r].root)?.hidden, r).toBe(true);
+    for (const id of ids) expect(document.getElementById(id)?.childNodes.length, id).toBeGreaterThan(0);
+    expect(mounted()).toEqual([]);
+    app.destroy();
+    for (const id of ids) expect(document.getElementById(id)?.childNodes.length, id).toBe(0);
+    expect(stubs()).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("перехід між маршрутами знімає попередній екран і зупиняє потік проєкту", async () => {
+    mountIndexHtml();
+    const app = await boot({ params: new URLSearchParams(), state: fixtureStates.awaitingBrand });
+    expect(mounted()).toEqual(["topbar", "timeline", "chat", "stage"]);
+    app.store.setState({ route: "cabinet" });
+    expect(mounted()).toEqual([]);
+    expect(document.getElementById("cab-main")?.childNodes.length).toBeGreaterThan(0);
+    app.store.setState({ route: "project" });
+    expect(mounted()).toEqual(["topbar", "timeline", "chat", "stage"]);
+    expect(document.getElementById("cab-main")?.childNodes.length).toBe(0);
     app.destroy();
     expect(errors).not.toHaveBeenCalled();
   });
 
-  it.each(Object.keys(fixtureStates).filter((n) => n !== "start"))(
+  it("session 401 / 404 → екран сцени session / notfound (views/session.js)", async () => {
+    mountIndexHtml();
+    const app = await boot({ params: new URLSearchParams(), state: fixtureStates.awaitingBrand });
+    app.store.setState({ session: "401" });
+    const stub401 = stageStub();
+    if (stub401) expect(stub401).toBe("session");
+    const first = area("stage").firstElementChild;
+    app.store.setState({ session: "404" });
+    expect(area("stage").firstElementChild).not.toBe(first);
+    app.store.setState({ session: null });
+    expect(stageStub() ?? "cp-brand").toBe("cp-brand");
+    app.destroy();
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it.each(Object.keys(fixtureStates).filter((n) => fixtureStates[n]?.route === "project"))(
     "фікстура %s: монтує топбар, таймлайн, діалог, композер і свій екран сцени",
     async (name) => {
       mountIndexHtml();
@@ -304,14 +423,29 @@ describe("app.js", () => {
     },
   );
 
-  it("?fixture=<стан> підвантажує стан і dev-дії", async () => {
+  it("?fixture=<стан> підвантажує стан і dev-дії; акаунт — фейковий me (Олена, 12)", async () => {
     mountIndexHtml();
+    const fetch = stubGuest();
     const app = await boot({ params: new URLSearchParams("fixture=awaitingBrand") });
     expect(app.store.getState().status).toBe("awaiting_brand");
+    expect(app.store.getState().account).toMatchObject({ meStatus: "ready", me: { balance: 12 } });
+    expect(app.store.getState().account.me?.user.name).toBe("Олена Коваль");
     expect(mounted()).toContain("stage");
     app.actions.startEdit();
     expect(app.store.getState().ui.editing).toBe(true);
+    app.actions.navigate({ route: "cabinet", section: "balance" });
+    expect(app.store.getState().route).toBe("project");
     app.destroy();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("?fixture=<невідомий> → попередження і старт, без помилок", async () => {
+    mountIndexHtml();
+    const app = await boot({ params: new URLSearchParams("fixture=n3-nope") });
+    expect(app.store.getState().route).toBe("start");
+    expect(warns).toHaveBeenCalled();
+    app.destroy();
+    expect(errors).not.toHaveBeenCalled();
   });
 
   it("зміна статусу міняє екран сцени, решта view оновлюються на місці", async () => {
@@ -326,15 +460,45 @@ describe("app.js", () => {
     expect(topbar?.textContent).toContain(STATUS_LABELS.scripting);
     app.store.setState({ status: "delivered" });
     expect(area("stage").firstElementChild).not.toBe(progressStage);
+    const account = app.store.getState().account;
     app.actions.newProject();
     expect(mounted()).toEqual(["start"]);
     expect(document.getElementById("app")?.dataset.route).toBe("start");
+    expect(app.store.getState().account).toBe(account);
     app.destroy();
     expect(errors).not.toHaveBeenCalled();
   });
 });
 
 describe("css", () => {
+  it("base.css: keyframes ac-delta і ac-scrim, reduced-motion для ac-delta — лише opacity", () => {
+    const css = readFileSync(path.join(STATIC_DIR, "css", "base.css"), "utf8");
+    expect(css).toMatch(/@keyframes ac-delta/);
+    expect(css).toMatch(/@keyframes ac-scrim/);
+    const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
+    const delta = /@keyframes ac-delta \{([\s\S]*?)\n {2}\}/.exec(reduced)?.[1] ?? "";
+    expect(delta).toMatch(/opacity/);
+    expect(delta).not.toMatch(/transform/);
+  });
+
+  it("нові css блоків — з коментарем-власником", () => {
+    for (const name of [
+      "auth",
+      "account",
+      "cabinet",
+      "cab-balance",
+      "cab-history",
+      "cab-projects",
+      "cab-profile",
+      "checkout",
+      "admin",
+      "session",
+    ]) {
+      const css = readFileSync(path.join(STATIC_DIR, "css", `${name}.css`), "utf8");
+      expect(css, name).toMatch(/^\/\* \.[a-z]+- · B\d+ · /);
+    }
+  });
+
   it("index.html підключає всі css і файли існують", () => {
     const html = readFileSync(path.join(DEFAULT_PUBLIC_DIR, "index.html"), "utf8");
     const linked = [...html.matchAll(/href="\/static\/css\/([^"]+)"/g)].map((m) => m[1]);
@@ -372,6 +536,10 @@ describe("css", () => {
       "f-display",
       "f-ui",
       "f-mono",
+      "scrim",
+      "veil",
+      "danger-field",
+      "ac-delta",
     ]) {
       expect(css, name).toMatch(new RegExp(`--${name}:`));
     }

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<form onSubmit="{{ submit }}" novalidate="" style="display:flex; flex-direction:column; gap:14px; padding-top:18px; border-top:1px solid rgba(21,20,18,.10); font-family:'Onest',sans-serif; color:#151412;">
+  <span style="font:500 15px/1.3 'Onest',sans-serif;">Ручне коригування</span>
+  <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:10px;">
+    <label style="display:flex; flex-direction:column; gap:8px;"><span style="color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Кредити</span><input type="text" inputmode="numeric" value="{{ adj }}" onChange="{{ onAdj }}" placeholder="+5 або −3" aria-invalid="{{ adjInvalid }}" style="width:100%; height:44px; padding:0 12px; border:1px solid {{ adjBorder }}; border-radius:14px; background:#FCFBF8; color:#151412; font:500 15px/1 'JetBrains Mono',monospace; font-variant-numeric:tabular-nums;" style-hover="border-color:#151412;" style-focus="border-color:#151412; outline:none;"></label>
+    <label style="display:flex; flex-direction:column; gap:8px;"><span style="display:flex; justify-content:space-between; color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Примітка<span style="letter-spacing:0; font:400 11px/1.2 'JetBrains Mono',monospace; color:{{ noteCountColor }};">{{ noteCount }}/200</span></span><input type="text" value="{{ note }}" onChange="{{ onNote }}" placeholder="компенсація" aria-invalid="{{ noteInvalid }}" style="width:100%; height:44px; padding:0 12px; border:1px solid {{ noteBorder }}; border-radius:14px; background:#FCFBF8; color:#151412; font:400 14px/1 'Onest',sans-serif;" style-hover="border-color:#151412;" style-focus="border-color:#151412; outline:none;"></label>
+  </div>
+  <sc-if value="{{ hasPreview }}"><span style="color:#3A3833; font:400 12px/1.4 'JetBrains Mono',monospace;">{{ preview }}</span></sc-if>
+  <sc-if value="{{ hasErr }}"><p role="alert" style="margin:0; color:#B8331F; font:400 13.5px/1.5 'Onest',sans-serif;">{{ errText }}</p></sc-if>
+  <sc-if value="{{ confirm }}">
+    <div role="alertdialog" style="display:flex; flex-direction:column; gap:12px; padding:14px 16px; border:1px solid #151412; border-radius:14px; background:#FCFBF8; animation:adcFade .35s cubic-bezier(.2,.8,.2,1) both;">
+      <span style="display:flex; align-items:center; gap:9px; font:500 10.5px/1 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;"><span style="width:8px; height:8px; transform:rotate(45deg); background:#D4402A;"></span>Велике списання</span>
+      <span style="font:400 13.5px/1.5 'Onest',sans-serif;">{{ confirmText }}</span>
+      <span style="display:flex; gap:8px;"><button type="button" onClick="{{ doConfirm }}" style="height:34px; padding:0 16px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 13.5px/1 'Onest',sans-serif; cursor:pointer;" style-hover="background:#D4402A;">Так, списати</button><button type="button" onClick="{{ cancel }}" style="height:34px; padding:0 16px; border:1px solid rgba(21,20,18,.16); border-radius:999px; background:transparent; color:#151412; font:500 13.5px/1 'Onest',sans-serif; cursor:pointer;" style-hover="border-color:#151412;">Скасувати</button></span>
+    </div>
+  </sc-if>
+  <sc-if value="{{ done }}"><p role="status" style="margin:0; font:400 13.5px/1.5 'Onest',sans-serif;">{{ doneText }}</p></sc-if>
+  <sc-if value="{{ showSubmit }}"><button type="submit" disabled="{{ busy }}" style="align-self:flex-start; display:inline-flex; align-items:center; gap:10px; height:40px; padding:0 18px 0 20px; border:0; border-radius:999px; background:#151412; color:#F5F3EE; font:500 14px/1 'Onest',sans-serif; opacity:{{ busyOpacity }}; cursor:pointer;" style-hover="background:#D4402A;"><sc-if value="{{ busy }}"><span style="width:12px; height:12px; border-radius:50%; border:1.5px solid rgba(245,243,238,.3); border-top-color:#F5F3EE; animation:adcSpin .8s linear infinite;"></span></sc-if>{{ submitLabel }}</button></sc-if>
+  <span style="color:#6E6A63; font:400 11px/1.5 'JetBrains Mono',monospace;">Підтвердження — для списання від 20 кредитів або більше половини балансу.</span>
+</form>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:420,&quot;height&quot;:360},&quot;app&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;object&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const a = this.props.app || {};
+    const act = a.act || (() => {});
+    const f = a.fmt;
+    const ad = a.admin || {};
+    const sel = (a.adminUsers || []).find((u) => u.id === ad.sel) || { balance: 0, email: '' };
+    const raw = String(ad.adj || '').replace('\u2212', '-').replace(/\s/g, '');
+    const n = Number(raw);
+    const valid = raw !== '' && Number.isInteger(n) && n !== 0;
+    const e = ad.err;
+    const ERR = { zero: 'Ціле число, не нуль: +5 або −3.', note: 'Примітка — до 200 символів.' };
+    const errText = e && typeof e === 'object' ? 'Не вистачає кредитів: потрібно ' + e.need + ', у вас ' + e.have + '.' : e ? ERR[e] : '';
+    const noteLen = (ad.note || '').length;
+    return {
+      adj: ad.adj || '',
+      note: ad.note || '',
+      onAdj: (ev) => act('adminField', { k: 'adj', v: ev.target.value }),
+      onNote: (ev) => act('adminField', { k: 'note', v: ev.target.value }),
+      adjInvalid: e === 'zero' || (e && typeof e === 'object') ? 'true' : 'false',
+      adjBorder: e === 'zero' || (e && typeof e === 'object') ? 'rgba(184,51,31,.55)' : 'rgba(21,20,18,.16)',
+      noteInvalid: e === 'note' ? 'true' : 'false',
+      noteBorder: e === 'note' ? 'rgba(184,51,31,.55)' : 'rgba(21,20,18,.16)',
+      noteCount: noteLen,
+      noteCountColor: noteLen > 200 ? '#B8331F' : '#6E6A63',
+      hasPreview: valid && !e && !ad.done,
+      preview: 'баланс ' + f.num(sel.balance) + ' → ' + (sel.balance + n < 0 ? '\u2212' + f.num(-(sel.balance + n)) : f.num(sel.balance + n)),
+      hasErr: !!errText,
+      errText,
+      confirm: !!ad.confirm,
+      confirmText: valid ? 'Списати ' + f.cr(-n) + ' у ' + sel.email + '? Баланс стане ' + f.num(Math.max(0, sel.balance + n)) + '.' : '',
+      doConfirm: () => act('adminAdjust', { confirmed: true }),
+      cancel: () => act('adminField', { k: 'confirm', v: false }),
+      done: !!ad.done,
+      doneText: ad.done ? '✓ ' + (ad.done.credits > 0 ? 'Нараховано ' : 'Списано ') + f.sgn(ad.done.credits) + (ad.done.note ? ' · «' + ad.done.note + '»' : '') + '. Баланс ' + f.num(ad.done.balance) + '.' : '',
+      showSubmit: !ad.confirm,
+      busy: !!ad.busy,
+      busyOpacity: ad.busy ? 0.45 : 1,
+      submitLabel: valid && n < 0 ? 'Списати' : 'Нарахувати',
+      submit: (ev) => { ev.preventDefault(); act('adminAdjust', {}); },
+    };
+  }
+}
+</script>
+</body>
+</html>

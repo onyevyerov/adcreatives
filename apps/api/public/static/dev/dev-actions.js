@@ -2,12 +2,14 @@
 /**
  * Дії-заглушки для режиму `?fixture=<стан>` і для заглушки data/actions.js: мережі немає,
  * виклики пишуться в консоль і в `ui.notice`, а суто UI-дії змінюють стан як справжні.
+ * Дії акаунтів (`AccountActions`) — no-op із `console.info` (і в `calls`).
  */
-import { initialState } from "../js/initial.js";
+import { projectState } from "../js/initial.js";
 
 /** @typedef {import("../js/contracts.js").Actions} Actions */
 /** @typedef {import("../js/contracts.js").Store} Store */
 /** @typedef {import("../js/contracts.js").UiFlags} UiFlags */
+/** @typedef {import("../js/contracts.js").AccountActions} AccountActions */
 
 /**
  * @param {Store} store
@@ -24,14 +26,58 @@ export function createDevActions(store) {
     console.info(`[dev] ${name}`, ...args);
     ui({ notice: `dev: ${name}()` });
   };
+  /** @param {string} name @param {unknown[]} args */
+  const info = (name, args) => {
+    calls.push({ name, args });
+    console.info(`[dev] ${name}`, ...args);
+  };
+  /** @type {AccountActions} */
+  const account = {
+    refreshMe: async () => info("refreshMe", []),
+    navigate: (to) => info("navigate", [to]),
+    logout: async () => info("logout", []),
+    openAuth: (view, context) => info("openAuth", [view, context]),
+    closeAuth: () => info("closeAuth", []),
+    setAuthField: (key, value) => info("setAuthField", [key, value]),
+    submitAuth: async () => info("submitAuth", []),
+    resendAuthMail: async () => info("resendAuthMail", []),
+    authGoogle: async () => info("authGoogle", []),
+    submitStart: async (form) => info("submitStart", [Object.fromEntries(form.entries())]),
+    startPending: async () => info("startPending", []),
+    dismissFlash: () => info("dismissFlash", []),
+    retryAfterTopup: async () => info("retryAfterTopup", []),
+    openTopup: (o) => info("openTopup", [o]),
+    selectPackage: (id) => info("selectPackage", [id]),
+    setCustom: (value) => info("setCustom", [value]),
+    submitTopup: async () => info("submitTopup", []),
+    continueTopup: (id) => info("continueTopup", [id]),
+    confirmCheckout: async (outcome) => info("confirmCheckout", [outcome]),
+    checkoutAgain: async () => info("checkoutAgain", []),
+    checkoutReturn: () => info("checkoutReturn", []),
+    loadHistory: async (more) => info("loadHistory", [more]),
+    loadProjects: async () => info("loadProjects", []),
+    toggleProjectCredits: (id) => info("toggleProjectCredits", [id]),
+    openProject: (id) => info("openProject", [id]),
+    setProfileField: (key, value) => info("setProfileField", [key, value]),
+    saveName: async () => info("saveName", []),
+    changePassword: async () => info("changePassword", []),
+    adminTab: (tab) => info("adminTab", [tab]),
+    adminSearch: (q) => info("adminSearch", [q]),
+    adminSelect: async (id) => info("adminSelect", [id]),
+    adminField: (key, value) => info("adminField", [key, value]),
+    adminAdjust: async (confirmed) => info("adminAdjust", [confirmed]),
+    adminCancelConfirm: () => info("adminCancelConfirm", []),
+    adminCopy: async (mailId) => info("adminCopy", [mailId]),
+  };
   return {
     calls,
+    ...account,
     async createProject(form) {
       log("createProject", [Object.fromEntries(form.entries())]);
     },
     newProject() {
       log("newProject", []);
-      store.setState(initialState("start", null));
+      store.setState({ ...projectState(null), route: "start" });
     },
     async sendMessage(text) {
       log("sendMessage", [text]);

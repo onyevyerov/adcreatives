@@ -1,0 +1,82 @@
+/*
+ * .sh- · Крок 0 · K3 — картка нестачі кредитів (Референс #K, #n3-402, #n7-fmt-short).
+ * Рамка --ink, ромб --accent, радіус 14; чат — padding 14/16, числа 17; старт — 16/18, числа 20.
+ * Кнопки — примітиви .btn (40 на старті, .btn--sm 34 у чаті).
+ */
+
+.sh {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--ink);
+  border-radius: var(--r-14);
+  background: var(--card);
+  animation: adc-fade var(--t-msg) var(--ease) both;
+}
+
+.sh--start {
+  gap: 14px;
+  padding: 16px 18px;
+}
+
+.sh-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 500 10.5px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sh-diamond {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  background: var(--accent);
+}
+
+.sh-nums {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  color: var(--muted);
+  font: 400 11.5px / 1.3 var(--f-mono);
+}
+
+.sh--start .sh-nums {
+  gap: 12px;
+  font-size: 12px;
+}
+
+.sh-num {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sh--start .sh-num {
+  gap: 6px;
+}
+
+.sh-num__value {
+  color: var(--ink);
+  font: 500 17px / 1 var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.sh--start .sh-num__value {
+  font-size: 20px;
+}
+
+.sh-advice {
+  color: var(--ink-2);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.sh-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
