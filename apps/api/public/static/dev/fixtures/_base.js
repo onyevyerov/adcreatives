@@ -424,7 +424,11 @@ export function accountFixture(patch = {}, base = initialState("start", null)) {
     account: { ...base.account, me: ME, meStatus: "ready", projectCount: PROJECTS.length, prices: PRICES },
     cabinet: {
       ...base.cabinet,
-      history: { ...base.cabinet.history, entries: HISTORY },
+      history: {
+        ...base.cabinet.history,
+        entries: HISTORY,
+        topups: Object.fromEntries(TOPUPS.map((t) => [t.id, t.packageId])),
+      },
       projects: { ...base.cabinet.projects, rows: PROJECTS },
     },
     admin: { ...base.admin, users: USERS, outbox: OUTBOX, allProjects: ALL_PROJECTS },
