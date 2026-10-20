@@ -732,6 +732,8 @@ B4 — єдиний, хто торкається pipeline; B2 — єдиний, 
 | 429 | `rate_limited` | auth-ліміт 10 за 15 хв |
 | 501 | `not_implemented` | Google |
 
+- Пакети: `GET /api/billing/packages` → `{creditsPerUsd, prices, packages, custom}` — публічний (без сесії,
+  лише під командним Basic-гейтом), щоб гість на старті бачив ціну; решта `/api/billing/*` — 401 без сесії.
 - Поповнення: `TopUp.status ∈ pending | paid | failed`; `POST /api/billing/topups` → `201 {topup, checkoutUrl}`;
   `POST /api/billing/topups/:id/confirm {outcome: "paid" | "failed"}` → `{topup, balance}` (ідемпотентно).
 - Історія: `GET /api/account/transactions?limit&before` → `{entries: LedgerEntry[], nextBefore: string | null}`
