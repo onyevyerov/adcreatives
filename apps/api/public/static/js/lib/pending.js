@@ -2,9 +2,14 @@
 /**
  * Крок 0 · Відкладений старт гостя і точка повернення після оплати (ТЗ фронтенду акаунтів, 2.5).
  *
- * Обидва записи — JSON у sessionStorage під замороженими ключами; інших ключів не вводити.
- * Файли фото в sessionStorage не серіалізуються — живуть лише в пам'яті модуля, тож після
- * перезавантаження сторінки (лист відкрито в новій вкладці) їх немає: `photosLost`.
+ * Обидва записи — JSON під замороженими ключами; інших ключів не вводити.
+ * - `adc.pendingStart` — **localStorage з TTL 24 год** (рішення користувача 2026-10-20): посилання
+ *   активації з листа відкривається в новій вкладці, а sessionStorage у неї не переходить.
+ *   Термін рахується від `PendingStart.at`; протухлий або битий запис видаляється, а
+ *   `peekPending` / `takePending` повертають `null`.
+ * - `adc.return` — sessionStorage: повернення після оплати відбувається в тій самій вкладці.
+ * Файли фото не серіалізуються — живуть лише в пам'яті модуля, тож після перезавантаження
+ * сторінки (лист відкрито в новій вкладці) їх немає: `photosLost`.
  * Недоступне сховище (приватний режим, заборона) — не помилка: запис просто не зберігається.
  */
 
@@ -13,14 +18,20 @@
 
 export const PENDING_KEY = "adc.pendingStart";
 export const RETURN_KEY = "adc.return";
+/** Скільки живе відкладений старт від `PendingStart.at`. */
+export const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** @type {File[]} */
 let memoryFiles = [];
 
-/** @returns {Storage | null} */
-function storage() {
+/**
+ * Сховище для ключа: відкладений старт — localStorage, повернення — sessionStorage.
+ * @param {string} key
+ * @returns {Storage | null}
+ */
+function storage(key) {
   try {
-    return globalThis.sessionStorage ?? null;
+    return (key === PENDING_KEY ? globalThis.localStorage : globalThis.sessionStorage) ?? null;
   } catch {
     return null;
   }
@@ -29,17 +40,17 @@ function storage() {
 /** @param {string} key @returns {unknown} */
 function read(key) {
   try {
-    const raw = storage()?.getItem(key);
+    const raw = storage(key)?.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch {
-    return null;
+    return undefined; // битий JSON
   }
 }
 
 /** @param {string} key @param {unknown} value */
 function write(key, value) {
   try {
-    storage()?.setItem(key, JSON.stringify(value));
+    storage(key)?.setItem(key, JSON.stringify(value));
   } catch (err) {
     console.warn(`[pending] ${key}`, err);
   }
@@ -48,7 +59,7 @@ function write(key, value) {
 /** @param {string} key */
 function remove(key) {
   try {
-    storage()?.removeItem(key);
+    storage(key)?.removeItem(key);
   } catch {
     // сховище недоступне — нічого прибирати
   }
@@ -62,6 +73,24 @@ const isPending = (v) =>
   typeof v.hadPhotos === "boolean" &&
   "at" in v &&
   typeof v.at === "string";
+
+/** @param {PendingStart} p */
+const expired = (p) => {
+  const at = Date.parse(p.at);
+  return !Number.isFinite(at) || Date.now() - at > PENDING_TTL_MS;
+};
+
+/**
+ * Чинний відкладений старт; протухлий або битий запис видаляється.
+ * @returns {PendingStart | null}
+ */
+function readPending() {
+  const v = read(PENDING_KEY);
+  if (v === null) return null;
+  if (isPending(v) && !expired(v)) return v;
+  remove(PENDING_KEY);
+  return null;
+}
 
 /** @param {unknown} v @returns {v is ReturnTo} */
 const isReturn = (v) =>
@@ -81,17 +110,16 @@ export function savePending(p, files) {
 
 /** Читає й видаляє. @returns {{ pending: PendingStart, files: File[] } | null} */
 export function takePending() {
-  const pending = read(PENDING_KEY);
+  const pending = readPending();
   remove(PENDING_KEY);
   const files = memoryFiles;
   memoryFiles = [];
-  return isPending(pending) ? { pending, files } : null;
+  return pending ? { pending, files } : null;
 }
 
-/** @returns {PendingStart | null} */
+/** Не видаляє (крім протухлого чи битого). @returns {PendingStart | null} */
 export function peekPending() {
-  const pending = read(PENDING_KEY);
-  return isPending(pending) ? pending : null;
+  return readPending();
 }
 
 /**

@@ -123,7 +123,7 @@
  *             retry: { ctx: "cp3" | "rev", text: string | null } | null } | { kind: "cabinet" }} ReturnTo
  */
 /**
- * Відкладений старт гостя (sessionStorage `adc.pendingStart`; файли — лише в пам'яті модуля).
+ * Відкладений старт гостя (localStorage `adc.pendingStart`, TTL 24 год від `at`; файли — лише в пам'яті модуля).
  * @typedef {{ url: string | null, manualText: string | null, hadPhotos: boolean, at: string }} PendingStart
  */
 

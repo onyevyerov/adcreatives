@@ -34,6 +34,7 @@ import {
 } from "../../public/static/js/lib/credits.js";
 import {
   PENDING_KEY,
+  PENDING_TTL_MS,
   peekPending,
   photosLost,
   RETURN_KEY,
@@ -218,6 +219,7 @@ const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 beforeEach(() => {
   history.replaceState(null, "", "/");
   sessionStorage.clear();
+  localStorage.clear();
   for (const k of Object.keys(parts.deps)) delete parts.deps[k];
   for (const k of Object.keys(parts.fns)) delete parts.fns[k];
 });
@@ -227,6 +229,7 @@ afterEach(() => {
   made = null;
   setUnauthorizedHandler(null);
   sessionStorage.clear();
+  localStorage.clear();
   warn.mockClear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -508,23 +511,30 @@ describe("lib/pending.js", () => {
     at: "2026-10-19T08:00:00.000Z",
   };
 
-  it("savePending → peekPending → takePending (читає й видаляє), файли — у пам'яті", () => {
+  // Годинник — на 2 год після `pending.at` (TTL рахується від нього).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-19T10:00:00.000Z"));
+  });
+
+  it("savePending → peekPending → takePending (читає й видаляє) — у localStorage, файли — у пам'яті", () => {
     const file = new File(["x"], "a.jpg", { type: "image/jpeg" });
     savePending(pending, [file]);
-    expect(JSON.parse(sessionStorage.getItem(PENDING_KEY) ?? "null")).toEqual(pending);
+    expect(JSON.parse(localStorage.getItem(PENDING_KEY) ?? "null")).toEqual(pending);
+    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
     expect(peekPending()).toEqual(pending);
     expect(peekPending()).toEqual(pending);
     const taken = takePending();
     expect(taken?.pending).toEqual(pending);
     expect(taken?.files).toEqual([file]);
     expect(taken && photosLost(taken)).toBe(false);
-    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+    expect(localStorage.getItem(PENDING_KEY)).toBeNull();
     expect(takePending()).toBeNull();
     expect(peekPending()).toBeNull();
   });
 
-  it("photosLost: фото були, а файлів у пам'яті вже немає (перезавантаження)", () => {
-    sessionStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+  it("photosLost: фото були, а файлів у пам'яті вже немає (лист відкрито в новій вкладці)", () => {
+    localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
     const taken = takePending();
     expect(taken?.files).toEqual([]);
     expect(taken && photosLost(taken)).toBe(true);
@@ -533,7 +543,31 @@ describe("lib/pending.js", () => {
     expect(plain && photosLost(plain)).toBe(false);
   });
 
-  it("saveReturn / takeReturn — round-trip, читає й видаляє; биті дані → null", () => {
+  it("TTL 24 год від at: протухлий запис видаляється, peek/take → null", () => {
+    savePending(pending, []);
+    vi.setSystemTime(Date.parse(pending.at) + PENDING_TTL_MS);
+    expect(peekPending()).toEqual(pending);
+    vi.setSystemTime(Date.parse(pending.at) + PENDING_TTL_MS + 1);
+    expect(peekPending()).toBeNull();
+    expect(localStorage.getItem(PENDING_KEY)).toBeNull();
+    savePending(pending, [new File(["x"], "a.jpg")]);
+    expect(takePending()).toBeNull();
+    expect(PENDING_TTL_MS).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("битий або неповний запис відкладеного старту видаляється", () => {
+    localStorage.setItem(PENDING_KEY, "{not json");
+    expect(peekPending()).toBeNull();
+    expect(localStorage.getItem(PENDING_KEY)).toBeNull();
+    localStorage.setItem(PENDING_KEY, JSON.stringify({ url: 1 }));
+    expect(takePending()).toBeNull();
+    expect(localStorage.getItem(PENDING_KEY)).toBeNull();
+    localStorage.setItem(PENDING_KEY, JSON.stringify({ ...pending, at: "вчора" }));
+    expect(peekPending()).toBeNull();
+    expect(localStorage.getItem(PENDING_KEY)).toBeNull();
+  });
+
+  it("saveReturn / takeReturn — у sessionStorage, читає й видаляє; биті дані → null", () => {
     const back = {
       kind: "project" as const,
       projectId: "p_zerno",
@@ -542,12 +576,11 @@ describe("lib/pending.js", () => {
     };
     saveReturn(back);
     expect(JSON.parse(sessionStorage.getItem(RETURN_KEY) ?? "null")).toEqual(back);
+    expect(localStorage.getItem(RETURN_KEY)).toBeNull();
     expect(takeReturn()).toEqual(back);
     expect(takeReturn()).toBeNull();
     sessionStorage.setItem(RETURN_KEY, "{not json");
     expect(takeReturn()).toBeNull();
-    sessionStorage.setItem(PENDING_KEY, JSON.stringify({ url: 1 }));
-    expect(peekPending()).toBeNull();
   });
 });
 
