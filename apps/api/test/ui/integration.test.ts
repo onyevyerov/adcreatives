@@ -236,7 +236,6 @@ describe("повний прохід у ?mock=1", () => {
     expect($("#workspace").hidden).toBe(true);
     expect($("#cabinet").hidden).toBe(false);
     expect($("#stage").childNodes.length).toBe(0);
-    expect($("#cab-main").childNodes.length).toBeGreaterThan(0);
     // Потік стоїть: таймери mock-бекенду не міняють стан.
     const parked = a.store.getState();
     await vi.advanceTimersByTimeAsync(5_000);

@@ -13,6 +13,7 @@ import {
   LOGOUT_FLASH,
   routeOf,
 } from "../../public/static/js/data/account.js";
+import * as realApi from "../../public/static/js/data/account-api.js";
 import type { Backend } from "../../public/static/js/data/actions.js";
 import { createActions } from "../../public/static/js/data/actions.js";
 import { ApiError, api, NETWORK_MESSAGE, setUnauthorizedHandler } from "../../public/static/js/data/api.js";
@@ -45,19 +46,69 @@ import { routeFromUrl, urlForRoute } from "../../public/static/js/router.js";
 import { createStore } from "../../public/static/js/store.js";
 import { shortageCard } from "../../public/static/js/views/shortage.js";
 
-/** deps, які ядро передало part-фабриці кабінету (B9) — для перевірки `onRoute`. */
-const captured = vi.hoisted(() => ({ deps: null as PartDeps | null }));
-vi.mock("../../public/static/js/data/cabinet-actions.js", () => ({
-  cabinetActions: (_store: unknown, deps: PartDeps) => {
-    captured.deps = deps;
-    return {
-      loadHistory: async () => {},
-      loadProjects: async () => {},
-      toggleProjectCredits: () => {},
-      openProject: () => {},
-    };
-  },
-}));
+/**
+ * Part-файли дій замокано no-op-фабриками з тими самими ключами: тести ядра не залежать від тіл,
+ * які блоки допишуть. `parts.deps[файл]` — deps, які ядро передало фабриці; `parts.fns[ключ]` —
+ * мок дії з останнього `createAccountActions`.
+ */
+const parts = vi.hoisted(() => {
+  const KEYS: Record<string, string[]> = {
+    auth: ["openAuth", "closeAuth", "setAuthField", "submitAuth", "resendAuthMail", "authGoogle"],
+    start: ["submitStart", "startPending", "dismissFlash"],
+    retry: ["retryAfterTopup"],
+    topup: ["openTopup", "selectPackage", "setCustom", "submitTopup", "continueTopup"],
+    checkout: ["confirmCheckout", "checkoutAgain", "checkoutReturn"],
+    cabinet: ["loadHistory", "loadProjects", "toggleProjectCredits", "openProject"],
+    profile: ["setProfileField", "saveName", "changePassword"],
+    admin: [
+      "adminTab",
+      "adminSearch",
+      "adminSelect",
+      "adminField",
+      "adminAdjust",
+      "adminCancelConfirm",
+      "adminCopy",
+    ],
+  };
+  const deps: Record<string, unknown> = {};
+  const fns: Record<string, ReturnType<typeof vi.fn>> = {};
+  const factory = (file: string, name: string) => ({
+    [name]: (_store: unknown, d: unknown) => {
+      deps[file] = d;
+      return Object.fromEntries(
+        (KEYS[file] ?? []).map((k) => {
+          const fn = vi.fn(async () => {});
+          fns[k] = fn;
+          return [k, fn];
+        }),
+      );
+    },
+  });
+  return { KEYS, deps, fns, factory };
+});
+vi.mock("../../public/static/js/data/auth-actions.js", () => parts.factory("auth", "authActions"));
+vi.mock("../../public/static/js/data/start-actions.js", () => parts.factory("start", "startActions"));
+vi.mock("../../public/static/js/data/retry-actions.js", () => parts.factory("retry", "retryActions"));
+vi.mock("../../public/static/js/data/topup-actions.js", () => parts.factory("topup", "topupActions"));
+vi.mock("../../public/static/js/data/checkout-actions.js", () =>
+  parts.factory("checkout", "checkoutActions"),
+);
+vi.mock("../../public/static/js/data/cabinet-actions.js", () => parts.factory("cabinet", "cabinetActions"));
+vi.mock("../../public/static/js/data/profile-actions.js", () => parts.factory("profile", "profileActions"));
+vi.mock("../../public/static/js/data/admin-actions.js", () => parts.factory("admin", "adminActions"));
+
+/** deps, які ядро передало part-фабриці `file`. */
+const depsOf = (file: string) => {
+  const d = parts.deps[file] as PartDeps | undefined;
+  if (!d) throw new Error(`фабрику ${file} не викликано`);
+  return d;
+};
+/** Мок дії part-файла. */
+const fn = (key: keyof AccountActions) => {
+  const f = parts.fns[key];
+  if (!f) throw new Error(`немає моку ${key}`);
+  return f;
+};
 
 const NBSP = " ";
 
@@ -121,8 +172,14 @@ function fakeBackend() {
   return { backend, log };
 }
 
-/** API акаунтів зі стабом `me` (інші виклики — помилка, щоб тест не ходив непомітно в мережу). */
+type AccountApi = typeof realApi;
+
+/**
+ * API акаунтів без мережі: кожна обгортка account-api.js — мок, що повертає `{}`; `me` — за
+ * чергою відповідей (число — `ApiError` з цим статусом), `listProjects` — проєкти Олени.
+ */
 function fakeApi(...answers: (Me | number)[]) {
+  const all = Object.fromEntries(Object.keys(realApi).map((k) => [k, vi.fn(async () => ({}))]));
   const me = vi.fn(async () => {
     const next = answers.length > 1 ? answers.shift() : answers[0];
     if (typeof next === "number") throw new ApiError("x", next, next === 401 ? "unauthorized" : null, null);
@@ -130,9 +187,11 @@ function fakeApi(...answers: (Me | number)[]) {
     return next;
   });
   const logout = vi.fn(async () => null);
-  return { me, logout } as unknown as typeof import("../../public/static/js/data/account-api.js") & {
+  const listProjects = vi.fn(async () => ({ projects: PROJECTS }));
+  return { ...all, me, logout, listProjects } as unknown as AccountApi & {
     me: typeof me;
     logout: typeof logout;
+    listProjects: typeof listProjects;
   };
 }
 
@@ -159,7 +218,8 @@ const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 beforeEach(() => {
   history.replaceState(null, "", "/");
   sessionStorage.clear();
-  captured.deps = null;
+  for (const k of Object.keys(parts.deps)) delete parts.deps[k];
+  for (const k of Object.keys(parts.fns)) delete parts.fns[k];
 });
 
 afterEach(() => {
@@ -223,11 +283,11 @@ describe("lib/credits.js", () => {
   });
 
   it("enoughFor: ролик або правки · лише правки · ні на що", () => {
-    expect(enoughFor(12, PRICES)).toBe("1 ролик або 4 правки");
-    expect(enoughFor(25, PRICES)).toBe("2 ролики або 8 правок");
-    expect(enoughFor(60, PRICES)).toBe("6 роликів або 20 правок");
-    expect(enoughFor(9, PRICES)).toBe("3 правки, на ролик — ні");
-    expect(enoughFor(3, PRICES)).toBe("1 правку, на ролик — ні");
+    expect(enoughFor(12, PRICES)).toBe(`1${NBSP}ролик або 4${NBSP}правки`);
+    expect(enoughFor(25, PRICES)).toBe(`2${NBSP}ролики або 8${NBSP}правок`);
+    expect(enoughFor(60, PRICES)).toBe(`6${NBSP}роликів або 20${NBSP}правок`);
+    expect(enoughFor(9, PRICES)).toBe(`3${NBSP}правки, на ролик — ні`);
+    expect(enoughFor(3, PRICES)).toBe(`1${NBSP}правку, на ролик — ні`);
     expect(enoughFor(2, PRICES)).toBe("ні на ролик, ні на правку");
     expect(enoughFor(0, PRICES)).toBe("ні на ролик, ні на правку");
   });
@@ -353,6 +413,11 @@ describe("router.js", () => {
     expect(routeFromUrl(new URLSearchParams("auth=reset&token=x%2By"))).toEqual({
       route: "start",
       auth: { kind: "reset", token: "x+y" },
+    });
+    expect(routeFromUrl(new URLSearchParams("project=p1&auth=activate&token=t"))).toEqual({
+      route: "project",
+      projectId: "p1",
+      auth: { kind: "activate", token: "t" },
     });
     expect(routeFromUrl(new URLSearchParams("auth=activate"))).toEqual({ route: "start" });
     expect(routeFromUrl(new URLSearchParams("auth=other&token=abc"))).toEqual({ route: "start" });
@@ -571,19 +636,28 @@ describe("createAccountActions", () => {
     await actions.ready;
   });
 
-  it("part-фабрики разом дають рівно ключі AccountActions (крім ядра)", async () => {
-    const parts = await Promise.all([
-      import("../../public/static/js/data/auth-actions.js").then((m) => m.authActions),
-      import("../../public/static/js/data/start-actions.js").then((m) => m.startActions),
-      import("../../public/static/js/data/retry-actions.js").then((m) => m.retryActions),
-      import("../../public/static/js/data/topup-actions.js").then((m) => m.topupActions),
-      import("../../public/static/js/data/checkout-actions.js").then((m) => m.checkoutActions),
-      import("../../public/static/js/data/profile-actions.js").then((m) => m.profileActions),
-      import("../../public/static/js/data/admin-actions.js").then((m) => m.adminActions),
-    ]);
+  it("справжні part-фабрики разом дають рівно ключі AccountActions (крім ядра)", async () => {
+    const files = ["auth", "start", "retry", "topup", "checkout", "cabinet", "profile", "admin"];
     const store = createStore<UiState>(initialState("start", null));
-    const keys = parts.flatMap((f) => Object.keys(f(store, {} as PartDeps)));
-    keys.push("loadHistory", "loadProjects", "toggleProjectCredits", "openProject"); // кабінет замокано
+    const deps: PartDeps = {
+      params: new URLSearchParams(),
+      api: fakeApi(withBalance(12)),
+      actions: () => ({}) as never,
+      backend: fakeBackend().backend,
+      offline: false,
+      onRoute: () => {},
+    };
+    const keys: string[] = [];
+    for (const file of files) {
+      const mod = await vi.importActual<Record<string, (s: unknown, d: PartDeps) => object>>(
+        `../../public/static/js/data/${file}-actions.js`,
+      );
+      const [factory, ...extra] = Object.values(mod).filter((v) => typeof v === "function");
+      expect(extra, `${file}: одна фабрика`).toEqual([]);
+      const part = factory?.(store, deps) ?? {};
+      expect(Object.keys(part).sort(), file).toEqual([...(parts.KEYS[file] ?? [])].sort());
+      keys.push(...Object.keys(part));
+    }
     expect(new Set(keys).size).toBe(keys.length);
     expect([...keys, "refreshMe", "navigate", "logout"].sort()).toEqual([...ACCOUNT_KEYS].sort());
   });
@@ -627,14 +701,22 @@ describe("createAccountActions", () => {
     const { actions, store, accountApi } = make({ answers: [withBalance(12), withBalance(9)] });
     await actions.meReady;
     expect(accountApi.me).toHaveBeenCalledTimes(1);
-    const message = (id: string, role: "assistant" | "user", text: string) => ({
+    const now = new Date().toISOString();
+    const message = (id: string, role: "assistant" | "user", text: string, at = now) => ({
       kind: "message" as const,
       id,
-      at: "2026-10-19T08:00:00.000Z",
+      at,
       role,
       text,
       buttons: [],
     });
+    // Реплей історії SSE: старе повідомлення білінгу не смикає refreshMe.
+    store.setState((s) => ({
+      feed: [
+        ...s.feed,
+        message("0-1", "assistant", t("refundedFailure", { credits: 10 }), "2026-10-14T07:00:00.000Z"),
+      ],
+    }));
     store.setState((s) => ({ feed: [...s.feed, message("1-0", "assistant", "Ролик готовий.")] }));
     store.setState((s) => ({
       feed: [...s.feed, message("2-0", "user", t("chargedRevision", { credits: 3, balance: 9 }))],
@@ -766,7 +848,7 @@ describe("createAccountActions", () => {
     });
     actions.openAuth = vi.fn();
     const seen: Route[] = [];
-    captured.deps?.onRoute((r) => seen.push(r));
+    depsOf("cabinet").onRoute((r) => seen.push(r));
     await actions.meReady;
     expect(seen).toEqual([]);
     await actions.refreshMe(); // вхід виконано (B1 викликає refreshMe)
@@ -784,13 +866,13 @@ describe("createAccountActions", () => {
     const { actions, store } = make({ answers: [ADMIN_ME] });
     await actions.meReady;
     const seen: Route[] = [];
-    captured.deps?.onRoute((r) => seen.push(r));
+    depsOf("cabinet").onRoute((r) => seen.push(r));
     actions.navigate({ route: "admin", tab: "users", userId: "u_olena01" });
     expect(store.getState().session).toBeNull();
     expect(seen).toEqual([{ route: "admin", tab: "users", userId: "u_olena01" }]);
-    expect(captured.deps?.actions()).toBe(actions);
-    expect(captured.deps?.offline).toBe(false);
-    expect(typeof captured.deps?.api.me).toBe("function");
+    expect(depsOf("admin").actions()).toBe(actions);
+    expect(depsOf("topup").offline).toBe(false);
+    expect(typeof depsOf("checkout").api.me).toBe("function");
   });
 
   it("посилання з листа: токен прибрано з URL, auth activating + submitAuth / reset", async () => {
@@ -798,12 +880,111 @@ describe("createAccountActions", () => {
     const a = make({ query: "auth=activate&token=tok1" });
     expect(location.search).toBe("");
     expect(a.store.getState().auth).toMatchObject({ view: "activating", token: "tok1", context: null });
-    expect(warn).toHaveBeenCalledWith("[B1] not implemented: submitAuth");
+    expect(fn("submitAuth")).toHaveBeenCalledOnce();
     a.actions.dispose();
     history.replaceState(null, "", "/?auth=reset&token=tok2");
     const r = make({ query: "auth=reset&token=tok2" });
     expect(location.search).toBe("");
     expect(r.store.getState().auth).toMatchObject({ view: "reset", token: "tok2" });
+    expect(fn("submitAuth")).not.toHaveBeenCalled();
+    r.actions.dispose();
+    history.replaceState(null, "", "/?project=p1&auth=activate&token=tok3");
+    make({ query: "project=p1&auth=activate&token=tok3", state: initialState("project", "p1") });
+    expect(location.search).toBe("?project=p1");
+  });
+
+  it("застаріла відповідь me відкидається (активація: пізній 401 від першого me)", async () => {
+    let release: (v: unknown) => void = () => {};
+    const slow = new Promise((resolve) => {
+      release = resolve;
+    });
+    const { actions, store, accountApi } = make();
+    accountApi.me.mockReset();
+    accountApi.me
+      .mockImplementationOnce(async () => {
+        await slow;
+        throw new ApiError("x", 401, "unauthorized", null);
+      })
+      .mockImplementationOnce(async () => withBalance(5));
+    const first = actions.refreshMe();
+    await actions.refreshMe();
+    expect(store.getState().account).toMatchObject({ meStatus: "ready", me: { balance: 5 } });
+    release(null);
+    await first;
+    expect(store.getState().account).toMatchObject({ meStatus: "ready", me: { balance: 5 } });
+  });
+
+  it("401 на me після входу (сесія протухла): project → session 401; інші → openAuth(login, session)", async () => {
+    const state = { ...initialState("project", "p1"), route: "project" as const };
+    const p = make({ state, query: "project=p1", answers: [withBalance(12), 401] });
+    await p.actions.meReady;
+    await p.actions.refreshMe();
+    expect(p.store.getState().session).toBe("401");
+    expect(p.store.getState().auth).toMatchObject({ view: "login", context: "session" });
+    expect(p.log.at(-1)).toBe("stop");
+    p.actions.dispose();
+    const c = make({ state: initialState("cabinet", null), answers: [withBalance(12), 401] });
+    await c.actions.meReady;
+    await c.actions.refreshMe();
+    expect(fn("openAuth")).toHaveBeenCalledWith("login", "session");
+    expect(c.store.getState().account.meStatus).toBe("anon");
+    c.actions.dispose();
+    // Гість (не був ready) — просто anon, без модалки.
+    const g = make({ answers: [401] });
+    await g.actions.meReady;
+    await g.actions.refreshMe();
+    expect(fn("openAuth")).not.toHaveBeenCalled();
+    expect(g.store.getState().session).toBeNull();
+  });
+
+  it("projectCount: вантажиться, коли me ready, і після успішного createProject", async () => {
+    const { actions, store, accountApi } = make();
+    expect(store.getState().account.projectCount).toBeNull();
+    await actions.meReady;
+    await vi.waitFor(() => expect(store.getState().account.projectCount).toBe(4));
+    expect(accountApi.listProjects).toHaveBeenCalledTimes(1);
+    accountApi.listProjects.mockResolvedValueOnce({ projects: [...PROJECTS, PROJECTS[0]] } as never);
+    const form = new FormData();
+    form.set("url", "zerno.example.com");
+    await actions.createProject(form);
+    await vi.waitFor(() => expect(store.getState().account.projectCount).toBe(5));
+    expect(store.getState().route).toBe("project");
+  });
+
+  it("admin: forbidden скидається на кожному вході; selected — лише для того самого userId", async () => {
+    const { actions, store, accountApi } = make();
+    await actions.meReady;
+    actions.navigate({ route: "admin", tab: "users" });
+    expect(store.getState().admin.forbidden).toBe(true);
+    accountApi.me.mockResolvedValue(ADMIN_ME);
+    await actions.refreshMe();
+    actions.navigate({ route: "admin", tab: "users", userId: "u_olena01" });
+    expect(store.getState().admin.forbidden).toBe(false);
+    expect(store.getState().session).toBeNull();
+    const selected = { user: ME.user, balance: 12, entries: HISTORY };
+    store.setState((s) => ({ admin: { ...s.admin, selected } }));
+    actions.navigate({ route: "admin", tab: "outbox", userId: "u_olena01" });
+    expect(store.getState().admin.selected).toBe(selected);
+    actions.navigate({ route: "admin", tab: "users", userId: "u_andriy02" });
+    expect(store.getState().admin.selected).toBeNull();
+  });
+
+  it("logout скидає кабінет, адмінку, чек і projectCount попереднього користувача", async () => {
+    const { actions, store } = make();
+    await actions.meReady;
+    await vi.waitFor(() => expect(store.getState().account.projectCount).toBe(4));
+    actions.navigate({ route: "checkout", id: "t_1" });
+    store.setState((s) => ({
+      cabinet: { ...s.cabinet, history: { ...s.cabinet.history, entries: HISTORY } },
+      admin: { ...s.admin, q: "olena" },
+    }));
+    await actions.logout();
+    const s = store.getState();
+    expect(s.cabinet).toEqual(initialState("start", null).cabinet);
+    expect(s.admin).toEqual(initialState("start", null).admin);
+    expect(s.checkout).toBeNull();
+    expect(s.account.projectCount).toBeNull();
+    expect(s.account.flash).toBe(LOGOUT_FLASH);
   });
 
   it("?mock=1 — фейковий me (Олена, 12) без мережі", async () => {
@@ -813,7 +994,11 @@ describe("createAccountActions", () => {
     const actions = createAccountActions(store, { params: new URLSearchParams("mock=1") });
     made = actions;
     await actions.meReady;
-    expect(store.getState().account).toMatchObject({ meStatus: "ready", me: { balance: 12 } });
+    expect(store.getState().account).toMatchObject({
+      meStatus: "ready",
+      me: { balance: 12 },
+      projectCount: 4,
+    });
     expect(store.getState().account.me?.user.email).toBe("olena@zerno.example.com");
     await actions.refreshMe();
     expect(fetch).not.toHaveBeenCalled();
