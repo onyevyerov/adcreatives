@@ -738,6 +738,10 @@ B4 — єдиний, хто торкається pipeline; B2 — єдиний, 
   (новіші першими).
 - Проєкти: `POST /api/projects` → `201 {id, chatUrl, balance}` | 402; `GET /api/projects` → лише свої
   (admin `?all=1` — усі), рядок містить `ownerId`.
+- Витрати по проєкту (фронтенд-ТЗ B4): рядок `GET /api/projects` і `GET /api/projects/:id` містять
+  `credits: {charged, refunded, parts: [{kind: "video" | "revision" | "format" | "refund", credits, format?, rev?}]} | null`
+  — записи леджера власника з `ref.projectId`; `charged` — сума модулів charge, `refunded` — сума refund,
+  `parts` від старіших до новіших, `credits` зі знаком леджера (charge < 0, refund > 0); без `ownerId` → `null`.
 - Посилання з листів: `${APP_URL}/?auth=activate&token=…`, `${APP_URL}/?auth=reset&token=…`;
   checkout-заглушка: `${APP_URL}/?checkout=<topupId>` — UI показує фейковий крок «Оплатити / Скасувати» і
   викликає `confirm`.
