@@ -4,7 +4,9 @@ import {
   appendEvent,
   assertPublicHttpUrl,
   classifySource,
+  type Format,
   InsufficientCreditsError,
+  type LedgerEntry,
   makeCommandJobId,
   noopLogger,
   normalizeInputUrl,
@@ -74,6 +76,41 @@ const CommandBody = z.discriminatedUnion("type", [
 ]);
 
 const MessageBody = z.object({ text: z.string() });
+
+/** Витрати кредитів по проєкту (N5 «оплачено», N12 — розбивка в кабінеті). */
+export interface ProjectCredits {
+  /** Сума модулів charge. */
+  charged: number;
+  /** Сума refund. */
+  refunded: number;
+  /** Від старіших до новіших; credits зі знаком леджера (charge < 0, refund > 0). */
+  parts: {
+    kind: "video" | "revision" | "format" | "refund";
+    credits: number;
+    format?: Format;
+    rev?: number;
+  }[];
+}
+
+/** Записи леджера власника з `ref.projectId === projectId`; `entries` — як з `readLedger` (новіші першими). */
+export function projectCredits(entries: readonly LedgerEntry[], projectId: string): ProjectCredits {
+  const out: ProjectCredits = { charged: 0, refunded: 0, parts: [] };
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (!e || e.ref.projectId !== projectId) continue;
+    if (e.kind === "refund") {
+      out.refunded += e.credits;
+      out.parts.push({ kind: "refund", credits: e.credits });
+    } else if (e.kind === "charge") {
+      out.charged += Math.abs(e.credits);
+      const { format, rev } = e.ref;
+      if (format !== undefined) out.parts.push({ kind: "format", credits: e.credits, format });
+      else if (rev !== undefined) out.parts.push({ kind: "revision", credits: e.credits, rev });
+      else out.parts.push({ kind: "video", credits: e.credits });
+    }
+  }
+  return out;
+}
 
 /** Тіло multipart / urlencoded / JSON як плаский запис полів. */
 async function readBody(c: Context): Promise<ParsedBody> {
@@ -270,6 +307,16 @@ export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
     const user = currentUser(c);
     const all = user.isAdmin && c.req.query("all") === "1";
     const ids = all ? await listProjectIds(storage) : await accounts.listProjectIds(user.id);
+    // Один readLedger на власника за запит, а не на рядок.
+    const ledgers = new Map<string, Promise<LedgerEntry[]>>();
+    const ledgerOf = (ownerId: string) => {
+      let ledger = ledgers.get(ownerId);
+      if (!ledger) {
+        ledger = accounts.readLedger(ownerId);
+        ledgers.set(ownerId, ledger);
+      }
+      return ledger;
+    };
     const out = [];
     for (const id of ids) {
       if (!isProjectId(id)) continue;
@@ -287,6 +334,7 @@ export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
         site: (project?.input ?? intake?.input)?.url ?? null,
         formats: project?.formats ?? [],
         totalUsd: sumUsd(await readCosts(storage, id)),
+        credits: ownerId ? projectCredits(await ledgerOf(ownerId), id) : null,
         chatUrl: `/?project=${id}`,
       });
     }
@@ -300,13 +348,15 @@ export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
     const project = await readProject(storage, id);
     const intake = await readIntake(storage, id);
     if (!project && !intake) return notFound(c);
-    if (!canSee(currentUser(c), await projectOwner(storage, id))) return notFound(c);
+    const ownerId = await projectOwner(storage, id);
+    if (!canSee(currentUser(c), ownerId)) return notFound(c);
     return c.json({
       id,
       status: project?.status ?? "intake",
       project,
       intake,
       totalUsd: sumUsd(await readCosts(storage, id)),
+      credits: ownerId ? projectCredits(await accounts.readLedger(ownerId), id) : null,
     });
   });
 
