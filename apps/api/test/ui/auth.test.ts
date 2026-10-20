@@ -19,7 +19,7 @@ import type {
 import { createAccountActions } from "../../public/static/js/data/account.js";
 import type { Backend } from "../../public/static/js/data/actions.js";
 import { ApiError, setUnauthorizedHandler } from "../../public/static/js/data/api.js";
-import { authActions, COOLDOWN_MS, errorOf } from "../../public/static/js/data/auth-actions.js";
+import { authActions, COOLDOWN_MS } from "../../public/static/js/data/auth-actions.js";
 import { authState, initialState } from "../../public/static/js/initial.js";
 import { PENDING_KEY, savePending } from "../../public/static/js/lib/pending.js";
 import { createStore } from "../../public/static/js/store.js";
@@ -330,17 +330,6 @@ describe("authModel", () => {
     expect(m.check?.resend).toBe("Надіслати ще раз · 0:42");
     expect(m.check?.resendDisabled).toBe(true);
   });
-
-  it("errorOf: коди сервера, мережа, невідомі відмови", () => {
-    expect(errorOf(apiError(401, "invalid_credentials", "x"))).toEqual({
-      error: "invalid_credentials",
-      message: "x",
-    });
-    expect(errorOf(new ApiError("net", 0, "network", null))).toEqual({ error: "network", message: null });
-    expect(errorOf(apiError(429, null))).toMatchObject({ error: "rate_limited" });
-    expect(errorOf(apiError(501, "not_implemented", "g"))).toEqual({ error: "google", message: "g" });
-    expect(errorOf(apiError(500, "internal", "Збій"))).toEqual({ error: "network", message: "Збій" });
-  });
 });
 
 describe("автозаповнення", () => {
@@ -524,6 +513,20 @@ describe("вхід", () => {
     await flush();
     expect(api.login).toHaveBeenCalledTimes(3);
     expect($<HTMLButtonElement>(".au-submit").disabled).toBe(true);
+  });
+
+  it("невідома відмова (500) — рядок помилки з текстом сервера; 501 Google — рядок-статус", async () => {
+    const { store, api } = harness(guestState("login", { email: "a@b.ua", password: "12345678" }));
+    api.login.mockRejectedValueOnce(apiError(500, "internal", "Збій сервера."));
+    submit();
+    await flush();
+    expect(store.getState().auth?.error).toBe("network");
+    expect($(".au-error").textContent).toBe("Збій сервера.");
+    api.google.mockRejectedValueOnce(apiError(501, "not_implemented", "Google: ще ні."));
+    button("Увійти через Google").click();
+    await flush();
+    expect(store.getState().auth?.error).toBe("google");
+    expect($(".au-google__msg").textContent).toContain("Google: ще ні.");
   });
 
   it("мережа — копірайт UI, дані у формі лишаються", async () => {

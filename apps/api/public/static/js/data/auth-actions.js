@@ -14,7 +14,7 @@
  * - `forgot` → `POST forgot` → `forgotSent`; `reset` (посилання з листа) → `POST reset` →
  *   `refreshMe()` → `resetDone`; `invalid_token` → `resetInvalid`.
  * Помилки: клієнтська перевірка (`empty`, `bad_email`, `empty_name`, `weak_password`) запиту не
- * робить; помилка сервера — `error` з коду відповіді, текст — `message` сервера (`authMessage`).
+ * робить; помилка сервера — `error` з коду відповіді, текст — `message` сервера (`AUTH_MESSAGES`).
  * Відповідь, що прийшла після закриття модалки чи зміни перегляду, відкидається.
  */
 import { authState } from "../initial.js";
@@ -49,30 +49,23 @@ const SERVER_ERRORS = new Set([
 ]);
 
 /** @param {string} email */
-export const isEmail = (email) => EMAIL_RE.test(email.trim());
+const isEmail = (email) => EMAIL_RE.test(email.trim());
 
 /**
- * Текст помилки сервера для поточної `auth.error` (його `message`); `null` — помилка клієнтська
- * або сервер тексту не дав, тоді view бере копірайт UI.
+ * Текст сервера (`message`) для поточної `auth.error` кожного store; немає — помилка клієнтська
+ * або сервер тексту не дав, тоді view бере копірайт UI. Part-файл експортує одну функцію-фабрику,
+ * тож view читає текст звідси: `AUTH_MESSAGES.get(store)` при `auth.error !== null`.
  * @type {WeakMap<Store, string>}
  */
-const messages = new WeakMap();
-
-/**
- * Текст сервера для помилки модалки входу цього store (`null` — копірайт UI).
- * @param {Store} store
- * @returns {string | null}
- */
-export function authMessage(store) {
-  return store.getState().auth?.error ? (messages.get(store) ?? null) : null;
-}
+export const AUTH_MESSAGES = new WeakMap();
+const messages = AUTH_MESSAGES;
 
 /**
  * Помилка запиту → стан форми і текст сервера.
  * @param {unknown} err
  * @returns {{ error: AuthError, message: string | null }}
  */
-export function errorOf(err) {
+function errorOf(err) {
   const status = err instanceof ApiError ? err.status : 0;
   const code = err instanceof ApiError ? err.code : "network";
   const body = err instanceof ApiError ? err.body : null;
@@ -84,6 +77,9 @@ export function errorOf(err) {
   // Невідома відмова (5xx, invalid_body): рядок помилки з текстом сервера, якщо він є.
   return { error: "network", message: message ?? (err instanceof Error ? err.message : null) };
 }
+
+/** @param {Store} store */
+const serverMessage = (store) => (store.getState().auth?.error ? (messages.get(store) ?? null) : null);
 
 /**
  * `?mock=1`: мережі акаунтів немає — ті самі переходи на стані (вхід — фейковий `me`).
@@ -283,7 +279,7 @@ export const authActions = (store, deps) => {
     const email = a.email.trim();
     if (!isEmail(email)) return fail("bad_email");
     // «Надіслати лист ще раз» під not_activated: помилка входу лишається видно разом зі статусом.
-    const keep = a.view === "login" ? { error: a.error, message: authMessage(store) } : null;
+    const keep = a.view === "login" ? { error: a.error, message: serverMessage(store) } : null;
     const res = await request(() => send(email));
     if (!res) return;
     if (!res.ok) {

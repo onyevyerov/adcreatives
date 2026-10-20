@@ -10,11 +10,11 @@
  *
  * Форма — один набір вузлів на всі перегляди (`authModel` → `apply`): поля не перестворюються,
  * тож введення, фокус і курсор не губляться. Тексти — з кадрів Референсу дослівно; помилка сервера —
- * його `message` (`authMessage`), без нього — копірайт UI.
+ * його `message` (`AUTH_MESSAGES`), без нього — копірайт UI.
  */
 
 import { hostOf } from "../data/api.js";
-import { authMessage } from "../data/auth-actions.js";
+import { AUTH_MESSAGES } from "../data/auth-actions.js";
 import { clear, h, text } from "../dom.js";
 import { authState } from "../initial.js";
 import { creditWord, formatCredits, formatNumber, plural } from "../lib/credits.js";
@@ -165,6 +165,9 @@ export function passwordHint(len) {
 
 /** Можна закрити модалку (Esc, підкладка, «Закрити»). @param {Auth} a */
 export const closable = (a) => a.context !== "session" && (!STUCK_VIEWS.includes(a.view) || a.error !== null);
+
+/** Текст сервера для поточної помилки модалки (`null` — копірайт UI). @param {import("../contracts.js").Store} store */
+const serverMessage = (store) => (store.getState().auth?.error ? (AUTH_MESSAGES.get(store) ?? null) : null);
 
 /** Модалка видима: є стан входу і це не сцена 401 у проєкті (там форму малює B12). @param {UiState} s */
 export const modalOpen = (s) => s.auth !== null && !(s.route === "project" && s.session === "401");
@@ -751,7 +754,7 @@ export function mount(el, ctx) {
   function render(s) {
     const visible = modalOpen(s);
     if (visible) {
-      const m = authModel(s, authMessage(store));
+      const m = authModel(s, serverMessage(store));
       form.apply(m);
       timer.set(m.cooldown > 0);
     } else timer.set(false);
@@ -807,7 +810,7 @@ export function mountAuthForm(el, ctx, o) {
   let shownView = null;
   /** @param {UiState} s */
   function render(s) {
-    const m = authModel(s, authMessage(store));
+    const m = authModel(s, serverMessage(store));
     form.apply(m);
     timer.set(m.cooldown > 0);
     if (shownView !== null && shownView !== m.view && form.el.contains(document.activeElement))
