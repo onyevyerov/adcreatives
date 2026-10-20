@@ -132,7 +132,9 @@
  * на старті (вихід); `pending` — відкладений старт гостя; `autostart` — рядок «Починаю ролик…»;
  * `projectCount` — кількість проєктів для «Мої проєкти · N» (`null` — ще невідомо): ядро вантажить
  * `listProjects()`, коли `me` стає ready, і після успішного `createProject`; B9 може оновлювати
- * його з довжини `cabinet.projects.rows`.
+ * його з довжини `cabinet.projects.rows`;
+ * `prices` — **єдине джерело цін для view** (і для гостя): ready → `me.prices`; гість → тихий
+ * публічний `GET /api/billing/packages`; збій — `null` (view ховає ціну). Після виходу лишаються.
  * @typedef {{
  *   me: Me | null,
  *   meStatus: "loading" | "ready" | "anon",
@@ -140,7 +142,8 @@
  *   flash: string | null,
  *   pending: PendingStart | null,
  *   autostart: { host: string | null, charged: number, after: number, photosLost: boolean } | null,
- *   projectCount: number | null
+ *   projectCount: number | null,
+ *   prices: CreditPrices | null
  * }} AccountState
  */
 

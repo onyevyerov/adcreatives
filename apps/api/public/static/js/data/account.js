@@ -10,6 +10,7 @@
  * 2. `refreshMe()` — повторний `me`; змінився баланс при `meStatus: "ready"` → `account.delta`.
  *    Відповідь застарілого запиту (пізніший `refreshMe` уже пішов) відкидається; 401 після
  *    `ready` (сесія протухла) — як 401 нижче (п. 4). `me` став ready → `account.projectCount`.
+ *    Ціни (`account.prices`): ready → `me.prices`; гість → тихий публічний `api.packages()`.
  * 3. Нове (не з реплею історії SSE) повідомлення `assistant`, яке розпізнає `parseCreditMessage`,
  *    → `refreshMe()`.
  * 4. 401 `unauthorized` (крім самого `me`): на project — `session: "401"` + форма входу в сцені
@@ -243,6 +244,17 @@ export function createAccountActions(store, opts) {
     }
   }
 
+  /** Ціни для гостя — з публічного `GET /api/billing/packages`; збій — тихо лишаємо як є. */
+  async function loadPublicPrices() {
+    if (offline) return;
+    try {
+      const { prices } = await api.packages();
+      if (prices && store.getState().account.meStatus === "anon") setAccount(store, { prices });
+    } catch {
+      // ціна для гостя не критична: view без неї ховає рядок ціни
+    }
+  }
+
   async function refreshMe() {
     if (offline) return;
     const my = ++meSeq;
@@ -256,6 +268,7 @@ export function createAccountActions(store, opts) {
       setAccount(store, {
         me,
         meStatus: "ready",
+        prices: me.prices ?? s.prices,
         ...(changed && old !== undefined ? { delta: { credits: me.balance - old, key: deltaKey } } : {}),
       });
     } catch (err) {
@@ -275,7 +288,7 @@ export function createAccountActions(store, opts) {
   async function fakeMe() {
     try {
       const { ME, PROJECTS } = await import("../../dev/fixtures/_base.js");
-      setAccount(store, { me: ME, meStatus: "ready", projectCount: PROJECTS.length });
+      setAccount(store, { me: ME, meStatus: "ready", projectCount: PROJECTS.length, prices: ME.prices });
     } catch (err) {
       console.warn("[account] mock me", err);
       setAccount(store, { meStatus: "anon" });
@@ -364,7 +377,8 @@ export function createAccountActions(store, opts) {
   // ───────────── підписки ─────────────
 
   setUnauthorizedHandler((_err, path) => {
-    if (path === "/api/auth/me") return; // це обробляє refreshMe
+    // me обробляє refreshMe; ціни для гостя — публічні (старий бекенд міг віддати 401).
+    if (path === "/api/auth/me" || path === "/api/billing/packages") return;
     sessionLost();
   });
 
@@ -379,6 +393,7 @@ export function createAccountActions(store, opts) {
       if (now === "ready") void loadProjectCount();
       if (GUARDED.includes(s.route)) enter();
     }
+    if (now === "anon" && was !== "anon") void loadPublicPrices();
     // Відмови, списання й повернення приходять звичайними повідомленнями assistant. Редьюсер
     // лише дописує в кінець стрічки, тож нові — хвіст; старіші за відкриття потоку — реплей.
     if (s.projectId !== prev.projectId || s.feed.length === 0) streamOpenedAt = Date.now();

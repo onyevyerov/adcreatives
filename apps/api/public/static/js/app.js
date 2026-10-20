@@ -150,7 +150,13 @@ export async function boot(opts = {}) {
     if (!preset || LEGACY_FIXTURES.includes(fixture))
       state = {
         ...state,
-        account: { ...state.account, me: ME, meStatus: "ready", projectCount: PROJECTS.length },
+        account: {
+          ...state.account,
+          me: ME,
+          meStatus: "ready",
+          projectCount: PROJECTS.length,
+          prices: ME.prices,
+        },
       };
     if (!opts.actions) makeActions = createDevActions;
   }
