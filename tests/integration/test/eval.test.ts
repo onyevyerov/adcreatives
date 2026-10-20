@@ -1365,7 +1365,8 @@ describe("Epidemic у eval", () => {
         bpm: 128,
         targetBpm: 110,
         tempoWarning: true,
-        versionJobId: "j1",
+        versionJobId: null,
+        versionStatus: "TIMEOUT",
         candidatesTried: 1,
       },
     });
@@ -1373,7 +1374,14 @@ describe("Epidemic у eval", () => {
     expect(site.audio).toEqual({
       musicProvider: "epidemic",
       sfxProvider: "elevenlabs",
-      epidemic: { trackId: "T1", trackTitle: "Neon Run", sfxCount: 0, downloads: 2, tempoWarning: true },
+      epidemic: {
+        trackId: "T1",
+        trackTitle: "Neon Run",
+        sfxCount: 0,
+        downloads: 2,
+        tempoWarning: true,
+        versionStatus: "TIMEOUT",
+      },
     });
 
     const sfxSite = caseSite({
@@ -1381,7 +1389,14 @@ describe("Epidemic у eval", () => {
       audio: {
         musicProvider: "elevenlabs",
         sfxProvider: "epidemic",
-        epidemic: { trackId: null, trackTitle: null, sfxCount: 9, downloads: 9, tempoWarning: false },
+        epidemic: {
+          trackId: null,
+          trackTitle: null,
+          sfxCount: 9,
+          downloads: 9,
+          tempoWarning: false,
+          versionStatus: null,
+        },
       },
     });
     const sites = [caseSite({ name: "01-p", audio: site.audio }), sfxSite, caseSite({ name: "03-old" })];
@@ -1401,7 +1416,7 @@ describe("Epidemic у eval", () => {
       epidemicUsed: null,
     });
     expect(md).toContain("| Музика | SFX | Epidemic: трек / семплів / завантажень |");
-    expect(md).toContain("| epidemic | elevenlabs | Neon Run (T1) ⚠ темп / 0 / 2 |");
+    expect(md).toContain("| epidemic | elevenlabs | Neon Run (T1) ⚠ темп ⚠ версія: TIMEOUT / 0 / 2 |");
     expect(md).toContain("| elevenlabs | epidemic | — / 9 / 9 |");
     expect(md).toMatch(/\| 03-old \|.*\| elevenlabs \| elevenlabs \| — \|/);
     expect(md).toContain("Завантажень Epidemic за прогін: 11 (лічильник: — з 50)");
@@ -1419,7 +1434,9 @@ describe("Epidemic у eval", () => {
     const caseMd = caseReportMarkdown(caseReport);
     expect(caseMd).toContain("| Музика | epidemic |");
     expect(caseMd).toContain("| SFX | elevenlabs |");
-    expect(caseMd).toContain("| Epidemic: трек / семплів / завантажень | Neon Run (T1) ⚠ темп / 0 / 2 |");
+    expect(caseMd).toContain(
+      "| Epidemic: трек / семплів / завантажень | Neon Run (T1) ⚠ темп ⚠ версія: TIMEOUT / 0 / 2 |",
+    );
   });
 
   it("eval/sites.epidemic.json валідний: webreportio-parity і profitstore", async () => {

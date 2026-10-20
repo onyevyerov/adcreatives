@@ -46,6 +46,28 @@ export const EPIDEMIC_MIN_SEARCH_BPM = 40;
 export const EPIDEMIC_VERSION_POLL_MS = 3_000;
 export const EPIDEMIC_VERSION_TIMEOUT_MS = 5 * 60_000;
 
+/**
+ * Статуси задачі Create versions (без урахування регістру). Документація називає лише PENDING і
+ * COMPLETED, але справжній API може віддати проміжний — його опитуємо далі, а не вважаємо збоєм.
+ */
+export const EPIDEMIC_VERSION_PENDING = [
+  "PENDING",
+  "IN_PROGRESS",
+  "PROCESSING",
+  "QUEUED",
+  "RUNNING",
+  "STARTED",
+];
+export const EPIDEMIC_VERSION_FAILED = ["FAILED", "ERROR", "CANCELLED", "CANCELED"];
+
+/** Стан задачі версії: готова, явний збій або ще в роботі (зокрема невідомий статус). */
+export function versionPhase(status: string): "completed" | "failed" | "pending" {
+  const s = status.trim().toUpperCase();
+  if (s === "COMPLETED") return "completed";
+  if (EPIDEMIC_VERSION_FAILED.includes(s)) return "failed";
+  return "pending";
+}
+
 /** Відповідь LLM на `epidemic/music-pick`. */
 export const MusicPickDraft = z.object({ trackId: z.string(), reason: z.string() });
 export type MusicPickDraft = z.infer<typeof MusicPickDraft>;
@@ -163,6 +185,8 @@ const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(reso
 interface Fetched {
   audio: Buffer;
   versionJobId: string | null;
+  /** Останній статус задачі версії як його віддав API (`TIMEOUT` — не дочекались); null — без версії. */
+  versionStatus: string | null;
 }
 
 interface Tried extends Attempt {
@@ -235,18 +259,39 @@ export const ensureEpidemicMusic = (async (
     return kind;
   };
 
-  /** Підгонка під тривалість (бета): байти версії або null — збій чи таймаут. */
-  const fetchVersion = async (track: EpidemicTrack): Promise<Fetched | null> => {
+  /**
+   * Підгонка під тривалість (бета): байти версії або `audio: null` — збій чи таймаут; `status` —
+   * останній статус задачі (у `music.json`, щоб звіт показав, чим скінчилась версія).
+   */
+  const fetchVersion = async (
+    track: EpidemicTrack,
+  ): Promise<{ audio: Buffer; jobId: string; status: string } | { audio: null; status: string | null }> => {
     await ep.quota.consume("version", track.id, `durationMs=${trackMs}`);
     downloads += 1;
+    let status: string | null = null;
     try {
       const job = await run("music:version", (o) =>
         ep.client().startVersion({ trackId: track.id, durationMs: trackMs }, o),
       );
-      // Відповідь старту URL не має — опитуємо щонайменше раз; не PENDING/COMPLETED — збій.
-      let status = job.status;
+      // Відповідь старту URL не має — опитуємо щонайменше раз; явний збій — одразу фолбек,
+      // невідомий статус — опитуємо далі до таймауту (у журнал — один раз на кожен новий статус).
+      status = job.status;
+      let message: string | undefined;
       let url: string | undefined;
-      for (let waited = 0; status === "PENDING" || status === "COMPLETED"; ) {
+      const seen = new Set<string>();
+      const note = (s: string) => {
+        if (seen.has(s)) return;
+        seen.add(s);
+        const known = s.trim().toUpperCase();
+        if (known === "COMPLETED" || EPIDEMIC_VERSION_PENDING.includes(known)) return;
+        logger.warn("Epidemic: невідомий статус версії треку — опитуємо далі", {
+          trackId: track.id,
+          jobId: job.jobId,
+          status: s,
+        });
+      };
+      note(status);
+      for (let waited = 0; versionPhase(status) !== "failed"; ) {
         if (waited >= EPIDEMIC_VERSION_TIMEOUT_MS) {
           status = "TIMEOUT";
           break;
@@ -255,33 +300,38 @@ export const ensureEpidemicMusic = (async (
         waited += EPIDEMIC_VERSION_POLL_MS;
         const res = await run("music:version-status", (o) => ep.client().versionStatus(job.jobId, o));
         status = res.status;
-        if (status === "COMPLETED") {
+        message = res.message;
+        note(status);
+        if (versionPhase(status) === "completed") {
           url = res.results?.highQualityUrl;
           break;
         }
       }
-      if (status !== "COMPLETED" || !url) {
+      if (versionPhase(status) !== "completed" || !url) {
         logger.warn("Epidemic: версія треку не готова — беремо повний трек", {
           trackId: track.id,
           jobId: job.jobId,
           status,
+          ...(message !== undefined ? { message } : {}),
+          ...(versionPhase(status) === "completed" ? { reason: "немає highQualityUrl" } : {}),
         });
-        return null;
+        return { audio: null, status };
       }
       const versionUrl = url;
       await ep.quota.consume("version_fetch", track.id, job.jobId);
       downloads += 1;
       const audio = await run("music:download", (o) => ep.client().fetchBytes(versionUrl, o));
       await record(track.id, trackMs / 1000);
-      return { audio, versionJobId: job.jobId };
+      return { audio, jobId: job.jobId, status };
     } catch (err) {
       const kind = fatal(err);
       logger.warn("Epidemic: збій версії треку — беремо повний трек", {
         trackId: track.id,
         kind,
+        status,
         err: String(err),
       });
-      return null;
+      return { audio: null, status };
     }
   };
 
@@ -290,10 +340,13 @@ export const ensureEpidemicMusic = (async (
     const key = epidemicMusicCacheKey(track.id, trackMs);
     if (await ep.cache.exists(key)) {
       logger.info("Epidemic: трек з кешу завантажень", { trackId: track.id });
-      return { audio: await ep.cache.read(key), versionJobId: null };
+      return { audio: await ep.cache.read(key), versionJobId: null, versionStatus: null };
     }
-    let fetched = await fetchVersion(track);
-    if (!fetched) {
+    const version = await fetchVersion(track);
+    let fetched: Fetched;
+    if (version.audio) {
+      fetched = { audio: version.audio, versionJobId: version.jobId, versionStatus: version.status };
+    } else {
       await ep.quota.consume("track", track.id, "high");
       downloads += 1;
       const { url } = await run("music:download-url", (o) =>
@@ -301,7 +354,7 @@ export const ensureEpidemicMusic = (async (
       );
       const audio = await run("music:download", (o) => ep.client().fetchBytes(url, o));
       await record(track.id, track.length);
-      fetched = { audio, versionJobId: null };
+      fetched = { audio, versionJobId: null, versionStatus: version.status };
     }
     await ep.cache.write(key, fetched.audio);
     return fetched;
@@ -388,6 +441,7 @@ export const ensureEpidemicMusic = (async (
       targetBpm: target,
       tempoWarning: found.tempoWarning,
       versionJobId: att.fetched.versionJobId,
+      versionStatus: att.fetched.versionStatus,
       candidatesTried: Math.max(1, tried),
     },
   };

@@ -659,6 +659,8 @@ export interface SiteAudio {
     downloads: number;
     /** Темп треку поза допуском ±10 BPM (`music.json`). */
     tempoWarning: boolean;
+    /** Останній статус версії треку (`music.json`); null — версію не запитували. */
+    versionStatus: string | null;
   } | null;
 }
 
@@ -809,6 +811,7 @@ export async function readSiteAudio(storage: Storage, projectId: string, rev: nu
             sfxCount: ep?.sfx.length ?? 0,
             downloads: ep?.downloads ?? 0,
             tempoWarning: track?.tempoWarning ?? false,
+            versionStatus: track?.versionStatus ?? null,
           }
         : null,
   };
@@ -932,7 +935,9 @@ function epidemicCell(a: SiteAudio): string {
   const e = a.epidemic;
   if (!e) return "—";
   const title = e.trackTitle ? `${e.trackTitle} (${e.trackId})` : e.trackId;
-  const track = e.trackId ? `${title}${e.tempoWarning ? " ⚠ темп" : ""}` : "—";
+  const version =
+    e.versionStatus && e.versionStatus.toUpperCase() !== "COMPLETED" ? ` ⚠ версія: ${e.versionStatus}` : "";
+  const track = e.trackId ? `${title}${e.tempoWarning ? " ⚠ темп" : ""}${version}` : "—";
   return `${track.replaceAll("|", "/")} / ${e.sfxCount} / ${e.downloads}`;
 }
 
