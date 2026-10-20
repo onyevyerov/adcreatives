@@ -22,6 +22,7 @@ import {
   epidemicMusicCacheKey,
   tempoMatches,
   tempoRanges,
+  versionPhase,
 } from "../src/epidemic/music.ts";
 import type { StereoPcm } from "../src/pcm.ts";
 import { musicPlanHash, musicPlanHashFor, normalizeAudioPlan } from "../src/plan.ts";
@@ -131,19 +132,32 @@ const searches = (client: ReturnType<typeof mockEpidemic>) =>
 const called = (client: ReturnType<typeof mockEpidemic>, method: string) =>
   client.calls.filter((c) => c.method === method);
 
-function capture(): Logger & { warns: string[] } {
+function capture(): Logger & { warns: string[]; warnMeta: Array<Record<string, unknown> | undefined> } {
   const warns: string[] = [];
+  const warnMeta: Array<Record<string, unknown> | undefined> = [];
   const logger: Logger = {
     debug: () => {},
     info: () => {},
-    warn: (msg) => {
+    warn: (msg, meta) => {
       warns.push(msg);
+      warnMeta.push(meta as Record<string, unknown> | undefined);
     },
     error: () => {},
     child: () => logger,
   };
-  return Object.assign(logger, { warns });
+  return Object.assign(logger, { warns, warnMeta });
 }
+
+describe("versionPhase", () => {
+  it("COMPLETED — готово; FAILED/ERROR/CANCELLED — збій; решта (зокрема невідомі) — опитуємо далі", () => {
+    expect(versionPhase("COMPLETED")).toBe("completed");
+    expect(versionPhase("completed")).toBe("completed");
+    for (const s of ["FAILED", "error", "Cancelled", "CANCELED"]) expect(versionPhase(s)).toBe("failed");
+    for (const s of ["PENDING", "in_progress", "Processing", "QUEUED", "running", "STARTED", "WEIRD", ""]) {
+      expect(versionPhase(s)).toBe("pending");
+    }
+  });
+});
 
 describe("tempoMatches / tempoRanges", () => {
   it("трек, його половина або подвоєння в межах допуску; null — ні", () => {
@@ -240,6 +254,7 @@ describe("ensureEpidemicMusic", () => {
         targetBpm: 85,
         tempoWarning: false,
         versionJobId: "job-d",
+        versionStatus: "COMPLETED",
         candidatesTried: 1,
       },
     });
@@ -322,8 +337,63 @@ describe("ensureEpidemicMusic", () => {
     expect(log.warns.some((w) => w.includes("невідомий"))).toBe(true);
   });
 
-  it("версія впала (статус не PENDING/COMPLETED) → повний трек high: version + track у квоті", async () => {
+  it("проміжні статуси (IN_PROGRESS, processing, QUEUED) → опитуємо далі: version + version_fetch, без track", async () => {
+    const log = capture();
     const s = setup({
+      logger: log,
+      fixtures: {
+        searchTracks: [{ tracks: [track("a", 85)] }],
+        startVersion: [{ jobId: "job-a", status: "QUEUED" }],
+        versionStatus: [{ status: "IN_PROGRESS" }, { status: "processing" }],
+      },
+    });
+    const res = await ensureEpidemicMusic(s.deps, PROJECT_ID, plan, "b");
+    expect(called(s.client, "versionStatus")).toHaveLength(3);
+    expect(s.quota.consumed.map((c) => c.kind)).toEqual(["version", "version_fetch"]);
+    expect(called(s.client, "trackDownloadUrl")).toHaveLength(0);
+    expect(called(s.client, "fetchBytes").map((c) => c.args[0])).toEqual([
+      "https://dl.example/version/job-a.mp3",
+    ]);
+    expect(res.downloads).toBe(2);
+    expect(res.meta.epidemic).toMatchObject({ versionJobId: "job-a", versionStatus: "COMPLETED" });
+    // Відомі проміжні статуси — без попереджень.
+    expect(log.warns).toEqual([]);
+  });
+
+  it("невідомий статус → один warn з фактичним статусом, опитуємо далі до COMPLETED", async () => {
+    const log = capture();
+    const s = setup({
+      logger: log,
+      fixtures: {
+        searchTracks: [{ tracks: [track("a", 85)] }],
+        versionStatus: [{ status: "WARMING_UP" }, { status: "WARMING_UP" }, { status: "WARMING_UP" }],
+      },
+    });
+    const res = await ensureEpidemicMusic(s.deps, PROJECT_ID, plan, "b");
+    expect(called(s.client, "versionStatus")).toHaveLength(4);
+    expect(s.quota.consumed.map((c) => c.kind)).toEqual(["version", "version_fetch"]);
+    expect(res.meta.epidemic?.versionStatus).toBe("COMPLETED");
+    const unknown = log.warns.flatMap((w, i) => (w.includes("невідомий статус") ? [log.warnMeta[i]] : []));
+    expect(unknown).toEqual([{ trackId: "a", jobId: "job-a", status: "WARMING_UP" }]);
+  });
+
+  it("явний збій на старті (error) → без опитування, одразу повний трек", async () => {
+    const s = setup({
+      fixtures: {
+        searchTracks: [{ tracks: [track("a", 85)] }],
+        startVersion: [{ jobId: "job-a", status: "error" }],
+      },
+    });
+    const res = await ensureEpidemicMusic(s.deps, PROJECT_ID, plan, "b");
+    expect(called(s.client, "versionStatus")).toHaveLength(0);
+    expect(s.quota.consumed.map((c) => c.kind)).toEqual(["version", "track"]);
+    expect(res.meta.epidemic).toMatchObject({ versionJobId: null, versionStatus: "error" });
+  });
+
+  it("версія впала (FAILED) → одразу повний трек high: version + track у квоті", async () => {
+    const log = capture();
+    const s = setup({
+      logger: log,
       fixtures: {
         searchTracks: [{ tracks: [track("a", 85)] }],
         versionStatus: [{ status: "FAILED", message: "boom" }],
@@ -335,6 +405,16 @@ describe("ensureEpidemicMusic", () => {
     expect(called(s.client, "fetchBytes").map((c) => c.args[0])).toEqual(["https://dl.example/track/a.mp3"]);
     expect(res.downloads).toBe(2);
     expect(res.meta.epidemic?.versionJobId).toBeNull();
+    expect(res.meta.epidemic?.versionStatus).toBe("FAILED");
+    // Одне опитування — далі не чекаємо; у журналі фактичний статус і message API.
+    expect(called(s.client, "versionStatus")).toHaveLength(1);
+    const i = log.warns.findIndex((w) => w.includes("не готова"));
+    expect(log.warnMeta[i]).toMatchObject({
+      trackId: "a",
+      jobId: "job-a",
+      status: "FAILED",
+      message: "boom",
+    });
     const costs = (await readCosts(s.storage, PROJECT_ID)).filter((c) => c.provider === "epidemic");
     expect(costs).toHaveLength(1);
     expect(costs[0]?.units).toEqual({ seconds: 120 });
@@ -347,9 +427,10 @@ describe("ensureEpidemicMusic", () => {
         versionStatus: Array.from({ length: 200 }, () => ({ status: "PENDING" })),
       },
     });
-    await ensureEpidemicMusic(s.deps, PROJECT_ID, plan, "b");
+    const res = await ensureEpidemicMusic(s.deps, PROJECT_ID, plan, "b");
     expect(s.sleeps.reduce((a, b) => a + b, 0)).toBe(EPIDEMIC_VERSION_TIMEOUT_MS);
     expect(s.quota.consumed.map((c) => c.kind)).toEqual(["version", "track"]);
+    expect(res.meta.epidemic?.versionStatus).toBe("TIMEOUT");
 
     const s2 = setup({
       fixtures: {
@@ -357,8 +438,9 @@ describe("ensureEpidemicMusic", () => {
         startVersion: [new EpidemicError("server", "500", 500)],
       },
     });
-    await ensureEpidemicMusic(s2.deps, PROJECT_ID, plan, "b");
+    const res2 = await ensureEpidemicMusic(s2.deps, PROJECT_ID, plan, "b");
     expect(s2.quota.consumed.map((c) => c.kind)).toEqual(["version", "track"]);
+    expect(res2.meta.epidemic?.versionStatus).toBeNull();
   });
 
   it("checkTrack ok=false → рівно один повтор з наступним кандидатом, без нового виклику LLM", async () => {

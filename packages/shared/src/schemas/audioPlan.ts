@@ -104,6 +104,11 @@ export const MusicMeta = z.object({
       /** Темп кандидата поза допуском ±10 — узято найближчий (попередження у звіт). */
       tempoWarning: z.boolean(),
       versionJobId: z.string().nullable(),
+      /**
+       * Останній статус задачі Create versions як його віддав API (`TIMEOUT` — не дочекались);
+       * null — версію не запитували (кеш завантажень) або старт упав до відповіді.
+       */
+      versionStatus: z.string().nullable().default(null),
       /** Скільки кандидатів перевірено (1 — перший пройшов checkTrack). */
       candidatesTried: z.number().int().min(1),
     })
