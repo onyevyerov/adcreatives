@@ -23,13 +23,13 @@ import { NO_SITE, projectHost } from "./cab-projects.js";
 /** @typedef {import("../contracts.js").MountFn} MountFn */
 /** @typedef {Readonly<Record<string, string>>} TopupMap topupId → packageId */
 
-/** Карта поповнень історії (`history.topups` додає Крок 0; до злиття — може не бути). */
+/** Карта поповнень історії (`history.topups`); старий стан без поля — порожня. */
 const EMPTY_TOPUPS = Object.freeze({});
 /**
  * @param {UiState} s
  * @returns {TopupMap}
  */
-const topupsOf = (s) => /** @type {{ topups?: TopupMap }} */ (s.cabinet.history).topups ?? EMPTY_TOPUPS;
+const topupsOf = (s) => s.cabinet.history.topups ?? EMPTY_TOPUPS;
 
 /** Місяці в родовому відмінку: «19 жовтня». */
 const MONTHS = [

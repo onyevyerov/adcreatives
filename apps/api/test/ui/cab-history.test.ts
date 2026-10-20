@@ -19,7 +19,7 @@ import {
   PROJECTS,
   TOPUPS,
 } from "../../public/static/dev/fixtures/_base.js";
-import historyFixtures, { LONG_NOTE, TOPUP_PACKAGES } from "../../public/static/dev/fixtures/history.js";
+import historyFixtures, { LONG_NOTE } from "../../public/static/dev/fixtures/history.js";
 import type { Actions, LedgerEntry, PartDeps, Route, UiState } from "../../public/static/js/contracts.js";
 import { cabinetActions, HISTORY_LIMIT } from "../../public/static/js/data/cabinet-actions.js";
 import { createStore } from "../../public/static/js/store.js";
@@ -32,6 +32,8 @@ import {
 } from "../../public/static/js/views/cab-history.js";
 
 const MINUS = "−";
+/** `history.topups` Олени з `_base.js`: `topupId → packageId`. */
+const TOPUP_PACKAGES = accountFixture().cabinet.history.topups;
 
 /** Кабінет Олени на «Історії» з патчем гілки історії. */
 function state(history: Partial<UiState["cabinet"]["history"]> = {}, rows = PROJECTS): UiState {
@@ -320,7 +322,7 @@ describe("data/cabinet-actions.js · історія", () => {
       cabinet: {
         ...s.cabinet,
         section: "history",
-        history: { entries: [], nextBefore: null, loading: false, more: false },
+        history: { entries: [], nextBefore: null, loading: false, more: false, topups: {} },
         projects: { rows: null, loading: false, open: null },
       },
     });
@@ -384,6 +386,7 @@ describe("data/cabinet-actions.js · історія", () => {
           nextBefore: HISTORY[4]?.at ?? null,
           loading: true,
           more: true,
+          topups: {},
         },
       },
     }));
@@ -433,7 +436,7 @@ describe("data/cabinet-actions.js · історія", () => {
     );
     const listTopUps = vi.fn(async () => ({ topups: TOPUPS }));
     const a = cabinetActions(store, fakeDeps({ transactions, listTopUps }).deps);
-    const topups = () => (store.getState().cabinet.history as { topups?: Record<string, string> }).topups;
+    const topups = () => store.getState().cabinet.history.topups;
     await a.loadHistory();
     expect(topups()).toEqual({ t_c22: "custom", t_8f2k: "standard" });
     await a.loadHistory(true);
@@ -456,7 +459,10 @@ describe("data/cabinet-actions.js · історія", () => {
     const a = cabinetActions(store, fakeDeps({ transactions }).deps);
     const p1 = a.loadHistory();
     store.setState((s) => ({
-      cabinet: { ...s.cabinet, history: { entries: [], nextBefore: null, loading: false, more: false } },
+      cabinet: {
+        ...s.cabinet,
+        history: { entries: [], nextBefore: null, loading: false, more: false, topups: {} },
+      },
     }));
     await a.loadHistory();
     slow.resolve({ entries: HISTORY, nextBefore: "x" });

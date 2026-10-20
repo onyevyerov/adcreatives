@@ -21,10 +21,6 @@
 /** @typedef {import("../contracts.js").CabinetState} CabinetState */
 /** @typedef {import("../contracts.js").LedgerEntry} LedgerEntry */
 /** @typedef {import("../contracts.js").Store} Store */
-/**
- * Гілка історії з картою поповнень (`topups` додає Крок 0; до злиття — необов'язкова).
- * @typedef {CabinetState["history"] & { topups?: Record<string, string> }} HistoryState
- */
 
 /** Записів леджера на сторінку («Показати ще»). */
 export const HISTORY_LIMIT = 50;
@@ -54,7 +50,7 @@ function appendPage(entries, page) {
 
 /** @type {Factory} */
 export const cabinetActions = (store, deps) => {
-  /** @param {Partial<HistoryState>} patch */
+  /** @param {Partial<CabinetState["history"]>} patch */
   const setHistory = (patch) =>
     store.setState((s) => ({ cabinet: { ...s.cabinet, history: { ...s.cabinet.history, ...patch } } }));
   /** @param {Partial<CabinetState["projects"]>} patch */

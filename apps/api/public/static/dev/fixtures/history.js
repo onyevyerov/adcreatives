@@ -10,7 +10,7 @@
  *   (`-more-busy`), «Довга примітка» (`-long-note`).
  * Клітинки аркуша в Референсі — лише розділ; фікстура — уся сторінка кабінету з тим самим розділом.
  */
-import { accountFixture, at, HISTORY, OLENA, TOPUPS } from "./_base.js";
+import { accountFixture, at, HISTORY, OLENA } from "./_base.js";
 
 /** @typedef {import("../../js/contracts.js").UiState} UiState */
 /** @typedef {import("../../js/contracts.js").CabinetState} CabinetState */
@@ -26,12 +26,9 @@ const history = (history = {}) =>
   accountFixture(
     /** @type {StatePatch} */ ({
       route: "cabinet",
-      cabinet: { section: "history", history: { topups: TOPUP_PACKAGES, ...history } },
+      cabinet: { section: "history", history },
     }),
   );
-
-/** `history.topups` з `GET topups` Олени: `topupId → packageId`. */
-export const TOPUP_PACKAGES = Object.fromEntries(TOPUPS.map((t) => [t.id, t.packageId]));
 
 /** Перша сторінка з п'яти записів: далі є ще (`nextBefore` — час останнього). */
 const PAGE = HISTORY.slice(0, 5);
