@@ -1,1 +1,226 @@
-/* .ac- · B3 · пілюля балансу, меню акаунта (N4-B). Крок 0 — порожній файл; наповнює B3. */
+/* .ac- · B3 · пілюля балансу, коло й меню акаунта (N4-B). У топбарі розкладку задає chrome.css. */
+
+/* Шапка старту (place "start"): ряд 32px, меню під колом. */
+.ac {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  height: 32px;
+}
+
+/* ───────────── Завантаження /me: спінер 12 + «баланс…» ───────────── */
+
+.ac-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font: 400 12.5px / 1 var(--f-mono);
+  white-space: nowrap;
+}
+
+/* ───────────── Пілюля: «12 кредитів» | «+» ───────────── */
+
+.ac-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+
+.ac-pill__bal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 0 14px;
+  border: 0;
+  border-radius: var(--r-pill) 0 0 var(--r-pill);
+  background: transparent;
+  color: var(--muted);
+  font: 400 12.5px / 1 var(--f-mono);
+  cursor: pointer;
+}
+
+.ac-pill__bal:hover {
+  color: var(--ink);
+}
+
+.ac-pill__num {
+  color: var(--ink);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.ac-pill__sep {
+  width: 1px;
+  background: var(--line-strong);
+}
+
+.ac-pill__plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 0 var(--r-pill) var(--r-pill) 0;
+  background: transparent;
+  color: var(--ink);
+  font: 500 13px / 1 var(--f-ui);
+  cursor: pointer;
+}
+
+.ac-pill__plus:hover {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+/* Низький баланс (< prices.video × 0.5): «+ Поповнити» текстом, без кольору. */
+.ac-pill__plus--low {
+  padding: 0 14px 0 10px;
+}
+
+.ac-pill__sign {
+  font: 400 15px / 1 var(--f-ui);
+}
+
+/* Мітка зміни балансу «−3 / +10» ліворуч від пілюлі; reduced-motion — keyframes з base.css. */
+.ac-delta {
+  position: absolute;
+  top: 9px;
+  right: calc(100% + 8px);
+  color: var(--ink-2);
+  font: 500 11px / 1 var(--f-mono);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: ac-delta var(--ac-delta) var(--ease) forwards;
+}
+
+/* ───────────── «адмін» + коло з ініціалами ───────────── */
+
+.ac-role {
+  margin-right: -10px;
+  color: var(--muted);
+  font: 500 10.5px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ac-trigger {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  font: 500 11.5px / 1 var(--f-ui);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color var(--t-hover);
+}
+
+.ac-trigger:hover {
+  border-color: var(--ink);
+}
+
+.ac-trigger--open {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+/* ───────────── Меню · 272 · padding 6 · рамка --ink · радіус 14 · без тіні ───────────── */
+
+.ac-menu {
+  position: absolute;
+  top: 42px;
+  right: -8px;
+  display: flex;
+  flex-direction: column;
+  width: 272px;
+  padding: 6px;
+  border: 1px solid var(--ink);
+  border-radius: var(--r-14);
+  background: var(--card);
+  color: var(--ink);
+  animation: adc-fade 0.25s var(--ease) both;
+}
+
+.ac-menu__head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ac-menu__name {
+  font: 500 14px / 1.2 var(--f-ui);
+}
+
+.ac-menu__email {
+  color: var(--muted);
+  font: 400 11.5px / 1.3 var(--f-mono);
+  overflow-wrap: anywhere;
+}
+
+.ac-menu__role {
+  color: var(--muted);
+  font: 500 10.5px / 1.2 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ac-menu__list {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+}
+
+.ac-menu__foot {
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.ac-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-10);
+  background: transparent;
+  color: var(--ink);
+  font: 500 13.5px / 1 var(--f-ui);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ac-menu__item:hover {
+  background: var(--paper);
+}
+
+.ac-menu__meta {
+  color: var(--muted);
+  font: 400 11.5px / 1 var(--f-mono);
+}
+
+.ac-menu__item--logout {
+  color: var(--ink-2);
+}
+
+.ac-menu__item--logout:hover {
+  color: var(--ink);
+}

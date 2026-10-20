@@ -1,10 +1,12 @@
-/* .st- · B1 · стартовий екран (S1, C1, C3, X6). */
+/* .st- · B1 · стартовий екран (S1, C1, C3, X6) + B2 акаунтів (N3-A: шапка, ціна, K3, автостарт, flash). */
 
 .st {
   --st-gutter: clamp(24px, 4vw, 56px);
   --st-player-h: clamp(380px, 100vh - 250px, 600px);
 
   display: grid;
+  /* Одна колонка в межах вікна: без неї довгий лід розпирає сторінку на 390. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 76px minmax(0, 1fr) auto;
   min-height: 100vh;
   background: var(--paper);
@@ -21,6 +23,19 @@
 
 .st-head .wordmark:hover {
   color: var(--ink);
+}
+
+/* N3-A: «Увійти» (ghost 32, на 390 — 44) або контроли акаунта (B3). */
+.st-account {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.st-login {
+  height: 32px;
+  padding: 0 16px;
+  font-size: 13px;
 }
 
 /* ── Дві колонки ── */
@@ -91,6 +106,63 @@
   flex: none;
 }
 
+/* Спінер на --ink: трек --on-ink 30%, дуга --on-ink. */
+.st-submit__spinner {
+  border-color: color-mix(in srgb, var(--on-ink) 30%, transparent);
+  border-top-color: var(--on-ink);
+}
+
+/* ── N3-A: рядок-статус після виходу ── */
+
+.st-flash {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+/* ── N3-A: рядок ціни ── */
+
+.st-price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  color: var(--muted);
+  font: 400 12.5px / 1.5 var(--f-mono);
+}
+
+.st-price__value {
+  color: var(--ink);
+}
+
+.st-price__head,
+.st-price__more {
+  display: contents;
+}
+
+/* ── N3-A: автостарт ── */
+
+.st-starting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  color: var(--ink);
+  font: 400 12.5px / 1.5 var(--f-mono);
+  animation: adc-fade var(--t-msg) var(--ease) both;
+}
+
+.st-starting__meta {
+  color: var(--muted);
+}
+
+.st-lost {
+  color: var(--ink-2);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
 .st-error {
   margin: 0;
   color: var(--danger);
@@ -129,6 +201,11 @@
 
 .st-link__mono {
   font: 400 12.5px / 1 var(--f-mono);
+}
+
+/* «поповнити» в рядку ціни — моно, як сам рядок. */
+.st-price .st-link {
+  font: 400 12.5px / 1.5 var(--f-mono);
 }
 
 .st-manual {
@@ -271,5 +348,13 @@
   .st-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .st-login {
+    height: 44px;
+  }
+
+  .st-player {
+    width: 100%;
   }
 }

@@ -1,8 +1,11 @@
 /* .tb- / .tl- · B3 · топбар і таймлайн (C2, C3, T3, T4). */
 
-/* ───────────── Топбар (C2) · 56px · padding 0 24px ───────────── */
+/* ───────────── Топбар (C2, N4-B) · 56px · padding 0 24px ───────────── */
 
+/* Над таймлайном і сценою: меню акаунта (.ac-menu) відкривається від правого краю топбару. */
 .tb {
+  position: relative;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -95,6 +98,21 @@
 
 .tb-stats:hover {
   color: var(--accent);
+}
+
+/*
+ * Контроли акаунта (account-controls.js, place "page") стають у ряд .tb-right:
+ * статус · «Витрачено» · пілюля · [слот: «Новий проєкт» · «Статистика»] · «адмін» + коло.
+ */
+.tb-acct,
+.tb-acct > .ac,
+.tb-acct .ac-slot {
+  display: contents;
+}
+
+.tb .ac-menu {
+  top: 50px;
+  right: 16px;
 }
 
 /* ───────────── Таймлайн (C3) · padding 14 24 30 · тіки 12px, крок 8px ───────────── */
