@@ -1,1 +1,47 @@
-/* .ss- · B12 · системні стани сцени (N15-B). Крок 0 — порожній файл; наповнює B12. */
+/* .ss- · B12 · системні стани сцени (N15-B): 401, 404 у панелі сцени, 403 в адмінці. */
+
+/* ── Екран сцени у манері X4 (Референс #N15: padding 44 · clamp(24px,4vw,56px) · max-w 1000) ── */
+
+.ss {
+  max-width: 1000px;
+  padding: 44px clamp(24px, 4vw, 56px);
+}
+
+/* 401: форма входу з views/auth.js (layout stage) — контейнер max-w 640, gap 28. */
+.ss-login {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  max-width: 640px;
+}
+
+.ss-title {
+  margin-top: 18px;
+}
+
+.ss-lead {
+  max-width: 520px;
+  margin-top: 20px;
+  color: var(--ink-2);
+  font: 400 17px / 1.55 var(--f-ui);
+}
+
+.ss-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 32px;
+}
+
+/* ── 403 в області адмінки (padding — у admin.js) ── */
+
+.ss-forbidden {
+  max-width: 720px;
+  padding: 20px 0;
+}
+
+.ss-forbidden__title {
+  margin-top: 18px;
+  font: 300 64px / 1.02 var(--f-display);
+  letter-spacing: -0.05em;
+}
