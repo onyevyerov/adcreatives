@@ -12,6 +12,12 @@ import { meOf, OLENA, PRICES } from "./_base.js";
 /** @typedef {NonNullable<import("../../js/contracts.js").AuthState>} Auth */
 /** @typedef {import("../../js/contracts.js").AuthView} AuthView */
 
+/**
+ * Якір часу фікстур (перший імпорт модуля): кулдаун і відкладений старт рахуються від нього.
+ * Жива сторінка показує «0:42» одразу після відкриття; тести ставлять `vi.setSystemTime(FIXTURE_NOW)`.
+ */
+export const FIXTURE_NOW = Date.now();
+
 const EMAIL = "olena@zerno.example.com";
 const NEW_EMAIL = "new@florist-kyiv.example.com";
 
@@ -20,7 +26,7 @@ const PENDING = {
   url: "zerno.example.com",
   manualText: null,
   hadPhotos: false,
-  at: new Date().toISOString(),
+  at: new Date(FIXTURE_NOW).toISOString(),
 };
 
 /**
@@ -47,8 +53,8 @@ function authFixture(view, patch = {}, o = {}) {
   };
 }
 
-/** Кулдаун листа, що триває ще `sec` секунд (рахується від відкриття фікстури). @param {number} sec */
-const cooldown = (sec) => Date.now() + sec * 1000;
+/** Кулдаун листа, що триває ще `sec` секунд від `FIXTURE_NOW`. @param {number} sec */
+const cooldown = (sec) => FIXTURE_NOW + sec * 1000;
 
 const filled = { email: EMAIL, password: "kava2026!" };
 const registered = { name: "Олена Коваль", email: EMAIL };
