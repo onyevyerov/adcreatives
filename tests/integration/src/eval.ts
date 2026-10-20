@@ -2122,6 +2122,9 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
   const soundMode = currentSoundTuning();
   print(`eval: звук ${soundModeStr(soundMode)}`);
   print(`eval: провайдери ${providersStr(soundMode)}`);
+  if (process.env.ADC_EPIDEMIC_CACHE_ONLY === "1") {
+    print("eval: Epidemic — лише кеш (ADC_EPIDEMIC_CACHE_ONLY=1): нових завантажень не буде");
+  }
 
   // Імена кейсів перезапуску — з report.json базового прогону (без префікса «01-»).
   const baseNames = new Map<string, string>();

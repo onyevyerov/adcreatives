@@ -51,6 +51,7 @@ import {
   referencedCues,
 } from "./plan.ts";
 import {
+  cacheOnlyQuota,
   type EnsureMusicFn,
   type EnsureSfxVariantsFn,
   type EpidemicDeps,
@@ -97,6 +98,8 @@ export interface AudioStageDeps {
   epidemicCache?: Storage;
   /** Черга викликів Epidemic; дефолт — спільна черга процесу. */
   epidemicGate?: EpidemicGate;
+  /** Режим «лише кеш» Epidemic; дефолт — `ADC_EPIDEMIC_CACHE_ONLY=1`. */
+  epidemicCacheOnly?: boolean;
   /** Точки підміни провайдерів музики (тести); дефолт — `ensureMusic` / `ensureEpidemicMusic`. */
   ensureMusicBy?: Partial<Record<AudioProvider, EnsureMusicFn>>;
   /** Точка підміни SFX Epidemic (тести); дефолт — `ensureEpidemicSfxVariants`. */
@@ -383,11 +386,15 @@ export function createAudioStage(deps: AudioStageDeps = {}): Stage<"audio"> {
           dir ??= epidemicDir();
           return dir;
         };
+        const quota = deps.epidemicQuota ?? createEpidemicQuota(dirOf());
+        const cacheOnly = deps.epidemicCacheOnly ?? process.env.ADC_EPIDEMIC_CACHE_ONLY === "1";
+        if (cacheOnly) logger.info("Epidemic: режим «лише кеш» — без нових завантажень");
         epidemicDeps = {
           client: getEpidemicClient,
-          quota: deps.epidemicQuota ?? createEpidemicQuota(dirOf()),
+          quota: cacheOnly ? cacheOnlyQuota(quota) : quota,
           cache: deps.epidemicCache ?? new LocalStorage(dirOf()),
           gate: deps.epidemicGate ?? defaultEpidemicGate(logger),
+          cacheOnly,
           logger,
           ...(ctx.signal ? { signal: ctx.signal } : {}),
           now,

@@ -15,9 +15,10 @@ import { encodeWav } from "../wav.ts";
 /**
  * SFX з каталогу Epidemic Sound (B3): один пошук на cue за фразою з `prompts/epidemic/sfx-terms.md`,
  * варіант `k` — `k`-й кандидат пошуку; завантажуються лише запитані варіанти (що прозвучить, вирішує
- * стадія), у постійний кеш Epidemic (`ADC_EPIDEMIC_DIR`, не DATA_DIR прогону). Семпл обрізається до
- * тривалості cue з fade-out, проходить той самий QC, що й ElevenLabs; не пройшов — один повтор
- * наступним кандидатом, лишається кращий з двох (подія не німіє).
+ * стадія), у постійний кеш Epidemic (`ADC_EPIDEMIC_DIR`, не DATA_DIR прогону). Тиша на початку
+ * прибирається, семпл обрізається до тривалості cue з fade-out і проходить той самий QC, що й ElevenLabs;
+ * не пройшов (не лише через висоту тону) — один повтор наступним кандидатом, лишається кращий з двох
+ * (подія не німіє). Режим «лише кеш» (`cacheOnly`) бере тільки вже завантажені семпли, без мережі.
  */
 
 /** Назва файлу з пошуковими фразами: `prompts/epidemic/sfx-terms.md`. */
@@ -108,6 +109,51 @@ const cacheKeys = {
 export const epidemicSfxKey = (projectId: string, id: string) =>
   `${projectPaths(projectId).audioDir}/epidemic-sfx/${id}.wav`;
 
+/** Поріг тиші на початку семпла: нижче за пік на стільки дБ — тиша. */
+export const EPIDEMIC_SFX_SILENCE_DB = -40;
+/** Скільки лишити перед першим звуком після обрізання тиші, мс. */
+export const EPIDEMIC_SFX_PREROLL_MS = 5;
+
+/**
+ * Тиша на початку прибирається до QC і обрізання за тривалістю: у каталожних семплах вона буває до
+ * секунди, і обрізання «від нуля» лишало б саму тишу (QC бачив тихий пік і пізній onset).
+ */
+export function trimLeadingSilence(
+  pcm: StereoPcm,
+  thresholdDb = EPIDEMIC_SFX_SILENCE_DB,
+  prerollMs = EPIDEMIC_SFX_PREROLL_MS,
+): StereoPcm {
+  const len = pcmLength(pcm);
+  let peak = 0;
+  for (let i = 0; i < len; i++) {
+    peak = Math.max(peak, Math.abs(pcm.left[i] as number), Math.abs(pcm.right[i] as number));
+  }
+  if (peak === 0) return pcm;
+  const threshold = peak * 10 ** (thresholdDb / 20);
+  let first = 0;
+  while (
+    first < len &&
+    Math.abs(pcm.left[first] as number) < threshold &&
+    Math.abs(pcm.right[first] as number) < threshold
+  ) {
+    first++;
+  }
+  const start = Math.max(0, first - secToSamples(prerollMs / 1000, pcm.sampleRate));
+  if (start === 0) return pcm;
+  const out = createStereo(len - start, pcm.sampleRate);
+  out.left.set(pcm.left.subarray(start));
+  out.right.set(pcm.right.subarray(start));
+  return out;
+}
+
+/**
+ * Чи варто повторювати семпл, що не пройшов QC. Відсутність впевненої висоти тону — не привід
+ * витрачати завантаження: тональність каталожних семплів не гарантована, а QC тут лише ранжує.
+ */
+export function worthRetry(qc: SfxQc): boolean {
+  return !qc.ok && qc.reasons.some((r) => r !== "немає впевненої висоти тону");
+}
+
 /** Обрізання до `durationSeconds` з лінійним fade-out наприкінці; коротший — як є. */
 export function trimWithFade(
   pcm: StereoPcm,
@@ -165,6 +211,8 @@ export const ensureEpidemicSfxVariants: EnsureSfxVariantsFn = async (deps, reque
             logger.warn("кеш пошуку Epidemic битий — шукаємо знову", { cue, err: String(err) });
           }
         }
+        // Без кешу пошуку в кеші немає й семплів цього cue — запит не потрібен.
+        if (ep.cacheOnly) return [];
         const found = await ep.gate.run(
           `sfx-search:${cue}`,
           (s) =>
@@ -243,7 +291,8 @@ export const ensureEpidemicSfxVariants: EnsureSfxVariantsFn = async (deps, reque
   ): Promise<Prepared> => {
     const label = variantLabel(request.cue, request.variant);
     const { bytes, downloaded } = await fetchRaw(sound, label, request.cue, term);
-    const pcm = trimWithFade(await decodeAudio(bytes, signal ? { signal } : {}), request.def.durationSeconds);
+    const decoded = await decodeAudio(bytes, signal ? { signal } : {});
+    const pcm = trimWithFade(trimLeadingSilence(decoded), request.def.durationSeconds);
     const wav = encodeWav(pcm);
     const durationMs = Math.round((pcmLength(pcm) / pcm.sampleRate) * 1000);
     let qc: SfxQc | null = null;
@@ -275,7 +324,12 @@ export const ensureEpidemicSfxVariants: EnsureSfxVariantsFn = async (deps, reque
   const planned: Array<{ request: SfxVariantRequest; term: string; ordered: EpidemicSoundEffect[] }> = [];
   for (const request of requests) {
     const term = epidemicSfxTerm(request, terms);
-    const ordered = orderSfxCandidates(await search(request.cue, term), request.def.durationSeconds);
+    let ordered = orderSfxCandidates(await search(request.cue, term), request.def.durationSeconds);
+    if (ep.cacheOnly) {
+      // Лише вже завантажені кандидати: варіант `k` — `k`-й з них.
+      const cached = await Promise.all(ordered.map((s) => ep.cache.exists(cacheKeys.audio(s.id))));
+      ordered = ordered.filter((_, i) => cached[i]);
+    }
     planned.push({ request, term, ordered });
   }
   /** Варіант `k` — кандидат `(k − 1) mod n`. */
@@ -292,14 +346,19 @@ export const ensureEpidemicSfxVariants: EnsureSfxVariantsFn = async (deps, reque
   for (const { request, term, ordered } of planned) {
     const { cue, variant } = request;
     if (ordered.length === 0) {
-      logger.warn("Epidemic: немає семплів за фразою — подія без звуку", { cue, variant, term });
+      logger.warn(
+        ep.cacheOnly
+          ? "Epidemic: у кеші немає семплів cue (режим «лише кеш») — подія без звуку"
+          : "Epidemic: немає семплів за фразою — подія без звуку",
+        { cue, variant, term },
+      );
       continue;
     }
     const start = startOf(ordered.length, variant);
     const primary = ordered[start] as EpidemicSoundEffect;
     let best = await prepare(primary, request, term);
     let downloaded = best.downloaded;
-    if (best.qc && !best.qc.ok) {
+    if (best.qc && worthRetry(best.qc)) {
       // Наступний кандидат, не основний для інших запитаних варіантів cue (якщо такого немає — будь-який).
       const rest = Array.from(
         { length: ordered.length - 1 },

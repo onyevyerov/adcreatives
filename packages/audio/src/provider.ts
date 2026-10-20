@@ -162,9 +162,28 @@ export interface EpidemicDeps {
   /** Постійний кеш завантажень (`ADC_EPIDEMIC_DIR`), не DATA_DIR прогону. */
   cache: Storage;
   gate: EpidemicGate;
+  /**
+   * Режим «лише кеш» (`ADC_EPIDEMIC_CACHE_ONLY=1`): жодних запитів і завантажень — лише те, що вже
+   * лежить у `cache`; чого немає — подія без звуку (SFX) або помилка квоти (музика).
+   */
+  cacheOnly?: boolean;
   logger?: Logger;
   signal?: AbortSignal;
   now?: () => Date;
+}
+
+/** Повідомлення, коли режим «лише кеш» не пускає завантаження. */
+export const EPIDEMIC_CACHE_ONLY_MESSAGE =
+  "Epidemic: режим «лише кеш» (ADC_EPIDEMIC_CACHE_ONLY=1) — нових завантажень немає";
+
+/** Квота, що не пускає жодного завантаження (режим «лише кеш»). */
+export function cacheOnlyQuota(inner: EpidemicQuota): EpidemicQuota {
+  return {
+    used: () => inner.used(),
+    consume: async () => {
+      throw new EpidemicError("quota", EPIDEMIC_CACHE_ONLY_MESSAGE);
+    },
+  };
 }
 
 /** Музика: та сама форма результату, що в `ensureMusic` (`music.ts`). */

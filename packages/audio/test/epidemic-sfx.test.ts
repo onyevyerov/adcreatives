@@ -16,9 +16,16 @@ import {
   loadSfxTerms,
   orderSfxCandidates,
   parseSfxTerms,
+  trimLeadingSilence,
+  worthRetry,
 } from "../src/epidemic/sfx.ts";
 import { createStereo, pcmLength, SAMPLE_RATE } from "../src/pcm.ts";
-import { EpidemicError, type EpidemicSoundEffect, type SfxVariantRequest } from "../src/provider.ts";
+import {
+  cacheOnlyQuota,
+  EpidemicError,
+  type EpidemicSoundEffect,
+  type SfxVariantRequest,
+} from "../src/provider.ts";
 import type { CueDefinition } from "../src/sfx.ts";
 import type { SfxQc, SfxQcHook } from "../src/sfxQc.ts";
 import { decodeWav, encodeWav } from "../src/wav.ts";
@@ -27,10 +34,11 @@ import { instantGate, PROJECT_ID, tmpStorage } from "./helpers.ts";
 
 /** B3: семпли Epidemic за cue — один пошук на cue, лише запитані варіанти, QC з одним повтором, обрізання. */
 
-/** Тон на всю довжину (пік 0.8) у WAV — те, що «завантажує» мок. */
-function toneWav(seconds: number): Buffer {
+/** Тон (пік 0.8) у WAV — те, що «завантажує» мок; `silence` с тиші на початку входять у `seconds`. */
+function toneWav(seconds: number, silence = 0): Buffer {
   const pcm = createStereo(Math.round(seconds * SAMPLE_RATE));
-  for (let i = 0; i < pcmLength(pcm); i++) {
+  const lead = Math.round(silence * SAMPLE_RATE);
+  for (let i = lead; i < pcmLength(pcm); i++) {
     const v = 0.8 * Math.sin((2 * Math.PI * 440 * i) / SAMPLE_RATE);
     pcm.left[i] = v;
     pcm.right[i] = v;
@@ -78,6 +86,9 @@ function setup(
     lengths?: Record<string, number>;
     qc?: SfxQcHook;
     quotaStart?: number;
+    cacheOnly?: boolean;
+    /** Секунди тиші перед тоном у «завантаженому» файлі. */
+    leadSilence?: number;
   } = {},
 ) {
   const client = mockEpidemic({
@@ -86,7 +97,7 @@ function setup(
     })),
     fetchBytes: Array.from({ length: 20 }, () => (url: unknown) => {
       const id = String(url).replace(/^.*\/(.+)\.mp3$/, "$1");
-      return toneWav(opts.lengths?.[id] ?? 0.6);
+      return toneWav(opts.lengths?.[id] ?? 0.6, opts.leadSilence ?? 0);
     }),
   });
   const quota = memoryQuota(opts.quotaStart ?? 0);
@@ -107,7 +118,7 @@ function setup(
     },
     gate: instantGate(),
     ...(opts.qc ? { qc: opts.qc } : {}),
-    epidemic: { client: () => client, quota, cache, gate },
+    epidemic: { client: () => client, quota, cache, gate, ...(opts.cacheOnly ? { cacheOnly: true } : {}) },
     cost,
     projectId: PROJECT_ID,
   };
@@ -344,5 +355,100 @@ describe("ensureEpidemicSfxVariants", () => {
     ]);
     expect(out.map((o) => [o.cue, o.epidemicId])).toEqual([["cup-clink", "c1"]]);
     expect(t.quota.consumed).toEqual([{ kind: "sfx", id: "c1", detail: "cup-clink.1" }]);
+  });
+});
+
+describe("тиша на початку і повтори QC", () => {
+  const search = { [WHOOSH]: [fx("w1", 1.2), fx("w2", 1.2)] };
+
+  it("trimLeadingSilence лишає 5 мс перед першим звуком; без тиші — той самий PCM", () => {
+    const pcm = decodeWav(toneWav(1, 0.5));
+    const trimmed = trimLeadingSilence(pcm);
+    const lead = Math.round(0.5 * SAMPLE_RATE) - Math.round(0.005 * SAMPLE_RATE);
+    // Перший ненульовий семпл синуса — на індексі lead+1 (sin(0) = 0).
+    expect(pcmLength(trimmed)).toBeGreaterThanOrEqual(pcmLength(pcm) - lead - 2);
+    expect(pcmLength(trimmed)).toBeLessThanOrEqual(pcmLength(pcm) - lead + 2);
+    const loud = decodeWav(toneWav(0.3));
+    expect(trimLeadingSilence(loud)).toBe(loud);
+  });
+
+  it("семпл із тишею на початку: обрізання за тривалістю лишає звук, а не тишу", async () => {
+    const t = setup({ search, leadSilence: 0.6, lengths: { w1: 1.2 } });
+    const out = await ensureEpidemicSfxVariants(t.deps, [req("whoosh", 1, def(0.4))]);
+    const pcm = decodeWav(await t.storage.read(out[0]?.file.key ?? ""));
+    let peak = 0;
+    for (const v of pcm.left) peak = Math.max(peak, Math.abs(v));
+    expect(peak).toBeGreaterThan(0.7);
+    expect(out[0]?.file.durationMs).toBe(400);
+  });
+
+  it("worthRetry: лише відсутність висоти тону — без повтору й зайвого завантаження", async () => {
+    expect(worthRetry(qcResult(["немає впевненої висоти тону"]))).toBe(false);
+    expect(worthRetry(qcResult(["пік -30 dBFS < -12"]))).toBe(true);
+    expect(worthRetry(qcResult([]))).toBe(false);
+    const t = setup({ search, qc: async () => qcResult(["немає впевненої висоти тону"]) });
+    const out = await ensureEpidemicSfxVariants(t.deps, [req("whoosh", 1)]);
+    expect(t.quota.consumed).toHaveLength(1);
+    expect(out[0]?.file.qcOk).toBe(false);
+  });
+});
+
+describe("режим «лише кеш»", () => {
+  const search = { [WHOOSH]: [fx("w1", 0.6), fx("w2", 0.6), fx("w3", 0.6)] };
+
+  /** Прогріває кеш звичайним прогоном і повертає той самий кеш для другого виклику в режимі «лише кеш». */
+  async function warm(variants: number[]) {
+    const first = setup({ search });
+    await ensureEpidemicSfxVariants(
+      first.deps,
+      variants.map((v) => req("whoosh", v)),
+    );
+    const t = setup({ search, cacheOnly: true });
+    t.deps.epidemic.cache = first.cache;
+    return t;
+  }
+
+  it("варіант k — k-й із уже завантажених; жодного запиту й consume", async () => {
+    // У кеші w1 і w3 (варіанти 1 і 3); у режимі «лише кеш» варіант 2 — другий закешований, тобто w3.
+    const t = await warm([1, 3]);
+    const out = await ensureEpidemicSfxVariants(t.deps, [
+      req("whoosh", 1),
+      req("whoosh", 2),
+      req("whoosh", 3),
+    ]);
+    expect(out.map((o) => [o.variant, o.epidemicId, o.file.generated])).toEqual([
+      [1, "w1", false],
+      [2, "w3", false],
+      [3, "w1", false],
+    ]);
+    expect(t.client.calls).toEqual([]);
+    expect(t.quota.consumed).toEqual([]);
+  });
+
+  it("cue без кешу пошуку — без запиту, подія без звуку", async () => {
+    const t = await warm([1]);
+    const out = await ensureEpidemicSfxVariants(t.deps, [req("whoosh", 1), req("pop", 1)]);
+    expect(out.map((o) => o.cue)).toEqual(["whoosh"]);
+    expect(t.client.calls).toEqual([]);
+  });
+
+  it("повтор QC — лише серед закешованих", async () => {
+    const t = await warm([1]);
+    const qc = vi.fn<SfxQcHook>(async () => qcResult(["пік -30 dBFS < -12"]));
+    t.deps.qc = qc;
+    const out = await ensureEpidemicSfxVariants(t.deps, [req("whoosh", 1)]);
+    // Закешований лише w1 — повторювати нічим.
+    expect(qc).toHaveBeenCalledTimes(1);
+    expect(out[0]?.epidemicId).toBe("w1");
+    expect(t.quota.consumed).toEqual([]);
+  });
+
+  it("cacheOnlyQuota: consume завжди — EpidemicError quota, лічильник не змінюється", async () => {
+    const inner = memoryQuota(10);
+    const q = cacheOnlyQuota(inner);
+    await expect(q.consume("sfx", "x")).rejects.toMatchObject({ kind: "quota" });
+    await expect(q.consume("sfx", "x")).rejects.toBeInstanceOf(EpidemicError);
+    expect(await q.used()).toBe(10);
+    expect(inner.consumed).toEqual([]);
   });
 });
