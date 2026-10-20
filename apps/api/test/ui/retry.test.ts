@@ -4,8 +4,9 @@ import { fixtureStates } from "../../public/static/dev/fixture-states.js";
 import type { Actions, PartDeps, UiState } from "../../public/static/js/contracts.js";
 import { createAccountActions } from "../../public/static/js/data/account.js";
 import type { Backend } from "../../public/static/js/data/actions.js";
-import { lastRefusedText, retryActions, userTextBefore } from "../../public/static/js/data/retry-actions.js";
+import { retryActions } from "../../public/static/js/data/retry-actions.js";
 import { createStore } from "../../public/static/js/store.js";
+import { lastRefusedText, userTextBefore } from "../../public/static/js/views/chat.js";
 
 type Retry = NonNullable<UiState["ui"]["retry"]>;
 
@@ -123,7 +124,7 @@ describe("retryAfterTopup · part-файл B6", () => {
   });
 });
 
-describe("retry-actions · хелпери", () => {
+describe("chat.js · текст правки для повтору", () => {
   it("userTextBefore / lastRefusedText", () => {
     const feed = fixture("n7-rev-short").feed;
     expect(userTextBefore(feed)).toBe(EDIT);
