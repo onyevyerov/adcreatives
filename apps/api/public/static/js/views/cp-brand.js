@@ -13,9 +13,14 @@
  * Безпека: усі тексти бренд-кіта (дані з сайтів клієнтів) — через `h()`/`textContent`/
  * `setAttribute`; кольори проходять `hexColor`, URL зображень — `mediaUrl`, посилання — `linkUrl`,
  * назви шрифтів — `fontFamily` (інакше в стилі/URL нічого не потрапляє).
+ *
+ * B5 · ціни (N5-A): теги на тайлах форматів («у ціні» / «+2» / «оплачено») і рядок під ними
+ * «+2 за 1:1 спишу на ЧП3 · у вас 1 · поповнити». Ціни — лише `account.prices`; оплачені
+ * формати — `paidFormats(projectCredits)`. Нічого не блокується — нестача лише підписується.
  */
 import { FORMAT_LABELS, FORMATS } from "../contracts.js";
 import { clear, h, text } from "../dom.js";
+import { extraFormatsCharge, formatNumber, paidFormats } from "../lib/credits.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
 /** @typedef {import("../contracts.js").Actions} Actions */
@@ -26,6 +31,7 @@ import { clear, h, text } from "../dom.js";
 /** @typedef {BrandKitFile["typography"]["heading"]} FontChoice */
 /** @typedef {BrandKitFile["facts"][number]} Fact */
 /** @typedef {HTMLButtonElement | HTMLInputElement} Control */
+/** @typedef {import("../contracts.js").CreditPrices} CreditPrices */
 
 // ───────────── Підписи ─────────────
 
@@ -252,6 +258,54 @@ export function toggleFormat(current, format) {
   return next.length === 0 ? null : FORMATS.filter((f) => next.includes(f));
 }
 
+// ───────────── Ціни (N5-A) ─────────────
+
+/**
+ * Підпис форматів через кому: «1:1, 16:9».
+ * @param {readonly Format[]} formats
+ */
+export const formatList = (formats) => formats.map((f) => FORMAT_LABELS[f] ?? f).join(", ");
+
+/**
+ * Доплата за обрані формати з урахуванням оплачених у проєкті і балансу користувача.
+ * `null` — цін ще немає (`account.prices`). `balance` — `null`, якщо `me` невідомий; тоді
+ * нестача не підписується.
+ * @param {Pick<UiState, "account" | "projectCredits">} state
+ * @param {readonly Format[]} formats обрані, у канонічному порядку
+ * @returns {{ need: number, extra: Format[], paid: Format[], balance: number | null, short: boolean } | null}
+ */
+export function formatsCharge(state, formats) {
+  const prices = state.account.prices;
+  if (!prices) return null;
+  const charge = extraFormatsCharge(formats, paidFormats(state.projectCredits), prices);
+  const balance = state.account.me?.balance ?? null;
+  return { ...charge, balance, short: charge.need > 0 && balance !== null && balance < charge.need };
+}
+
+/**
+ * Тег ціни на тайлі формату: перший обраний — «у ціні», уже оплачений — «оплачено», решта —
+ * «+2» (`strong` — обраний, колір --ink). `null` — цін немає.
+ * @param {Format} format
+ * @param {readonly Format[]} chosen
+ * @param {readonly Format[]} paid
+ * @param {CreditPrices | null} prices
+ * @returns {{ text: string, strong: boolean } | null}
+ */
+export function formatTag(format, chosen, paid, prices) {
+  if (!prices) return null;
+  if (chosen[0] === format) return { text: "у ціні", strong: false };
+  if (paid.includes(format)) return { text: "оплачено", strong: false };
+  return { text: `+${formatNumber(prices.extraFormat)}`, strong: chosen.includes(format) };
+}
+
+/**
+ * Рядок під тайлами: «+2 за 1:1 спишу на ЧП3»; `null`, якщо доплати немає.
+ * @param {{ need: number, extra: readonly Format[] }} charge
+ */
+export function chargeNote(charge) {
+  return charge.need > 0 ? `+${formatNumber(charge.need)} за ${formatList(charge.extra)} спишу на ЧП3` : null;
+}
+
 // ───────────── View ─────────────
 
 /** @type {import("../contracts.js").MountFn} */
@@ -333,12 +387,15 @@ export function mount(el, ctx) {
   const root = h("section", { class: "cb adc-enter" }, head, empty, hero, specs, decisions);
   el.append(root);
 
+  /** Рядок доплати під тайлами (N5-A). */
+  const priceNote = h("p", { class: "cb-price", hidden: true });
+
   /** Тайли форматів для патчу без перебудови. @type {Map<Format, HTMLButtonElement>} */
   const formatTiles = new Map();
   /** @type {string | null} */
   let language = null;
 
-  /** @type {{ payload: BrandCheckpointPayload | null, rev: number | null, formats: string, cpState: string | null } | null} */
+  /** @type {{ payload: BrandCheckpointPayload | null, rev: number | null, formats: string, cpState: string | null, price: string } | null} */
   let shown = null;
 
   /** @param {BrandCheckpointPayload} payload */
@@ -686,6 +743,7 @@ export function mount(el, ctx) {
       h("span", { class: `cb-fmt__glyph cb-fmt__glyph--${format}`, "aria-hidden": "true" }),
       h("span", { class: "cb-fmt__ratio", text: FORMAT_LABELS[format] }),
       h("span", { class: "cb-fmt__name", text: FORMAT_NAMES[format] }),
+      h("span", { class: "cb-fmt__tag", hidden: true }),
     );
     return control(tile, () => {
       const state = ctx.store.getState();
@@ -703,6 +761,43 @@ export function mount(el, ctx) {
       tile.setAttribute("aria-pressed", String(on));
       if (last) tile.title = ONE_FORMAT;
       else tile.removeAttribute("title");
+    }
+  }
+
+  /**
+   * Теги цін на тайлах і рядок доплати під ними.
+   * @param {UiState} state
+   * @param {readonly Format[]} chosen
+   */
+  function markPrices(state, chosen) {
+    const paid = paidFormats(state.projectCredits);
+    for (const [format, tile] of formatTiles) {
+      const tag = tile.querySelector(".cb-fmt__tag");
+      if (!(tag instanceof HTMLElement)) continue;
+      const t = formatTag(format, chosen, paid, state.account.prices);
+      text(tag, t?.text ?? "");
+      tag.hidden = !t;
+      tag.classList.toggle("cb-fmt__tag--on", t?.strong ?? false);
+    }
+    const charge = formatsCharge(state, chosen);
+    const note = charge ? chargeNote(charge) : null;
+    clear(priceNote);
+    priceNote.hidden = !note;
+    if (!charge || !note) return;
+    put(priceNote, h("span", { text: note }));
+    if (charge.short && charge.balance !== null) {
+      put(
+        priceNote,
+        h("span", { "aria-hidden": "true", text: "·" }),
+        h("span", { class: "cb-price__have", text: `у вас ${formatNumber(charge.balance)}` }),
+        h("span", { "aria-hidden": "true", text: "·" }),
+        h("button", {
+          type: "button",
+          class: "cb-price__topup",
+          text: "поповнити",
+          onclick: () => actions.openTopup({ from: "ws", ctx: "cp3" }),
+        }),
+      );
     }
   }
 
@@ -753,6 +848,7 @@ export function mount(el, ctx) {
         { class: "cb-group", "data-group": "formats" },
         h("p", { class: "label-s", text: "Формати" }),
         h("div", { class: "cb-fmts", role: "group", "aria-label": "Формати" }, [...formatTiles.values()]),
+        priceNote,
       ),
       languageGroup(payload),
     );
@@ -771,8 +867,16 @@ export function mount(el, ctx) {
     const chosen = selectedFormats(state, payload);
     const formatsKey = chosen.join(",");
     const cpState = entry?.state ?? null;
+    const { prices, me } = state.account;
+    const priceKey = [
+      prices ? `${prices.extraFormat}` : "-",
+      me?.balance ?? "-",
+      paidFormats(state.projectCredits).join(","),
+    ].join("|");
+    let rebuilt = false;
 
     if (!shown || shown.payload !== payload || shown.rev !== rev) {
+      rebuilt = true;
       if (!shown || shown.rev !== rev) language = null;
       active = isActive(state);
       empty.hidden = payload !== null;
@@ -792,6 +896,9 @@ export function mount(el, ctx) {
     } else if (shown.formats !== formatsKey) {
       markFormats(chosen);
     }
+    if (payload && (rebuilt || shown?.formats !== formatsKey || shown?.price !== priceKey)) {
+      markPrices(state, chosen);
+    }
 
     const nextActive = isActive(state);
     if (nextActive !== active || !shown || shown.cpState !== cpState) {
@@ -808,7 +915,7 @@ export function mount(el, ctx) {
       root.classList.toggle("is-active", active);
     }
     applyActive();
-    shown = { payload, rev, formats: formatsKey, cpState };
+    shown = { payload, rev, formats: formatsKey, cpState, price: priceKey };
   }
 
   render(ctx.store.getState());
