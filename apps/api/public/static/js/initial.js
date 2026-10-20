@@ -75,6 +75,7 @@ export function initialAccount() {
     pending: null,
     autostart: null,
     projectCount: null,
+    prices: null,
   };
 }
 
