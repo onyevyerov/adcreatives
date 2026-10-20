@@ -1,1 +1,185 @@
-/* .co- · B8 · тестова оплата (N10-A). Крок 0 — порожній файл; наповнює B8. */
+/* .co- · B8 · тестова оплата (N10-A): екран-чек /?checkout=<id>. Розміри — Референс `#N10`. */
+
+.co {
+  --co-gutter: 56px;
+
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* ── Шапка 76px, як на старті: вордмарк + контроли акаунта (B3) ── */
+
+.co-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 76px;
+  padding: 0 var(--co-gutter);
+}
+
+.co-head .wordmark:hover {
+  color: var(--ink);
+}
+
+.co-account {
+  display: flex;
+  align-items: center;
+}
+
+/* ── Колонка 560 по центру ── */
+
+.co-body {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0 var(--co-gutter) 76px;
+}
+
+.co-card {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  width: 100%;
+  max-width: 560px;
+  animation: adc-fade 0.45s var(--ease) both;
+}
+
+.co-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.co-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px dashed rgba(21, 20, 18, 0.25);
+  border-radius: var(--r-pill);
+  font: 500 10.5px / 1.2 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.co-loading,
+.co-auto {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font: 400 12.5px / 1.4 var(--f-mono);
+}
+
+.co-loading {
+  padding: 40px 0;
+  color: var(--muted);
+}
+
+/* ── Сума ── */
+
+.co-sum {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.co-eyebrow {
+  color: var(--muted);
+  font: 500 11px / 1.2 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.co-amount {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.co-num {
+  font: 200 168px / 0.9 var(--f-display);
+  letter-spacing: -0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.co-word {
+  color: var(--muted);
+  font: 400 14px / 1 var(--f-mono);
+}
+
+.co-title {
+  margin: 0;
+  font: 300 56px / 1.04 var(--f-display);
+  letter-spacing: -0.05em;
+}
+
+.co-lead {
+  margin: 0;
+  color: var(--ink-2);
+  font: 400 18px / 1.55 var(--f-ui);
+}
+
+.co-meta {
+  color: var(--muted);
+  font: 400 12px / 1.5 var(--f-mono);
+  overflow-wrap: anywhere;
+}
+
+/* ── Дії через лінію: primary 52 + ghost 52 ── */
+
+.co-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+
+/* Спінер на --ink: світлий, як текст кнопки. */
+.co-btn__spinner {
+  border-color: rgba(245, 243, 238, 0.3);
+  border-top-color: var(--on-ink);
+}
+
+.co-foot {
+  margin: 0;
+  color: var(--muted);
+  font: 400 11.5px / 1.5 var(--f-mono);
+}
+
+/* ── 390: колонка зверху, кнопки стовпчиком на всю ширину ── */
+
+@media (max-width: 599px) {
+  .co {
+    --co-gutter: 24px;
+  }
+
+  .co-body {
+    align-items: flex-start;
+    padding: 8px var(--co-gutter) 32px;
+  }
+
+  .co-card {
+    gap: 28px;
+  }
+
+  .co-num {
+    font-size: 104px;
+  }
+
+  .co-title {
+    font-size: 36px;
+  }
+
+  .co-actions {
+    flex-direction: column;
+  }
+}

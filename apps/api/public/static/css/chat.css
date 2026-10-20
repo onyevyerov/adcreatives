@@ -272,3 +272,59 @@
   color: var(--muted);
   font: 400 10.5px / 1 var(--f-mono);
 }
+
+/* ───────────── Кредити в чаті (B6 · N6-A, N7-A) ───────────── */
+
+/* Порожня стрічка системного стану (404): текст із session.js. */
+.ch-empty {
+  color: var(--muted);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+/* «правки до видачі — безкоштовно» під кнопками активної картки. */
+.ch-card__free {
+  color: var(--muted);
+  font: 400 11.5px / 1.4 var(--f-mono);
+}
+
+/* K3 під відмовою: окремий блок стрічки — 18 від тексту (gap рядка 6 + 12). */
+.ch-msg > .ch-shortage {
+  margin-top: 12px;
+}
+
+/* «Баланс поповнено · Повторити»: рамка --ink, радіус 14, ромб --accent. */
+.ch-retry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--ink);
+  border-radius: var(--r-14);
+  background: var(--card);
+}
+
+.ch-retry__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 500 10.5px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ch-retry__diamond {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  background: var(--accent);
+}
+
+.ch-retry__text {
+  color: var(--ink-2);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.ch-retry__btn {
+  align-self: flex-start;
+}

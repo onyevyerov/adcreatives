@@ -169,16 +169,22 @@
 
 /**
  * `backTo` — банер повернення в «Баланс».
+ * `history.topups` — карта `topupId → packageId` (`"custom"` — своя сума, як `TopUp.packageId`) для
+ * назв «Поповнення · {пакет}» / «Поповнення · своя сума»; заповнює B9 з `listTopUps()` у `loadHistory`.
+ * `profile.pwMessage` — текст сервера для `pwError === "weak_password"` (як `AuthState.message`);
+ * `null` — копірайт UI з кадру.
  * @typedef {{
  *   section: "balance" | "history" | "projects" | "profile",
  *   loading: boolean,
  *   backTo: ReturnTo | null,
  *   topup: { mode: "package" | "custom", packageId: string | null, custom: string, error: boolean, busy: boolean },
  *   pendingTopups: TopUp[],
- *   history: { entries: LedgerEntry[], nextBefore: string | null, loading: boolean, more: boolean },
+ *   history: { entries: LedgerEntry[], nextBefore: string | null, loading: boolean, more: boolean,
+ *              topups: Record<string, string> },
  *   projects: { rows: ProjectRow[] | null, loading: boolean, open: string | null },
  *   profile: { nameDraft: string, saving: boolean, saved: boolean, nameError: boolean,
- *              current: string, next: string, pwBusy: boolean, pwError: "invalid_credentials" | "weak_password" | null, pwDone: boolean }
+ *              current: string, next: string, pwBusy: boolean, pwError: "invalid_credentials" | "weak_password" | null,
+ *              pwMessage: string | null, pwDone: boolean }
  * }} CabinetState
  */
 

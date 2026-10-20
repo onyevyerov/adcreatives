@@ -1,1 +1,482 @@
-/* .au- · B1 · модалка входу, реєстрація, листи (N1–N2). Крок 0 — порожній файл; наповнює B1. */
+/* .au- · B1 · модалка входу, реєстрація, листи (N1–N2). Референс `#N1`: контейнер A (модалка),
+ * поля B (підкреслені, як .st-url), кнопка 52, великий заголовок.
+ * Модалка — `.au-form--modal` (кадр cardB: 560 · 44 · 20); сцена 401 (B12) — `.au-form--stage`
+ * (кадр moment: заголовок 64, без «Закрити»). До 599px модалка повноекранна. */
+
+/* ───────────── Контейнер ───────────── */
+
+html.au-lock {
+  overflow: hidden;
+}
+
+.au-overlay {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.au-overlay[hidden] {
+  display: none;
+}
+
+.au-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  animation: ac-scrim 0.3s var(--ease) both;
+}
+
+.au-dialog {
+  position: relative;
+  width: 560px;
+  max-width: calc(100% - 48px);
+  max-height: calc(100% - 48px);
+  overflow: auto;
+  padding: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-20);
+  background: var(--card);
+}
+
+.au-dialog:focus {
+  outline: none;
+}
+
+/* ───────────── Форма ───────────── */
+
+.au-form {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  width: 100%;
+  color: var(--ink);
+  font-family: var(--f-ui);
+}
+
+.au-form--stage {
+  gap: 32px;
+}
+
+.au-head {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.au-form--stage .au-head {
+  gap: 18px;
+}
+
+.au-head__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.au-eyebrow--danger {
+  color: var(--danger);
+}
+
+.au-eyebrow__dot {
+  background: var(--danger);
+}
+
+.au-title {
+  margin: 0;
+  font: 300 44px / 1.04 var(--f-display);
+  letter-spacing: -0.05em;
+  text-wrap: balance;
+}
+
+.au-form--stage .au-title {
+  font-size: 64px;
+}
+
+.au-lead {
+  max-width: 520px;
+  margin: 0;
+  color: var(--ink-2);
+  font: 400 16px / 1.55 var(--f-ui);
+  text-wrap: pretty;
+}
+
+.au-form--stage .au-lead {
+  font-size: 18px;
+}
+
+.au-context {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-2);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.au-context__dot {
+  transform: translateY(-1px);
+}
+
+.au-context__host {
+  color: var(--ink);
+  font: 400 12.5px / 1 var(--f-mono);
+}
+
+/* Посилання (.st-link старту). */
+.au-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: 400 13.5px / 1.5 var(--f-ui);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition:
+    color var(--t-hover),
+    text-decoration-color var(--t-hover);
+}
+
+.au-link:hover {
+  color: var(--accent);
+  text-decoration-color: currentColor;
+}
+
+.au-seg__opt {
+  cursor: pointer;
+}
+
+/* ───────────── Поля ───────────── */
+
+.au-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.au-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.au-field[hidden],
+.au-fields[hidden] {
+  display: none;
+}
+
+.au-field__label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.au-hint {
+  color: var(--muted);
+  font: 400 11.5px / 1.2 var(--f-mono);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.au-hint.is-ok {
+  color: var(--ink);
+}
+
+.au-input {
+  width: 100%;
+  height: 52px;
+  padding: 0 0 8px;
+  border: 0;
+  border-bottom: 1.5px solid var(--ink);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 400 24px / 1.2 var(--f-ui);
+  letter-spacing: -0.01em;
+  transition: border-color var(--t-hover);
+}
+
+/* Референс: у полі фокус — курсор і підкреслення --ink, без рамки. */
+.au-input:focus-visible {
+  outline: none;
+}
+
+.au-input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.au-field.is-invalid .au-input {
+  border-bottom-color: var(--danger);
+}
+
+.au-pw {
+  position: relative;
+  display: block;
+}
+
+.au-input--pw {
+  padding-right: 96px;
+}
+
+.au-pw-toggle {
+  position: absolute;
+  right: 0;
+  bottom: 12px;
+  height: 30px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: 500 11.5px / 1 var(--f-mono);
+  cursor: pointer;
+  transition: color var(--t-hover);
+}
+
+.au-pw-toggle:hover {
+  color: var(--ink);
+}
+
+/* ───────────── Рядки стану ───────────── */
+
+.au-error,
+.au-info {
+  margin: 0;
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.au-error {
+  color: var(--danger);
+}
+
+.au-info {
+  color: var(--ink-2);
+}
+
+/* Лист надіслано: адреса між лініями, «Надіслати ще раз · 0:42», «Інша адреса». */
+.au-check {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.au-check__email {
+  font: 400 18px / 1.3 var(--f-mono);
+  overflow-wrap: anywhere;
+}
+
+.au-check__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+}
+
+.au-check__actions .btn {
+  cursor: pointer;
+}
+
+.au-check__actions .btn:disabled {
+  cursor: not-allowed;
+}
+
+.au-spinner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font: 400 12.5px / 1.4 var(--f-mono);
+}
+
+/* Активовано: «Баланс» + numeral 112 + слово. */
+.au-balance {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+
+.au-balance__row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.au-balance__num {
+  font: 200 112px / 0.9 var(--f-display);
+  letter-spacing: -0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.au-balance__word {
+  color: var(--muted);
+  font: 400 13px / 1 var(--f-mono);
+}
+
+.au-balance__bonus {
+  color: var(--ink-2);
+  font: 400 12.5px / 1.4 var(--f-mono);
+}
+
+/* Не вистачає на ролик (відкладений старт після активації). */
+.au-short {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  border: 1px solid var(--ink);
+  border-radius: var(--r-14);
+  background: var(--card);
+}
+
+.au-short__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 500 10.5px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.au-short__text {
+  font: 400 14.5px / 1.55 var(--f-ui);
+}
+
+.au-short__host {
+  font: 400 12.5px var(--f-mono);
+}
+
+/* ───────────── Дії ───────────── */
+
+.au-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 22px;
+}
+
+.au-links {
+  display: contents;
+}
+
+.au-submit {
+  cursor: pointer;
+}
+
+.au-submit:disabled {
+  cursor: not-allowed;
+}
+
+/* Спінер у темній кнопці. */
+.au-submit__spin {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid rgba(245, 243, 238, 0.3);
+  border-top-color: var(--on-ink);
+  border-radius: 50%;
+  animation: adc-spin 0.8s linear infinite;
+}
+
+.au-google {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.au-or {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--muted);
+  font: 500 10.5px / 1 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.au-or__line {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.au-google__btn {
+  height: var(--btn-h-lg);
+  cursor: pointer;
+}
+
+.au-google__msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-2);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.au-google__dot {
+  background: var(--muted);
+}
+
+.au-form [hidden] {
+  display: none;
+}
+
+/* ───────────── 390: повноекранна модалка ───────────── */
+
+@media (max-width: 599px) {
+  .au-scrim {
+    background: var(--card);
+  }
+
+  .au-dialog {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    padding: 24px 24px 40px;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .au-close {
+    display: none;
+  }
+
+  .au-title {
+    font-size: 36px;
+  }
+
+  .au-form--stage {
+    gap: 24px;
+  }
+
+  .au-form--stage .au-title {
+    font-size: 40px;
+  }
+
+  .au-input {
+    font-size: 20px;
+  }
+
+  .au-check__email {
+    font-size: 15px;
+  }
+
+  .au-balance__num {
+    font-size: 72px;
+  }
+
+  .au-submit {
+    width: 100%;
+  }
+}
