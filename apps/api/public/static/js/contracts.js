@@ -129,14 +129,18 @@
 
 /**
  * `delta` — мітка «−3 / +10» у топбарі (анімація один раз на зміну `key`); `flash` — рядок-статус
- * на старті (вихід); `pending` — відкладений старт гостя; `autostart` — рядок «Починаю ролик…».
+ * на старті (вихід); `pending` — відкладений старт гостя; `autostart` — рядок «Починаю ролик…»;
+ * `projectCount` — кількість проєктів для «Мої проєкти · N» (`null` — ще невідомо): ядро вантажить
+ * `listProjects()`, коли `me` стає ready, і після успішного `createProject`; B9 може оновлювати
+ * його з довжини `cabinet.projects.rows`.
  * @typedef {{
  *   me: Me | null,
  *   meStatus: "loading" | "ready" | "anon",
  *   delta: { credits: number, key: number } | null,
  *   flash: string | null,
  *   pending: PendingStart | null,
- *   autostart: { host: string | null, charged: number, after: number, photosLost: boolean } | null
+ *   autostart: { host: string | null, charged: number, after: number, photosLost: boolean } | null,
+ *   projectCount: number | null
  * }} AccountState
  */
 
@@ -148,6 +152,8 @@
  * Модалка входу; `null` — закрита. Посилання з листа (`/?auth=activate|reset&token=…`) Крок 0
  * перетворює на `view: "activating"` з `token` і викликає `submitAuth()` (той робить
  * `POST activate`) або на `view: "reset"` з `token` (новий пароль → `submitAuth()`).
+ * Коли `route === "project" && session === "401"`, B1 модалку не показує: ту саму форму малює
+ * сцена (B12, `mountAuthForm(el, ctx, { layout: "stage" })`) за цим самим станом (context `session`).
  * @typedef {{
  *   view: AuthView, context: "start" | "header" | "checkout" | "session" | null,
  *   name: string, email: string, password: string, showPassword: boolean,

@@ -184,8 +184,13 @@ const toBrand = segments.toBrand;
 const directing = eventsOf([...PATHS.script, "toStoryboard"]);
 const rendering = eventsOf(PATHS.delivered);
 
-/** Стани на кожен екран прототипу (+ варіанти X). @type {Record<string, UiState>} */
-export const fixtureStates = {
+/**
+ * Стани на кожен екран прототипу (+ варіанти X) — без акаунта (`meStatus: "loading"`), як до Кроку 0:
+ * тести дій порівнюють їх з `initialState`. Фейковий me (Олена, 12) їм підставляє app.js у режимі
+ * `?fixture=` — лише їм, за `LEGACY_FIXTURES`; фікстури блоків свій акаунт задають самі.
+ * @type {Record<string, UiState>}
+ */
+const legacyStates = {
   start: initialState("start", null),
   /** crawling, 4/7 сторінок (C3: плейхед 8.53%). */
   crawling: fold(upTo(toBrand, progressLabel("Сканую сайт… 4/7 сторінок"))),
@@ -210,19 +215,48 @@ export const fixtureStates = {
   revising: fold(upTo(eventsOf(PATHS.revision), progressLabel("Вношу правки…"))),
   /** Готово, ревізія 2 (дві ревізії відео). */
   deliveredRev2: fold(eventsOf(PATHS.revisionDelivered)),
-  ...authFixtures,
-  ...startFixtures,
-  ...topbarFixtures,
-  ...workspaceFixtures,
-  ...chatFixtures,
-  ...cabinetFixtures,
-  ...checkoutFixtures,
-  ...historyFixtures,
-  ...projectsFixtures,
-  ...profileFixtures,
-  ...adminFixtures,
-  ...sessionFixtures,
 };
+
+/** Назви старих станів (без акаунта). */
+export const LEGACY_FIXTURES = Object.keys(legacyStates);
+
+/**
+ * Зливає набори фікстур; однакове ім'я у двох наборах — помилка (спред мовчки перекрив би його).
+ * @param {[string, Record<string, UiState>][]} sets
+ * @returns {Record<string, UiState>}
+ */
+export function collectFixtures(sets) {
+  /** @type {Record<string, UiState>} */
+  const out = {};
+  /** @type {Record<string, string>} */
+  const owner = {};
+  for (const [source, states] of sets) {
+    for (const [name, state] of Object.entries(states)) {
+      if (Object.hasOwn(out, name))
+        throw new Error(`fixture-states: «${name}» є і в ${owner[name]}, і в ${source}`);
+      out[name] = state;
+      owner[name] = source;
+    }
+  }
+  return out;
+}
+
+/** Усі фікстури: старі стани + `dev/fixtures/<блок>.js`. */
+export const fixtureStates = collectFixtures([
+  ["fixture-states.js", legacyStates],
+  ["fixtures/auth.js", authFixtures],
+  ["fixtures/start.js", startFixtures],
+  ["fixtures/topbar.js", topbarFixtures],
+  ["fixtures/workspace.js", workspaceFixtures],
+  ["fixtures/chat.js", chatFixtures],
+  ["fixtures/cabinet.js", cabinetFixtures],
+  ["fixtures/checkout.js", checkoutFixtures],
+  ["fixtures/history.js", historyFixtures],
+  ["fixtures/projects.js", projectsFixtures],
+  ["fixtures/profile.js", profileFixtures],
+  ["fixtures/admin.js", adminFixtures],
+  ["fixtures/session.js", sessionFixtures],
+]);
 
 /** Назви станів, які вимагає ТЗ (по одному на екран). */
 export const REQUIRED_STATES = [

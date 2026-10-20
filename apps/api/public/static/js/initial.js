@@ -67,7 +67,15 @@ export function projectState(projectId) {
 
 /** @returns {AccountState} */
 export function initialAccount() {
-  return { me: null, meStatus: "loading", delta: null, flash: null, pending: null, autostart: null };
+  return {
+    me: null,
+    meStatus: "loading",
+    delta: null,
+    flash: null,
+    pending: null,
+    autostart: null,
+    projectCount: null,
+  };
 }
 
 /**

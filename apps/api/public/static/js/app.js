@@ -137,7 +137,7 @@ export async function boot(opts = {}) {
   /** @type {(store: Store) => Actions} */
   let makeActions = opts.actions ?? ((s) => createAccountActions(s, { params }));
   if (!opts.state && fixture) {
-    const [{ fixtureStates }, { createDevActions }, { ME }] = await Promise.all([
+    const [{ fixtureStates, LEGACY_FIXTURES }, { createDevActions }, { ME, PROJECTS }] = await Promise.all([
       import("../dev/fixture-states.js"),
       import("../dev/dev-actions.js"),
       import("../dev/fixtures/_base.js"),
@@ -145,9 +145,13 @@ export async function boot(opts = {}) {
     const preset = fixtureStates[fixture];
     if (preset) state = preset;
     else console.warn(`[app] немає фікстури «${fixture}»: ${Object.keys(fixtureStates).join(", ")}`);
-    // Фікстури без акаунта (стани проєкту до Кроку 0) — з фейковим me (Олена, 12).
-    if (state.account.meStatus === "loading")
-      state = { ...state, account: { ...state.account, me: ME, meStatus: "ready" } };
+    // Старі стани проєкту (до Кроку 0, без акаунта) — з фейковим me (Олена, 12); фікстури блоків
+    // (dev/fixtures/*) не чіпаємо: їхній акаунт, зокрема «loading», — частина стану.
+    if (!preset || LEGACY_FIXTURES.includes(fixture))
+      state = {
+        ...state,
+        account: { ...state.account, me: ME, meStatus: "ready", projectCount: PROJECTS.length },
+      };
     if (!opts.actions) makeActions = createDevActions;
   }
 
