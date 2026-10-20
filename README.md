@@ -163,6 +163,7 @@ storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx
 | `ADC_SFX_PROVIDER` | `elevenlabs` | `epidemic` — семпли з каталогу; завантажуються лише варіанти, що реально звучать |
 | `EPIDEMIC_API_KEY` | — | ключ Partner API (`epidemic_live_…`); потрібен, лише якщо будь-який провайдер `epidemic` |
 | `ADC_EPIDEMIC_DIR` | `<корінь checkout>/.data/epidemic` | лічильник завантажень `downloads.json` і постійний кеш треків/семплів |
+| `ADC_EPIDEMIC_CACHE_ONLY` | — | `1` — лише вже завантажене з кешу, без запитів і завантажень (чого немає — SFX німіє) |
 
 Провайдери фіксуються на старті ревізії (як `ADC_SFX_MODE`). **Квота:** безкоштовний тариф — 50 завантажень
 (без комерційної ліцензії, ролики нікуди не публікуються). Локальний лічильник рахує `version`,
