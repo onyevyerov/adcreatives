@@ -418,12 +418,14 @@ class FakeServer {
         segments.toStoryboard.map((e) => e.event),
       );
     if (status !== "awaiting_storyboard") return;
+    // Доплата за формати — лише до першої видачі (`chargeExtraFormats` оркестратора).
+    const delivered = p.events.some((e) => e.event.type === "state" && e.event.status === "delivered");
     const paid = new Set(
       (this.ledger.get(p.ownerId) ?? [])
         .filter((e) => e.ref.projectId === p.id && e.ref.format)
         .map((e) => e.ref.format),
     );
-    const extra = p.formats.slice(1).filter((f) => !paid.has(f));
+    const extra = delivered ? [] : p.formats.slice(1).filter((f) => !paid.has(f));
     const need = extra.length * PRICES.extraFormat;
     const have = this.balance(p.ownerId);
     if (need > have) {
@@ -832,14 +834,23 @@ async function click(label: string | RegExp, scope = "#app") {
   await settle();
 }
 
-/** Поле за `name`, `autocomplete` або `type` у видимій області; введення як від користувача. */
+/**
+ * Поле у видимій області за `name`, `autocomplete`, `type`, `aria-label`, `placeholder` або текстом
+ * `<label>`; введення як від користувача.
+ */
 async function fill(field: string, value: string, scope = "#app") {
   const root = document.querySelector(scope);
-  const el = [
+  const byAttr = [
     ...(root?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
-      `[name="${field}"], [autocomplete="${field}"], input[type="${field}"]`,
+      `[name="${field}"], [autocomplete="${field}"], input[type="${field}"], [aria-label="${field}"], [placeholder="${field}"]`,
     ) ?? []),
-  ].find(visible);
+  ];
+  const byLabel = [...(root?.querySelectorAll("label") ?? [])]
+    .filter((l) => textOf(l).startsWith(field))
+    .map((l) => l.control ?? l.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea"));
+  const el = [...byAttr, ...byLabel].find(
+    (x): x is HTMLInputElement | HTMLTextAreaElement => x instanceof HTMLElement && visible(x),
+  );
   if (!el) throw new Error(`немає поля ${field} у ${scope}`);
   el.value = value;
   el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -917,12 +928,10 @@ function $<T extends Element = HTMLElement>(selector: string): T {
 }
 
 // ═════════════════════════════ F1–F5 ═════════════════════════════
-// Етап 1 (B13 — підготовка): сценарії розписані за кроками Референсу `#F` і §10, але вимкнені,
-// поки не влиті всі блоки (B1, B5–B12). Етап 2 — `it.skip` → `it`, тексти й селектори звіряються
-// зі справжніми view.
+// Кроки — кадри Референсу `#F` (номер і id кадру в коментарі), перевірки — §10 ТЗ.
 
 describe("F1 · Перший ролик з нуля (гість → реєстрація → лист → оплата → автостарт)", () => {
-  it.skip("n3-guest → n1-register-filled → n2-check → n2-activated → f1-topup → f1-pay → f1-paid → n3-auto → ws-crawl", async () => {
+  it("n3-guest → n1-register-filled → n2-check → n2-activated → f1-topup → f1-pay → f1-paid → n3-auto → ws-crawl", async () => {
     // 01 · n3-guest — гість вводить адресу і тисне «Почати».
     await open("/");
     await until((s) => s.account.meStatus === "anon", "гість");
@@ -994,7 +1003,7 @@ describe("F1 · Перший ролик з нуля (гість → реєстр
 });
 
 describe("F2 · Нестача на ЧП3 (баланс 1 · 9:16 + 1:1)", () => {
-  it.skip("n5-cp1-short → n5-cp3-short → n7-fmt-short → n6-cab-return → n6-pay → n6-retry → n7-fmt", async () => {
+  it("n5-cp1-short → n5-cp3-short → n7-fmt-short → n6-cab-return → n6-pay → n6-retry → n7-fmt", async () => {
     const olena = server.seedUser({
       email: "olena@example.com",
       name: "Олена Коваль",
@@ -1008,9 +1017,11 @@ describe("F2 · Нестача на ЧП3 (баланс 1 · 9:16 + 1:1)", () =>
 
     // 01 · n5-cp1-short — 9:16 + 1:1: тег ціни на тайлі і рядок «спишу на ЧП3».
     await click("Квадрат", "#stage");
-    await settle(1_000); // FORMATS_DEBOUNCE_MS
+    expect(screenText("#stage")).toContain("+2 за 1:1 спишу на ЧП3");
+    // Вибір іде на сервер повідомленням «Формати: …» після FORMATS_DEBOUNCE_MS.
+    await settle(1_000);
     expect(server.log).toContain(`POST /api/projects/${p.id}/messages`);
-    expect(screenText("#stage")).toMatch(/2 кредити/);
+    expect(server.projects.get(p.id)?.formats).toEqual(["vertical", "square"]);
     await click(/^Затвердити/, "#stage");
 
     // 02 · n5-cp3-short — ЧП2 → ЧП3: «Затвердити й рендерити · 2 кредити».
@@ -1061,7 +1072,7 @@ describe("F2 · Нестача на ЧП3 (баланс 1 · 9:16 + 1:1)", () =>
 });
 
 describe("F3 · Правка після видачі", () => {
-  it.skip("n5-done → n5-done-typing → n7-rev → f3-done2", async () => {
+  it("n5-done → n5-done-typing → n7-rev → f3-done2", async () => {
     const olena = server.seedUser({
       email: "olena@example.com",
       name: "Олена Коваль",
@@ -1069,14 +1080,15 @@ describe("F3 · Правка після видачі", () => {
       balance: 22,
     });
     server.signIn(server.jar, olena.id);
-    const p = server.seedProject(olena.id, "delivered"); // баланс 12
+    // Видано 9:16 + 1:1 (як у фікстурі); доплату за 1:1 спрощено не списуємо → баланс 12.
+    const p = server.seedProject(olena.id, "delivered", ["vertical", "square"]);
     await open(`/?project=${p.id}`);
     await until((s) => s.status === "delivered" && s.account.me?.balance === 12, "готово, баланс 12");
 
     // 01 · n5-done — підказка «правка — 3 кредити» біля композера.
     // 02 · n5-done-typing — правка в композері.
-    await fill("text", "Зроби заголовок першої сцени коротшим", "#chat");
-    expect(screenText("#chat")).toMatch(/правка — 3 кредити/);
+    expect(screenText("#chat")).toContain("правка — 3 кредити");
+    await fill("Повідомлення", "Зроби заголовок першої сцени коротшим", "#chat");
     await submit("#chat textarea");
 
     // 03 · n7-rev — «Списано 3 кредитів за правку. Залишок: 9.» і мітка «−3» у топбарі.
@@ -1095,7 +1107,7 @@ describe("F3 · Правка після видачі", () => {
 });
 
 describe("F4 · Відновлення пароля (десктоп → телефон)", () => {
-  it.skip("n1-login → n2-forgot → n2-forgot-sent → n2-reset → n2-reset-weak → n2-reset-done; стара сесія → 401 у сцені", async () => {
+  it("n1-login → n2-forgot → n2-forgot-sent → n2-reset → n2-reset-weak → n2-reset-done; стара сесія → 401 у сцені", async () => {
     const olena = server.seedUser({
       email: "olena@example.com",
       name: "Олена Коваль",
@@ -1156,7 +1168,7 @@ describe("F4 · Відновлення пароля (десктоп → теле
 const stage = () => document.querySelector("#stage")?.firstElementChild ?? null;
 
 describe("F5 · Адмін", () => {
-  it.skip("adm-users → adm-user (+5 «компенсація») → adm-done → adm-outbox (Копіювати)", async () => {
+  it("adm-users → adm-user (+5 «компенсація») → adm-done → adm-outbox (Копіювати)", async () => {
     const admin = server.seedUser({
       email: ADMIN_EMAIL,
       name: "Адмін",
@@ -1183,8 +1195,8 @@ describe("F5 · Адмін", () => {
 
     // 02 · adm-user — «+5», примітка «компенсація» → «Нарахувати».
     await until((s) => s.admin.selected?.user.id === olena.id, "картка користувача");
-    await fill("credits", "5", "#admin-main");
-    await fill("note", "компенсація", "#admin-main");
+    await fill("+5 або −3", "+5", "#admin-main");
+    await fill("компенсація", "компенсація", "#admin-main");
     await click("Нарахувати", "#admin-main");
 
     // 03 · adm-done — «Нараховано +5», запис зверху історії, баланс 17.
@@ -1207,7 +1219,7 @@ describe("F5 · Адмін", () => {
 });
 
 describe("§10 п. 6 · системні стани", () => {
-  it.skip("чужий проєкт → «Проєкт не знайдено»; клієнт на /?admin=users → 403; вихід → старт із рядком-статусом", async () => {
+  it("чужий проєкт → «Проєкт не знайдено»; клієнт на /?admin=users → 403; вихід → старт із рядком-статусом", async () => {
     const olena = server.seedUser({
       email: "olena@example.com",
       name: "Олена Коваль",

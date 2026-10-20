@@ -175,8 +175,9 @@ storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx
 ## Користувачі, кредити, адмін
 
 Макет монетизації (ТЗ [2026-10-19-auth-monetization-tz.md](docs/superpowers/specs/2026-10-19-auth-monetization-tz.md)):
-справжні акаунти й сесії, а листи, оплата і Google — заглушки. Екранів входу й кабінету в UI ще немає, тож
-поки що все робиться через API (curl). Контракт API ↔ UI описаний у розділі 10 ТЗ.
+справжні акаунти й сесії, а листи, оплата і Google — заглушки. Екрани входу, кабінету, оплати й адмінки — у
+веб-чаті (див. [Інтерфейс акаунтів](#інтерфейс-акаунтів)); нижче — те саме через API (curl). Контракт API ↔ UI
+описаний у розділі 10 ТЗ.
 
 | Змінна | Дефолт | Що робить |
 |---|---|---|
@@ -222,10 +223,7 @@ curl -s -b jar.txt -X POST $API/api/projects -H "$J" -d '{"url":"https://example
 ```
 
 Далі ролик можна вести через `POST /api/projects/<id>/messages {"text":…}` і `/commands {"type":"approve"}`
-або у веб-чаті. Чат-сторінка поки не вміє входити сама. Щоб відкрити `/?project=<id>` у браузері, увійдіть з
-консолі DevTools на тому ж origin:
-`fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email,password})})`.
-Повторний вхід з curl — `POST /api/auth/login`, вихід — `/api/auth/logout`, скидання — `/api/auth/forgot` → лист →
+або у веб-чаті (`/?project=<id>`; без сесії сторінка покаже форму входу). Повторний вхід з curl — `POST /api/auth/login`, вихід — `/api/auth/logout`, скидання — `/api/auth/forgot` → лист →
 `/api/auth/reset {"token","password"}`. Профіль і пароль: `PATCH /api/account {"name"}`,
 `POST /api/account/password {"current","next"}`.
 
@@ -405,6 +403,7 @@ pnpm --filter @adc/api dev      # http://localhost:3000 (інший порт: PO
 | Системні стани (N15) | `n15-401`, `n15-404`, `n15-403`, `n15-net` |
 
 Повна карта станів — розділ `#M` Референсу; аркуші станів (`sheet-n1`, `sheet-n9`…) — у розділах `#N1`–`#N15`.
+Клітинка аркуша без власного імені має фікстуру `sheet-nX-<slug>` (напр. `sheet-n11-empty`, `sheet-n11-more`).
 
 **Референс** (візуальний еталон) — `docs/design/AdCreative Accounts Reference.html`: самодостатній файл,
 відкривається напряму в браузері. Інтерактивний набір — `docs/design/AdCreative Accounts Reference.dc.html` + `Ac*.dc.html`
