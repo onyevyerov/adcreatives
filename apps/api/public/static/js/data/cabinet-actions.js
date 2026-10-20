@@ -6,8 +6,11 @@
  *   завантажені, проєкти (хост у рядку історії рахує фронтенд з `projects`); «Мої проєкти» →
  *   `GET /api/projects`.
  * - `loadHistory(more?)` — сторінка по `HISTORY_LIMIT`, новіші першими; `more` — наступна від
- *   `nextBefore`, дописується в кінець без дублів (за `id`). Відповідь, яку обігнав новіший запит,
- *   відкидається.
+ *   `nextBefore`, дописується в кінець без дублів (за `id`). Ідемпотентний: поки запит у польоті
+ *   (`history.loading`), повторний виклик повертає той самий проміс без нового запиту (B7 теж
+ *   кличе `loadHistory()` на вході в кабінет). Перша сторінка паралельно бере `GET topups` →
+ *   `history.topups` (`topupId → packageId`) для «Поповнення · {пакет}»; збій — карта як була.
+ *   Відповідь запиту, що застарів (кабінет скинули — вихід), відкидається.
  * - `loadProjects()` — рядки кабінету + `account.projectCount` («Мої проєкти · N»).
  * - `toggleProjectCredits(id)` — розгорнути / згорнути розбивку витрат картки.
  * - `openProject(id)` — маршрут project.
@@ -18,6 +21,10 @@
 /** @typedef {import("../contracts.js").CabinetState} CabinetState */
 /** @typedef {import("../contracts.js").LedgerEntry} LedgerEntry */
 /** @typedef {import("../contracts.js").Store} Store */
+/**
+ * Гілка історії з картою поповнень (`topups` додає Крок 0; до злиття — необов'язкова).
+ * @typedef {CabinetState["history"] & { topups?: Record<string, string> }} HistoryState
+ */
 
 /** Записів леджера на сторінку («Показати ще»). */
 export const HISTORY_LIMIT = 50;
@@ -47,7 +54,7 @@ function appendPage(entries, page) {
 
 /** @type {Factory} */
 export const cabinetActions = (store, deps) => {
-  /** @param {Partial<CabinetState["history"]>} patch */
+  /** @param {Partial<HistoryState>} patch */
   const setHistory = (patch) =>
     store.setState((s) => ({ cabinet: { ...s.cabinet, history: { ...s.cabinet.history, ...patch } } }));
   /** @param {Partial<CabinetState["projects"]>} patch */
@@ -61,17 +68,36 @@ export const cabinetActions = (store, deps) => {
   /** Дані Олени для `?mock=1` — без мережі. */
   const mockData = () => import("../../dev/fixtures/_base.js");
 
-  /** @param {boolean} [more] */
-  async function loadHistory(more = false) {
+  /** Запит історії в польоті — повторні виклики отримують його ж. @type {Promise<void> | null} */
+  let historyInFlight = null;
+
+  /**
+   * `topupId → packageId` з `GET topups`; збій — null (карта лишається як була).
+   * @returns {Promise<Record<string, string> | null>}
+   */
+  async function topupPackages() {
+    try {
+      const { topups } = deps.offline ? { topups: (await mockData()).TOPUPS } : await deps.api.listTopUps();
+      return Object.fromEntries((Array.isArray(topups) ? topups : []).map((t) => [t.id, t.packageId]));
+    } catch (err) {
+      if (statusOf(err) !== 401) console.warn("[cabinet] listTopUps", err);
+      return null;
+    }
+  }
+
+  /** @param {boolean} more */
+  async function fetchHistory(more) {
     const h = store.getState().cabinet.history;
-    if (more && (h.loading || !h.nextBefore)) return;
     const before = more ? h.nextBefore : null;
     const my = ++historySeq;
     setHistory({ loading: true });
     try {
-      const page = deps.offline
-        ? { entries: (await mockData()).HISTORY, nextBefore: null }
-        : await deps.api.transactions({ limit: HISTORY_LIMIT, before });
+      const [page, topups] = await Promise.all([
+        deps.offline
+          ? mockData().then((m) => ({ entries: m.HISTORY, nextBefore: null }))
+          : deps.api.transactions({ limit: HISTORY_LIMIT, before }),
+        more ? Promise.resolve(null) : topupPackages(),
+      ]);
       if (my !== historySeq) return;
       const entries = Array.isArray(page.entries) ? page.entries : [];
       const nextBefore = page.nextBefore ?? null;
@@ -80,6 +106,7 @@ export const cabinetActions = (store, deps) => {
         nextBefore,
         more: nextBefore !== null,
         loading: false,
+        ...(topups ? { topups } : {}),
       });
     } catch (err) {
       if (my !== historySeq) return;
@@ -87,6 +114,18 @@ export const cabinetActions = (store, deps) => {
       // 401 обробило ядро (setUnauthorizedHandler).
       if (statusOf(err) !== 401) console.warn("[cabinet] transactions", err);
     }
+  }
+
+  /** @param {boolean} [more] */
+  function loadHistory(more = false) {
+    const h = store.getState().cabinet.history;
+    if (historyInFlight && h.loading) return historyInFlight;
+    if (more && (h.loading || !h.nextBefore)) return Promise.resolve();
+    const run = fetchHistory(more).finally(() => {
+      if (historyInFlight === run) historyInFlight = null;
+    });
+    historyInFlight = run;
+    return run;
   }
 
   async function loadProjects() {

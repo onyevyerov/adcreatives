@@ -17,8 +17,9 @@ import {
   OLENA,
   PACKAGES,
   PROJECTS,
+  TOPUPS,
 } from "../../public/static/dev/fixtures/_base.js";
-import historyFixtures, { LONG_NOTE } from "../../public/static/dev/fixtures/history.js";
+import historyFixtures, { LONG_NOTE, TOPUP_PACKAGES } from "../../public/static/dev/fixtures/history.js";
 import type { Actions, LedgerEntry, PartDeps, Route, UiState } from "../../public/static/js/contracts.js";
 import { cabinetActions, HISTORY_LIMIT } from "../../public/static/js/data/cabinet-actions.js";
 import { createStore } from "../../public/static/js/store.js";
@@ -57,12 +58,12 @@ const entry = (id: string, when: string, credits = -10, balanceAfter = 0): Ledge
   note: "Відео",
 });
 
-/** Фейкові залежності part-фабрики: `api` — лише те, що кличе B9. */
+/** Фейкові залежності part-фабрики: `api` — лише те, що кличе B9 (`listTopUps` — поповнення Олени). */
 function fakeDeps(api: Partial<PartDeps["api"]>, opts: { offline?: boolean; actions?: Actions } = {}) {
   const routes: ((r: Route) => void)[] = [];
   const deps = {
     params: new URLSearchParams(),
-    api: api as PartDeps["api"],
+    api: { listTopUps: async () => ({ topups: TOPUPS }), ...api } as PartDeps["api"],
     actions: () => opts.actions as Actions,
     backend: { start: () => {}, stop: () => {} } as unknown as PartDeps["backend"],
     offline: opts.offline ?? false,
@@ -87,7 +88,8 @@ function deferred<T>() {
 
 describe("views/cab-history.js · чисті функції", () => {
   it("назви операцій з kind + ref — таблиця Референсу", () => {
-    expect(HISTORY.map((e) => operationLabel(e, PACKAGES))).toEqual([
+    expect(TOPUP_PACKAGES).toEqual({ t_c22: "custom", t_8f2k: "standard" });
+    expect(HISTORY.map((e) => operationLabel(e, PACKAGES, TOPUP_PACKAGES))).toEqual([
       "Додатковий формат 16:9",
       "Ролик",
       "Ролик",
@@ -102,8 +104,12 @@ describe("views/cab-history.js · чисті функції", () => {
     ]);
     const bonus: LedgerEntry = { ...entry("bonus:signup:u", "14.10 10:00", 5, 5), kind: "bonus", ref: {} };
     expect(operationLabel(bonus)).toBe("Вітальний бонус");
-    // Без пакетів (me ще немає) — «своя сума».
-    expect(operationLabel(HISTORY[10] as LedgerEntry)).toBe("Поповнення · своя сума");
+    // Поповнення немає в карті (GET topups упав / старий запис) або пакета немає в me — без суфікса.
+    const topup = HISTORY[10] as LedgerEntry;
+    expect(operationLabel(topup, PACKAGES)).toBe("Поповнення");
+    expect(operationLabel(topup, [], TOPUP_PACKAGES)).toBe("Поповнення");
+    expect(operationLabel(topup, PACKAGES, { t_8f2k: "gone" })).toBe("Поповнення");
+    expect(operationLabel(HISTORY[3] as LedgerEntry, [], TOPUP_PACKAGES)).toBe("Поповнення · своя сума");
   });
 
   it("дата — за локальним часом; рік — лише не поточний", () => {
@@ -387,16 +393,72 @@ describe("data/cabinet-actions.js · історія", () => {
     expect(transactions).not.toHaveBeenCalled();
   });
 
-  it("відповідь, яку обігнав новіший запит, відкидається", async () => {
+  it("ідемпотентний: поки запит у польоті, повтор (B7 + onRoute) — той самий проміс, один fetch, без дублів", async () => {
+    const store = empty();
+    const page = deferred<{ entries: LedgerEntry[]; nextBefore: string | null }>();
+    const transactions = vi.fn(() => page.promise);
+    const listTopUps = vi.fn(async () => ({ topups: TOPUPS }));
+    const { deps, enter } = fakeDeps({
+      transactions,
+      listTopUps,
+      listProjects: async () => ({ projects: PROJECTS }),
+    });
+    const a = cabinetActions(store, deps);
+    enter({ route: "cabinet", section: "history" }); // свій onRoute
+    const p1 = a.loadHistory(); // B7 на вході в кабінет
+    const p2 = a.loadHistory();
+    expect(p2).toBe(p1);
+    // «Показати ще», поки перша сторінка в польоті, — теж не новий запит.
+    expect(a.loadHistory(true)).toBe(p1);
+    expect(transactions).toHaveBeenCalledTimes(1);
+    expect(listTopUps).toHaveBeenCalledTimes(1);
+    page.resolve({ entries: HISTORY.slice(0, 5), nextBefore: HISTORY[4]?.at ?? null });
+    await p1;
+    expect(store.getState().cabinet.history.entries.map((e) => e.id)).toEqual(
+      HISTORY.slice(0, 5).map((e) => e.id),
+    );
+    // Після відповіді — новий виклик знову йде в мережу (оновлення першої сторінки, заміною).
+    transactions.mockResolvedValueOnce({ entries: HISTORY.slice(0, 5), nextBefore: HISTORY[4]?.at ?? null });
+    await a.loadHistory();
+    expect(transactions).toHaveBeenCalledTimes(2);
+    expect(store.getState().cabinet.history.entries).toHaveLength(5);
+  });
+
+  it("перша сторінка заповнює history.topups з GET topups; «Показати ще» карту не перезапитує; збій — карта як була", async () => {
+    const store = empty();
+    const transactions = vi.fn(async (o: { before?: string | null } = {}) =>
+      o.before
+        ? { entries: HISTORY.slice(5), nextBefore: null }
+        : { entries: HISTORY.slice(0, 5), nextBefore: HISTORY[4]?.at ?? null },
+    );
+    const listTopUps = vi.fn(async () => ({ topups: TOPUPS }));
+    const a = cabinetActions(store, fakeDeps({ transactions, listTopUps }).deps);
+    const topups = () => (store.getState().cabinet.history as { topups?: Record<string, string> }).topups;
+    await a.loadHistory();
+    expect(topups()).toEqual({ t_c22: "custom", t_8f2k: "standard" });
+    await a.loadHistory(true);
+    expect(listTopUps).toHaveBeenCalledTimes(1);
+
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    listTopUps.mockRejectedValueOnce(Object.assign(new Error("x"), { status: 500, code: null }));
+    await a.loadHistory();
+    expect(topups()).toEqual({ t_c22: "custom", t_8f2k: "standard" });
+    expect(store.getState().cabinet.history.entries).toHaveLength(5);
+  });
+
+  it("кабінет скинули під час запиту (вихід) — стара відповідь не потрапляє в новий стан", async () => {
     const store = empty();
     const slow = deferred<{ entries: LedgerEntry[]; nextBefore: string | null }>();
-    const fast = deferred<{ entries: LedgerEntry[]; nextBefore: string | null }>();
-    const transactions = vi.fn().mockReturnValueOnce(slow.promise).mockReturnValueOnce(fast.promise);
+    const transactions = vi
+      .fn()
+      .mockReturnValueOnce(slow.promise)
+      .mockResolvedValueOnce({ entries: HISTORY.slice(0, 2), nextBefore: null });
     const a = cabinetActions(store, fakeDeps({ transactions }).deps);
     const p1 = a.loadHistory();
-    const p2 = a.loadHistory();
-    fast.resolve({ entries: HISTORY.slice(0, 2), nextBefore: null });
-    await p2;
+    store.setState((s) => ({
+      cabinet: { ...s.cabinet, history: { entries: [], nextBefore: null, loading: false, more: false } },
+    }));
+    await a.loadHistory();
     slow.resolve({ entries: HISTORY, nextBefore: "x" });
     await p1;
     const h = store.getState().cabinet.history;

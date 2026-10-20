@@ -21,6 +21,15 @@ import { NO_SITE, projectHost } from "./cab-projects.js";
 /** @typedef {import("../contracts.js").ProjectRow} ProjectRow */
 /** @typedef {import("../contracts.js").CreditPackage} CreditPackage */
 /** @typedef {import("../contracts.js").MountFn} MountFn */
+/** @typedef {Readonly<Record<string, string>>} TopupMap topupId → packageId */
+
+/** Карта поповнень історії (`history.topups` додає Крок 0; до злиття — може не бути). */
+const EMPTY_TOPUPS = Object.freeze({});
+/**
+ * @param {UiState} s
+ * @returns {TopupMap}
+ */
+const topupsOf = (s) => /** @type {{ topups?: TopupMap }} */ (s.cabinet.history).topups ?? EMPTY_TOPUPS;
 
 /** Місяці в родовому відмінку: «19 жовтня». */
 const MONTHS = [
@@ -42,13 +51,15 @@ const MONTHS = [
 const pad = (n) => String(n).padStart(2, "0");
 
 /**
- * Назва операції з `kind` + `ref` (таблиця Референсу N11). Поповнення: назва пакета з
- * `packages` за кількістю кредитів, інакше «своя сума» (у записі леджера є лише `topupId`).
+ * Назва операції з `kind` + `ref` (таблиця Референсу N11). Поповнення: пакет — з
+ * `topups[topupId]` (`history.topups`, з `GET topups`) і його назва з `packages`; `"custom"` —
+ * «своя сума»; поповнення немає в карті (або пакета немає в `packages`) — просто «Поповнення».
  * @param {LedgerEntry} e
  * @param {readonly CreditPackage[]} [packages]
+ * @param {Readonly<Record<string, string>>} [topups]
  * @returns {string}
  */
-export function operationLabel(e, packages = []) {
+export function operationLabel(e, packages = [], topups = {}) {
   const ref = e.ref ?? {};
   switch (e.kind) {
     case "charge":
@@ -58,8 +69,10 @@ export function operationLabel(e, packages = []) {
     case "refund":
       return "Повернення за збій";
     case "topup": {
-      const pkg = packages.find((p) => p.credits === e.credits);
-      return `Поповнення · ${pkg ? pkg.label : "своя сума"}`;
+      const packageId = ref.topupId ? topups[ref.topupId] : undefined;
+      if (packageId === "custom") return "Поповнення · своя сума";
+      const pkg = packageId ? packages.find((p) => p.id === packageId) : undefined;
+      return pkg ? `Поповнення · ${pkg.label}` : "Поповнення";
     }
     case "adjust":
       return "Коригування";
@@ -171,8 +184,9 @@ export function mount(el, ctx) {
    * @param {LedgerEntry} e
    * @param {Map<string, ProjectRow>} byId
    * @param {readonly CreditPackage[]} packages
+   * @param {TopupMap} topups
    */
-  function row(e, byId, packages) {
+  function row(e, byId, packages, topups) {
     const note = e.kind === "adjust" && e.note ? e.note : null;
     const pid = e.ref?.projectId;
     const project = pid ? byId.get(pid) : undefined;
@@ -183,7 +197,7 @@ export function mount(el, ctx) {
       h(
         "span",
         { class: "cab-hist__what" },
-        h("span", { class: "cab-hist__label", text: operationLabel(e, packages) }),
+        h("span", { class: "cab-hist__label", text: operationLabel(e, packages, topups) }),
         note ? h("span", { class: "cab-hist__note", text: `«${note}»` }) : null,
         project && pid
           ? h("button", {
@@ -203,7 +217,7 @@ export function mount(el, ctx) {
     );
   }
 
-  /** @type {{ entries: LedgerEntry[], rows: ProjectRow[] | null, packages: CreditPackage[] | undefined } | null} */
+  /** @type {{ entries: LedgerEntry[], rows: ProjectRow[] | null, packages: CreditPackage[] | undefined, topups: TopupMap } | null} */
   let shown = null;
 
   /** @param {UiState} s */
@@ -225,8 +239,16 @@ export function mount(el, ctx) {
     end.hidden = !(has && !h0.more && !h0.loading);
     text(end, `Це всі операції · з ${sinceDate(s.account.me?.user.createdAt)}`);
 
-    if (shown && shown.entries === h0.entries && shown.rows === rows && shown.packages === packages) return;
-    shown = { entries: h0.entries, rows, packages };
+    const topups = topupsOf(s);
+    if (
+      shown &&
+      shown.entries === h0.entries &&
+      shown.rows === rows &&
+      shown.packages === packages &&
+      shown.topups === topups
+    )
+      return;
+    shown = { entries: h0.entries, rows, packages, topups };
     const byId = new Map((rows ?? []).map((r) => [r.id, r]));
     feed.replaceChildren(
       ...groupByDay(h0.entries).map((day) =>
@@ -244,7 +266,7 @@ export function mount(el, ctx) {
               h("span", { text: `на кінець ${formatNumber(day.end)}` }),
             ),
           ),
-          day.entries.map((e) => row(e, byId, packages ?? [])),
+          day.entries.map((e) => row(e, byId, packages ?? [], topups)),
         ),
       ),
     );
