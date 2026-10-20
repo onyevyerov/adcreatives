@@ -16,10 +16,38 @@
  * - retry — лише в статусі failed; власник — остання помилка, якщо вона retryable, інакше
  *   останнє повідомлення з retry;
  * - restart_confirm — поза busy-статусами, лише якщо це останнє повідомлення з кнопками.
+ *
+ * B6 · кредити в чаті (N6-A, N7-A). Повідомлення білінгу (`parseCreditMessage`) показуються
+ * дослівно, як звичайні. Під живою відмовою — K3 (`shortageCard`, size chat) у рядку того ж
+ * повідомлення; жива — лише остання відмова, після якої не було ні іншого повідомлення білінгу,
+ * ні нової картки чекпоінта, і проєкт досі там, де відмовили (ЧП3 з доплатою / «готово»).
+ * `ui.retry` (кладе B8 після оплати) → картка «Баланс поповнено» з «Повторити» в кінці стрічки.
+ * Активна картка ЧП3 з доплатою за формати — «Затвердити · N кредитів»; до першої видачі під
+ * кнопками активної картки — «правки до видачі — безкоштовно» (Референс показує на кожній).
+ * Ціни — лише `account.prices`, оплачені формати — `paidFormats(projectCredits)`.
  */
-import { AWAITING, BUSY, CHECKPOINT_STATUS, CHECKPOINT_TITLES, ROLE_LABELS } from "../contracts.js";
+import {
+  AWAITING,
+  BUSY,
+  CHECKPOINT_STATUS,
+  CHECKPOINT_TITLES,
+  FORMAT_LABELS,
+  FORMATS,
+  ROLE_LABELS,
+} from "../contracts.js";
 import { clear, h, text } from "../dom.js";
+import { parseCreditMessage } from "../lib/credit-messages.js";
+import {
+  closingPackage,
+  customFor,
+  extraFormatsCharge,
+  formatCredits,
+  formatNumber,
+  paidFormats,
+} from "../lib/credits.js";
 import * as composer from "./composer.js";
+import { emptyChatText } from "./session.js";
+import { shortageCard } from "./shortage.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
 /** @typedef {import("../contracts.js").Button} Button */
@@ -36,7 +64,18 @@ import * as composer from "./composer.js";
  */
 /** @typedef {"active" | "approved" | "superseded" | "idle"} CardState */
 /** Власники живих дій: id елемента стрічки або null. @typedef {Record<Button, string | null>} Owners */
-/** @typedef {{ node: HTMLElement, item: FeedItem, update(item: FeedItem, state: UiState, owners: Owners): void }} Row */
+/** @typedef {import("../contracts.js").Format} Format */
+/**
+ * Жива відмова білінгу: під нею K3. `text` — правка, на яку відмовили (лише rev);
+ * `formats` — поточні формати ЧП3 (для «Лишити один формат»).
+ * @typedef {{ id: string, ctx: "cp3" | "rev", need: number, have: number, text: string | null, formats: Format[] }} Refusal
+ */
+/** @typedef {{ need: number, extra: Format[], paid: Format[] }} Charge */
+/**
+ * Те, що рядки беруть зі стану стрічки цілком (рахується раз на рендер).
+ * @typedef {{ owners: Owners, refusal: Refusal | null, charge: Charge, beforeDelivery: boolean }} Live
+ */
+/** @typedef {{ node: HTMLElement, item: FeedItem, update(item: FeedItem, state: UiState, live: Live): void }} Row */
 
 /** Поріг «користувач унизу» для автоскролу, px. */
 export const STICK_PX = 80;
@@ -117,6 +156,115 @@ export function liveOwners(state) {
   return owners;
 }
 
+/**
+ * Текст останнього повідомлення клієнта перед елементом стрічки `before` (не включно) — правка,
+ * на яку відмовив білінг. Без `before` — шукати з кінця.
+ * @param {readonly FeedItem[]} feed
+ * @param {number} [before]
+ * @returns {string | null}
+ */
+export function userTextBefore(feed, before = feed.length) {
+  for (let i = Math.min(before, feed.length) - 1; i >= 0; i--) {
+    const it = feed[i];
+    if (it?.kind === "message" && it.role === "user" && it.text) return it.text;
+  }
+  return null;
+}
+
+/**
+ * Текст правки для повтору, якщо його не донесли з оплати: останнє повідомлення клієнта перед
+ * останньою відмовою білінгу.
+ * @param {readonly FeedItem[]} feed
+ * @returns {string | null}
+ */
+export function lastRefusedText(feed) {
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const it = feed[i];
+    if (it?.kind !== "message" || it.role === "user") continue;
+    const kind = parseCreditMessage(it.text)?.kind;
+    if (kind === "insufficient" || kind === "insufficientFormats") return userTextBefore(feed, i);
+  }
+  return null;
+}
+
+/**
+ * Формати ЧП3: незавершений вибір клієнта («Лишити один формат») або формати розкадровки
+ * (основний + аркуші інших), у канонічному порядку — перший у ціні ролика, як на бекенді.
+ * @param {Pick<UiState, "ui" | "checkpoints">} state
+ * @returns {Format[]}
+ */
+export function storyboardFormats(state) {
+  if (state.ui.pendingFormats) return FORMATS.filter((f) => state.ui.pendingFormats?.includes(f));
+  const payload = state.checkpoints.storyboard?.payload;
+  if (payload?.checkpoint !== "storyboard") return [];
+  const list = [payload.primaryFormat, ...(payload.sheets ?? []).map((s) => s.format)];
+  return FORMATS.filter((f) => list.includes(f));
+}
+
+/**
+ * Доплата за формати на ЧП3. Списують лише до першої видачі (потім формати вже оплачені) і лише
+ * за відомими цінами.
+ * @param {Pick<UiState, "ui" | "checkpoints" | "account" | "projectCredits" | "artifacts">} state
+ * @returns {Charge}
+ */
+export function storyboardCharge(state) {
+  const prices = state.account.prices;
+  if (!prices || state.artifacts.videos.length > 0) return { need: 0, extra: [], paid: [] };
+  return extraFormatsCharge(storyboardFormats(state), paidFormats(state.projectCredits), prices);
+}
+
+/**
+ * Відмова, під якою K3: остання відмова білінгу у стрічці, якщо після неї не було іншого
+ * повідомлення білінгу (успішного списання чи нової відмови) і нової картки чекпоінта, а проєкт
+ * досі там, де відмовили: формати — ЧП3 з доплатою, правка — «готово».
+ * @param {Pick<UiState, "feed" | "status" | "ui" | "checkpoints" | "account" | "projectCredits" | "artifacts">} state
+ * @returns {Refusal | null}
+ */
+export function liveRefusal(state) {
+  const feed = /** @type {FeedItem[]} */ (state.feed);
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const it = feed[i];
+    if (it?.kind === "checkpoint") return null;
+    if (it?.kind !== "message" || it.role === "user") continue;
+    const msg = parseCreditMessage(it.text);
+    if (!msg) continue;
+    if (msg.kind !== "insufficient" && msg.kind !== "insufficientFormats") return null;
+    // `insufficient` на ЧП3 — гонка списання формату в драйвері: та сама відмова за формати.
+    const ctx = msg.kind === "insufficientFormats" || state.status === "awaiting_storyboard" ? "cp3" : "rev";
+    if (ctx === "cp3") {
+      if (state.status !== "awaiting_storyboard") return null;
+      if (state.account.prices && storyboardCharge(state).need === 0) return null;
+    } else if (state.status !== "delivered") return null;
+    return {
+      id: it.id,
+      ctx,
+      need: msg.need,
+      have: msg.have,
+      text: ctx === "rev" ? userTextBefore(feed, i) : null,
+      formats: ctx === "cp3" ? storyboardFormats(state) : [],
+    };
+  }
+  return null;
+}
+
+/**
+ * Опис дії в картці «Баланс поповнено».
+ * @param {NonNullable<UiState["ui"]["retry"]>} retry
+ * @param {UiState} state
+ * @returns {string}
+ */
+export function retryText(retry, state) {
+  const prices = state.account.prices;
+  if (retry.ctx === "cp3") {
+    const { need, extra } = storyboardCharge(state);
+    if (need <= 0) return "Затверджу розкадровку ще раз.";
+    return `Затверджу розкадровку ще раз — спишу ${formatCredits(need)} за ${extra.map((f) => FORMAT_LABELS[f]).join(", ")}.`;
+  }
+  const edit = retry.text ?? lastRefusedText(/** @type {FeedItem[]} */ (state.feed));
+  const price = prices ? ` — ${formatCredits(prices.revision)}` : "";
+  return edit ? `Надішлю правку ще раз: «${edit}»${price}.` : `Надішлю правку ще раз${price}.`;
+}
+
 /** @param {string} at @returns {string} HH:MM за місцевим часом або "" */
 export function clock(at) {
   const d = new Date(at);
@@ -185,6 +333,11 @@ function buttonRow(list, actions) {
   const node = h("div", { class: "ch-actions", hidden: true }, btns);
   return {
     node,
+    /** Підпис кнопки дії (сума в «Затвердити» на ЧП3). @param {Button} b @param {string} label */
+    label(b, label) {
+      const btn = btns.find((x) => x.dataset.action === b);
+      if (btn && btn.textContent !== label) btn.textContent = label;
+    },
     /** @param {string} id @param {Owners} owners */
     update(id, owners) {
       let any = false;
@@ -219,11 +372,13 @@ function messageRow(item, actions) {
   );
   /** @type {MessageItem | null} */
   let shown = null;
+  /** K3 під відмовою і ключ його вмісту. @type {{ node: HTMLElement, key: string } | null} */
+  let shortage = null;
   /** @type {Row} */
   const r = {
     node,
     item,
-    update(next, _state, owners) {
+    update(next, state, live) {
       const msg = /** @type {MessageItem} */ (next);
       if (!shown || shown.text !== msg.text) {
         clear(body);
@@ -234,12 +389,83 @@ function messageRow(item, actions) {
         text(meta, `${ROLE_LABELS[msg.role] ?? msg.role}${time ? ` · ${time}` : ""}`);
       }
       if (isUser) node.title = clock(msg.at);
-      row.update(msg.id, owners);
+      row.update(msg.id, live.owners);
+      const refusal = live.refusal?.id === msg.id ? live.refusal : null;
+      const spec = refusal ? shortageSpec(refusal, state) : null;
+      if (shortage && shortage.key !== spec?.key) {
+        shortage.node.remove();
+        shortage = null;
+      }
+      if (refusal && spec && !shortage) {
+        shortage = { node: refusalCard(refusal, spec, actions), key: spec.key };
+        node.append(shortage.node);
+      }
       shown = msg;
       r.item = msg;
     },
   };
   return r;
+}
+
+/**
+ * Пакет і своя сума, що закривають нестачу (з `me`; без `me` — лише порада про повернення).
+ * @param {Refusal} refusal
+ * @param {UiState} state
+ */
+function shortageSpec(refusal, state) {
+  const me = state.account.me;
+  const short = Math.max(0, refusal.need - refusal.have);
+  const pkg = me?.packages?.length ? closingPackage(me.packages, short) : null;
+  const custom = me?.custom ? customFor(short, me.custom) : null;
+  const key = [
+    refusal.ctx,
+    refusal.need,
+    refusal.have,
+    refusal.text,
+    refusal.formats.join(","),
+    pkg?.id,
+    pkg?.credits,
+    custom,
+  ].join("|");
+  return { pkg, custom, key };
+}
+
+/**
+ * K3 у чаті: «Поповнити» → кабінет з поверненням сюди; для форматів — ще «Лишити один формат».
+ * @param {Refusal} refusal
+ * @param {ReturnType<typeof shortageSpec>} spec
+ * @param {Actions} actions
+ */
+function refusalCard(refusal, { pkg, custom }, actions) {
+  const closes = pkg
+    ? `Різницю закриє пакет «${pkg.label}» — ${formatCredits(pkg.credits)}${custom !== null ? ` або своя сума від ${formatNumber(custom)}` : ""}. `
+    : "";
+  const card = shortageCard({
+    title: refusal.ctx === "cp3" ? "Не вистачає на формати" : "Не вистачає на правку",
+    need: refusal.need,
+    have: refusal.have,
+    size: "chat",
+    advice: `${closes}Після оплати поверну сюди — натисніть «Повторити».`,
+    primary: {
+      label: "Поповнити",
+      onClick: () =>
+        actions.openTopup({
+          from: "ws",
+          ctx: refusal.ctx,
+          text: refusal.text,
+          ...(pkg ? { packageId: pkg.id } : {}),
+        }),
+    },
+    secondary:
+      refusal.ctx === "cp3" && refusal.formats.length > 1
+        ? {
+            label: "Лишити один формат",
+            onClick: () => actions.setFormats(refusal.formats.slice(0, 1)),
+          }
+        : undefined,
+  });
+  card.classList.add("ch-shortage");
+  return card;
 }
 
 /** @param {ProgressItem} item @returns {string} лічильник, якщо мітка його ще не містить */
@@ -295,6 +521,7 @@ function checkpointRow(item, actions) {
   const hint = h("div", { class: "ch-card__hint", hidden: true });
   const status = h("div", { class: "ch-card__status", hidden: true });
   const row = buttonRow(["approve", "edit"], actions);
+  const free = h("div", { class: "ch-card__free", hidden: true, text: "правки до видачі — безкоштовно" });
   const node = h(
     "div",
     { class: "ch-item ch-card", "data-id": item.id, "data-kind": "checkpoint" },
@@ -302,6 +529,7 @@ function checkpointRow(item, actions) {
     hint,
     status,
     row.node,
+    free,
   );
   /** @type {CardState | null} */
   let shown = null;
@@ -309,7 +537,7 @@ function checkpointRow(item, actions) {
   const r = {
     node,
     item,
-    update(next, state, owners) {
+    update(next, state, live) {
       const cp = /** @type {CheckpointItem} */ (next);
       text(title, CHECKPOINT_TITLES[cp.checkpoint] ?? cp.checkpoint);
       text(rev, `· рев. ${cp.rev}`);
@@ -330,7 +558,14 @@ function checkpointRow(item, actions) {
         status.hidden = st !== "approved" && st !== "superseded";
         status.classList.toggle("ch-card__status--stale", st === "superseded");
       }
-      row.update(cp.id, owners);
+      row.update(cp.id, live.owners);
+      const need = cp.checkpoint === "storyboard" && st === "active" ? live.charge.need : 0;
+      row.label(
+        "approve",
+        need > 0 ? `${BUTTONS.approve.label} · ${formatCredits(need)}` : BUTTONS.approve.label,
+      );
+      const showFree = live.owners.approve === cp.id && live.beforeDelivery;
+      if (free.hidden === showFree) free.hidden = !showFree;
       r.item = cp;
     },
   };
@@ -358,14 +593,14 @@ function errorRow(item, actions) {
   const r = {
     node,
     item,
-    update(next, _state, owners) {
+    update(next, _state, live) {
       const e = /** @type {ErrorItem} */ (next);
       text(eyebrow, e.stage ? `Помилка · ${e.stage}` : "Помилка");
       text(
         msg,
         e.stage ? `Щось пішло не так на етапі «${e.stage}»: ${e.message}` : `Щось пішло не так: ${e.message}`,
       );
-      row.update(e.id, owners);
+      row.update(e.id, live.owners);
       r.item = e;
     },
   };
@@ -386,6 +621,55 @@ function createRow(item, actions) {
   }
 }
 
+/**
+ * Картка «Баланс поповнено · +N · тепер M» з «Повторити» (`ui.retry` після оплати, N6-A).
+ * @param {Actions} actions
+ */
+function retryCard(actions) {
+  const head = h("span");
+  const desc = h("div", { class: "ch-retry__text" });
+  const btn = h("button", {
+    type: "button",
+    class: "btn btn--sm btn--primary ch-retry__btn",
+    text: "Повторити",
+  });
+  btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await actions.retryAfterTopup();
+    } catch (err) {
+      console.error("[chat] retryAfterTopup", err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  const node = h(
+    "div",
+    { class: "ch-retry" },
+    h(
+      "div",
+      { class: "ch-retry__head" },
+      h("span", { class: "ch-retry__diamond", "aria-hidden": "true" }),
+      head,
+    ),
+    desc,
+    btn,
+  );
+  return {
+    node,
+    /** @param {NonNullable<UiState["ui"]["retry"]>} retry @param {UiState} state */
+    update(retry, state) {
+      const balance = state.account.me?.balance;
+      text(
+        head,
+        `Баланс поповнено · +${formatNumber(retry.plus)}${typeof balance === "number" ? ` · тепер ${formatNumber(balance)}` : ""}`,
+      );
+      text(desc, retryText(retry, state));
+    },
+  };
+}
+
 /** @type {import("../contracts.js").MountFn} */
 export function mount(el, ctx) {
   const { actions } = ctx;
@@ -399,13 +683,16 @@ export function mount(el, ctx) {
     conn,
   );
   const list = h("div", { class: "ch-list", role: "log", "aria-label": "Стрічка діалогу" });
-  const feed = h("div", { class: "ch-feed" }, list);
+  const empty = h("p", { class: "ch-empty", hidden: true });
+  const feed = h("div", { class: "ch-feed" }, empty, list);
   const slot = h("div", { class: "ch-composer-slot", "data-slot": "composer" });
   const root = h("div", { class: "ch" }, head, feed, slot);
   el.append(root);
 
   /** @type {Map<string, Row>} */
   const rows = new Map();
+  /** @type {ReturnType<typeof retryCard> | null} */
+  let retry = null;
 
   /** @param {UiState["conn"]} c */
   function renderConn(c) {
@@ -422,7 +709,14 @@ export function mount(el, ctx) {
 
   /** @param {UiState} state @param {boolean} animate @returns {boolean} чи додано нові рядки */
   function renderFeed(state, animate) {
-    const owners = liveOwners(state);
+    const charge = storyboardCharge(state);
+    /** @type {Live} */
+    const live = {
+      owners: liveOwners(state),
+      refusal: liveRefusal(state),
+      charge,
+      beforeDelivery: state.artifacts.videos.length === 0,
+    };
     const seen = new Set();
     let added = false;
     /** @type {ChildNode | null} */
@@ -437,7 +731,7 @@ export function mount(el, ctx) {
         rows.set(item.id, row);
         added = true;
       }
-      row.update(item, state, owners);
+      row.update(item, state, live);
       if (row.node === cursor) cursor = cursor.nextSibling;
       else list.insertBefore(row.node, cursor);
     }
@@ -446,6 +740,23 @@ export function mount(el, ctx) {
         row.node.remove();
         rows.delete(id);
       }
+    }
+    const emptyText = state.feed.length === 0 ? emptyChatText(state) : null;
+    text(empty, emptyText ?? "");
+    if (empty.hidden === Boolean(emptyText)) empty.hidden = !emptyText;
+    // «Повторити» — завжди останнім у стрічці.
+    const r = state.ui.retry;
+    if (!r && retry) {
+      retry.node.remove();
+      retry = null;
+    } else if (r) {
+      if (!retry) {
+        retry = retryCard(actions);
+        if (animate) retry.node.classList.add("ch-enter");
+        added = true;
+      }
+      retry.update(r, state);
+      if (list.lastChild !== retry.node) list.append(retry.node);
     }
     return added;
   }
@@ -481,7 +792,14 @@ export function mount(el, ctx) {
       if (
         state.feed !== prev.feed ||
         state.status !== prev.status ||
-        state.checkpoints !== prev.checkpoints
+        state.checkpoints !== prev.checkpoints ||
+        state.ui.retry !== prev.ui.retry ||
+        state.ui.pendingFormats !== prev.ui.pendingFormats ||
+        state.account.me !== prev.account.me ||
+        state.account.prices !== prev.account.prices ||
+        state.projectCredits !== prev.projectCredits ||
+        state.artifacts !== prev.artifacts ||
+        state.session !== prev.session
       ) {
         const stick = atBottom();
         const added = renderFeed(state, true);
@@ -493,6 +811,7 @@ export function mount(el, ctx) {
       resize?.disconnect();
       composerView.destroy();
       rows.clear();
+      retry = null;
       root.remove();
     },
   };

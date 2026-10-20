@@ -8,6 +8,8 @@ import { fixtureStates } from "../../public/static/dev/fixture-states.js";
 import type { StoryboardCheckpointPayload, UiState } from "../../public/static/js/contracts.js";
 import { createStore } from "../../public/static/js/store.js";
 import {
+  boardFormats,
+  boardPriceLine,
   formatClock,
   groupStills,
   isActive,
@@ -42,6 +44,9 @@ function withPayload(state: UiState, payload: StoryboardCheckpointPayload, rev?:
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
+  vi.unstubAllGlobals();
+  localStorage.clear();
+  sessionStorage.clear();
   for (const fn of cleanups.splice(0)) fn();
   vi.restoreAllMocks();
   document.body.textContent = "";
@@ -452,5 +457,97 @@ describe("cp-board · безпека", () => {
     const src = readFileSync(path.join(DEFAULT_PUBLIC_DIR, "static/js/views/cp-board.js"), "utf8");
     expect(src).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|\beval\(|new Function/);
     expect(src).not.toMatch(/setAttribute\(\s*["']on/);
+  });
+});
+
+// ───────────── B5 · ціни на ЧП3 (N5-A) ─────────────
+
+const NB = " ";
+
+describe("cp-board · ціни (N5-A)", () => {
+  function priced(name: string) {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("мережа в тесті"))),
+    );
+    return setup(fixture(name));
+  }
+  const lineText = (root: HTMLElement | null) => root?.firstElementChild?.textContent ?? null;
+
+  it("n5-cp3: сума в «Затвердити й рендерити» і рядок «2 кредити за 1:1»", () => {
+    const { $ } = priced("n5-cp3");
+    expect($(".cd-approve__price")?.hidden).toBe(false);
+    expect($(".cd-approve")?.textContent).toBe(`Затвердити й рендерити2${NB}кредити→`);
+    expect($(".cd-price")?.hidden).toBe(false);
+    expect(lineText($(".cd-price"))).toBe(`2${NB}кредити за 1:1`);
+    expect($(".cd-price__topup")?.hidden).toBe(true);
+    // Рядок — одразу під шапкою.
+    expect($(".cd-head")?.nextElementSibling).toBe($(".cd-price"));
+  });
+
+  it("n5-cp3-short: «· у вас 1 · поповнити» → openTopup(ws, cp3); затвердження не блокується", async () => {
+    const { $, actions, names } = priced("n5-cp3-short");
+    expect(lineText($(".cd-price"))).toBe(`2${NB}кредити за 1:1 · у вас 1`);
+    const topup = $<HTMLButtonElement>(".cd-price__topup");
+    expect(topup?.hidden).toBe(false);
+    topup?.click();
+    expect(actions.calls.find((c) => c.name === "openTopup")?.args).toEqual([{ from: "ws", ctx: "cp3" }]);
+    const approve = $<HTMLButtonElement>(".cd-approve");
+    expect(approve?.disabled).toBe(false);
+    approve?.click();
+    await Promise.resolve();
+    expect(names()).toContain("approve");
+  });
+
+  it("n5-cp3-paid: оплачений 1:1 не рахується — «1:1 оплачено раніше · 2 кредити за 16:9»", () => {
+    const { $ } = priced("n5-cp3-paid");
+    expect($(".cd-eyebrow__text")?.textContent).toBe("Чекпоінт 3 / 3 · Розкадровка · ревізія 2");
+    expect($(".cd-approve__price")?.textContent).toBe(`2${NB}кредити`);
+    expect(lineText($(".cd-price"))).toBe(`1:1 оплачено раніше · 2${NB}кредити за 16:9`);
+  });
+
+  it("n5-cp3-one: один формат — без суми й без рядка", () => {
+    const { $ } = priced("n5-cp3-one");
+    expect($(".cd-approve__price")?.hidden).toBe(true);
+    expect($(".cd-price")?.hidden).toBe(true);
+  });
+
+  it("поповнення і «Лишити один формат» (pendingFormats) оновлюють суму без перебудови", () => {
+    const { $, store } = priced("n5-cp3-short");
+    const approve = $(".cd-approve");
+    store.setState((s) => ({
+      account: { ...s.account, me: s.account.me && { ...s.account.me, balance: 11 } },
+    }));
+    expect(lineText($(".cd-price"))).toBe(`2${NB}кредити за 1:1`);
+    expect($(".cd-price__topup")?.hidden).toBe(true);
+    store.setState((s) => ({ ui: { ...s.ui, pendingFormats: ["vertical"] } }));
+    expect($(".cd-approve__price")?.hidden).toBe(true);
+    expect($(".cd-price")?.hidden).toBe(true);
+    expect($(".cd-approve")).toBe(approve);
+  });
+
+  it("без цін (account.prices = null) — нічого не підписано", () => {
+    const base = fixture("n5-cp3");
+    const { $ } = setup({ ...base, account: { ...base.account, prices: null } });
+    expect($(".cd-approve__price")?.hidden).toBe(true);
+    expect($(".cd-price")?.hidden).toBe(true);
+  });
+
+  it("boardFormats / boardPriceLine", () => {
+    const base = fixture("n5-cp3-paid");
+    expect(boardFormats(base)).toEqual(["vertical", "square", "landscape"]);
+    expect(boardFormats({ ...base, ui: { ...base.ui, pendingFormats: ["landscape", "vertical"] } })).toEqual([
+      "vertical",
+      "landscape",
+    ]);
+    expect(boardFormats({ ...base, checkpoints: { ...base.checkpoints, storyboard: null } })).toEqual([]);
+    expect(boardPriceLine({ need: 0, extra: [], paid: [], balance: 12, short: false })).toBeNull();
+    expect(boardPriceLine({ need: 0, extra: [], paid: ["square"], balance: 12, short: false })).toBe(
+      "1:1 оплачено раніше",
+    );
+    expect(
+      boardPriceLine({ need: 4, extra: ["square", "landscape"], paid: [], balance: 1, short: true }),
+    ).toBe(`4${NB}кредити за 1:1, 16:9 · у вас 1`);
   });
 });

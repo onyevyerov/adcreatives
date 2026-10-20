@@ -5,7 +5,15 @@
  */
 import { I18N_KEYS, type I18nKey, t } from "@adc/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ADMIN_ME, HISTORY, ME, PACKAGES, PRICES, PROJECTS } from "../../public/static/dev/fixtures/_base.js";
+import {
+  ADMIN_ME,
+  accountFixture,
+  HISTORY,
+  ME,
+  PACKAGES,
+  PRICES,
+  PROJECTS,
+} from "../../public/static/dev/fixtures/_base.js";
 import type { AccountActions, Me, PartDeps, Route, UiState } from "../../public/static/js/contracts.js";
 import {
   applyRoute,
@@ -676,6 +684,8 @@ describe("createAccountActions", () => {
     await actions.ready;
   });
 
+  // У part-файлі рівно одна фабрика — експорт `<x>Actions`; її ключі — рівно ключі блоку з §2.1.
+  // Інші іменовані експорти (чисті хелпери, константи для view блоку) дозволені.
   it("справжні part-фабрики разом дають рівно ключі AccountActions (крім ядра)", async () => {
     const files = ["auth", "start", "retry", "topup", "checkout", "cabinet", "profile", "admin"];
     const store = createStore<UiState>(initialState("start", null));
@@ -689,12 +699,17 @@ describe("createAccountActions", () => {
     };
     const keys: string[] = [];
     for (const file of files) {
-      const mod = await vi.importActual<Record<string, (s: unknown, d: PartDeps) => object>>(
+      const mod = await vi.importActual<Record<string, unknown>>(
         `../../public/static/js/data/${file}-actions.js`,
       );
-      const [factory, ...extra] = Object.values(mod).filter((v) => typeof v === "function");
-      expect(extra, `${file}: одна фабрика`).toEqual([]);
-      const part = factory?.(store, deps) ?? {};
+      const name = `${file}Actions`;
+      expect(
+        Object.keys(mod).filter((k) => k.endsWith("Actions")),
+        `${file}: одна фабрика ${name}`,
+      ).toEqual([name]);
+      const factory = mod[name];
+      expect(typeof factory, name).toBe("function");
+      const part = (factory as (s: unknown, d: PartDeps) => object)(store, deps);
       expect(Object.keys(part).sort(), file).toEqual([...(parts.KEYS[file] ?? [])].sort());
       keys.push(...Object.keys(part));
     }
@@ -1185,6 +1200,17 @@ describe("data/actions.js", () => {
     expect(lost.getState().session).toBe("404");
     expect(lost.getState().ui.notice).toBeNull();
     a2.dispose();
+  });
+});
+
+describe("initial.js · cabinet", () => {
+  it("дефолти history.topups і profile.pwMessage; accountFixture — карта топапів Олени", () => {
+    const cab = initialState("start", null).cabinet;
+    expect(cab.history.topups).toEqual({});
+    expect(cab.profile.pwMessage).toBeNull();
+    expect(accountFixture().cabinet.history.topups).toEqual({ t_c22: "custom", t_8f2k: "standard" });
+    for (const e of HISTORY.filter((h) => h.kind === "topup"))
+      expect(accountFixture().cabinet.history.topups, e.id).toHaveProperty(e.ref.topupId ?? "?");
   });
 });
 
