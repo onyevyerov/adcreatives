@@ -25,6 +25,9 @@ import { checkoutState, initialState, projectState } from "../../public/static/j
 import { RETURN_KEY, saveReturn } from "../../public/static/js/lib/pending.js";
 import { createStore } from "../../public/static/js/store.js";
 import {
+  ERROR_EYEBROW,
+  ERROR_LEAD,
+  ERROR_TITLE,
   FOOT_TEXT,
   formatAt,
   LOADING_TEXT,
@@ -310,6 +313,42 @@ describe("views/checkout.js", () => {
     expect(actions.checkoutReturn).toHaveBeenCalledTimes(1);
   });
 
+  it("n10-net: «З'єднання втрачено» з крапкою, role=alert, «Спробувати ще раз» і «До кабінету»", () => {
+    const { q, buttons, visible, btn, actions } = setup(fixture("n10-net"));
+    expect(q(".co-eyebrow").textContent).toBe(ERROR_EYEBROW);
+    expect(visible(".co-eyebrow .dot--danger")).toBe(true);
+    expect(q(".co-sum").getAttribute("role")).toBe("alert");
+    expect(q("h1.co-title").textContent).toBe(ERROR_TITLE);
+    expect(q(".co-lead").textContent).toBe(ERROR_LEAD);
+    expect(q(".co-meta").textContent).toBe("поповнення t_9q4m");
+    expect(visible(".co-amount")).toBe(false);
+    expect(visible(".co-loading")).toBe(false);
+    expect(visible(".co-foot")).toBe(false);
+    expect(buttons()).toEqual([
+      ["Спробувати ще раз", false],
+      ["До кабінету", false],
+    ]);
+    expect(visible(".btn--primary .co-btn__arrow")).toBe(false);
+    btn("Спробувати ще раз").click();
+    expect(actions.checkoutAgain).toHaveBeenCalledTimes(1);
+    btn("До кабінету").click();
+    expect(actions.checkoutReturn).toHaveBeenCalledTimes(1);
+  });
+
+  it("error → loading → pending: крапка і role=alert зникають", () => {
+    const { q, store, visible } = setup(fixture("n10-net"));
+    store.setState((s) => ({ checkout: s.checkout && { ...s.checkout, status: "loading" } }));
+    expect(visible(".co-loading")).toBe(true);
+    expect(visible(".co-sum")).toBe(false);
+    store.setState((s) => ({
+      checkout: s.checkout && { ...s.checkout, status: "pending", topup: PENDING_TOPUP },
+    }));
+    expect(q(".co-eyebrow").textContent).toBe("До сплати");
+    expect(visible(".co-eyebrow .dot")).toBe(false);
+    expect(q(".co-sum").hasAttribute("role")).toBe(false);
+    expect(visible(".co-title")).toBe(false);
+  });
+
   it("клік «Оплатити» / «Скасувати» → confirmCheckout(paid / failed); кнопка — той самий вузол", () => {
     const { store, btn, actions, q } = setup(fixture("n10-pending"));
     const pay = btn("Оплатити");
@@ -354,6 +393,7 @@ describe("views/checkout.js", () => {
       "n10-revisit",
       "n10-404",
       "n10-guest",
+      "n10-net",
     ]) {
       expect(fixture(name).route).toBe("checkout");
     }
@@ -498,6 +538,79 @@ describe("data/checkout-actions.js", () => {
     s2.enter({ route: "checkout", id: "t_zz00" });
     await flush();
     expect(s2.co()).toMatchObject({ status: "notfound", topup: null });
+  });
+
+  it("мережа / 5xx на GET topup → error; checkoutAgain → loading → pending", async () => {
+    for (const err of [
+      new ApiError("мережа", 0, "network", null),
+      new ApiError("Внутрішня помилка.", 500, "internal", { error: "internal" }),
+    ]) {
+      const api = fakeApi();
+      api.getTopUp.mockRejectedValueOnce(err);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      saveReturn({ kind: "start" });
+      const { enter, co, own } = setupActions({ api });
+      enter({ route: "checkout", id: "t_9q4m" });
+      await flush();
+      expect(co()).toMatchObject({ status: "error", topup: null, returnTo: { kind: "start" } });
+      const again = own.checkoutAgain();
+      expect(co().status).toBe("loading");
+      await again;
+      expect(api.getTopUp).toHaveBeenCalledTimes(2);
+      expect(api.createTopUp).not.toHaveBeenCalled();
+      // точка повернення, забрана при першому відкритті, лишається
+      expect(co()).toMatchObject({ status: "pending", topup: PENDING_TOPUP, returnTo: { kind: "start" } });
+      warn.mockRestore();
+    }
+  });
+
+  it("повторний збій — знову error; збій при вже показаному чеку — чек лишається", async () => {
+    const api = fakeApi();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    api.getTopUp.mockRejectedValueOnce(new ApiError("мережа", 0, "network", null));
+    api.getTopUp.mockRejectedValueOnce(new ApiError("мережа", 0, "network", null));
+    const { enter, co, own } = setupActions({ api });
+    enter({ route: "checkout", id: "t_9q4m" });
+    await flush();
+    await own.checkoutAgain();
+    expect(co().status).toBe("error");
+    await own.checkoutAgain();
+    expect(co().status).toBe("pending");
+    api.getTopUp.mockRejectedValueOnce(new ApiError("Внутрішня помилка.", 503, "internal", null));
+    enter({ route: "checkout", id: "t_9q4m" });
+    await flush();
+    expect(co()).toMatchObject({ status: "pending", topup: PENDING_TOPUP });
+    warn.mockRestore();
+  });
+
+  it("401 на GET topup — лишається loading (ядро відкриває вхід)", async () => {
+    const api = fakeApi();
+    api.getTopUp.mockRejectedValueOnce(new ApiError("Увійдіть.", 401, "unauthorized", null));
+    const { enter, co } = setupActions({ api });
+    enter({ route: "checkout", id: "t_9q4m" });
+    await flush();
+    expect(co().status).toBe("loading");
+  });
+
+  it("error з проєкту — «До проєкту» без ui.retry; з кабінету — cabinet/balance", async () => {
+    const back: ReturnTo = {
+      kind: "project",
+      projectId: "p_zerno",
+      host: "zerno.example.com",
+      retry: { ctx: "cp3", text: null },
+    };
+    const state = checkoutRoute();
+    const s = setupActions({
+      state: { ...state, checkout: { ...checkoutState("t_9q4m"), status: "error", returnTo: back } },
+    });
+    s.own.checkoutReturn();
+    expect(s.navigate).toHaveBeenCalledWith({ route: "project", projectId: "p_zerno" });
+    expect(s.store.getState().ui.retry).toBeNull();
+    const c = setupActions({
+      state: { ...state, checkout: { ...checkoutState("t_9q4m"), status: "error" } },
+    });
+    c.own.checkoutReturn();
+    expect(c.navigate).toHaveBeenCalledWith({ route: "cabinet", section: "balance" });
   });
 
   it("confirmCheckout(paid): confirming → POST confirm → refreshMe → paid", async () => {

@@ -5,12 +5,14 @@
  * Шапка 76px як на старті: вордмарк + контроли акаунта (B3, `place: "start"`). Під нею — колонка
  * 560 по центру: пунктирна мітка «Тестова оплата», сума (eyebrow · число · лід · мета), рядок
  * автоповернення на старт, дії через лінію і примітка-заглушка. Тексти — з Референсу дослівно.
+ * Стан `error` (мережа / 5xx на `GET topup`) у Референсі кадру не має: побудований як `notfound`,
+ * з червоною крапкою «з'єднання втрачено» (N15 `n15-net`) і «Спробувати ще раз».
  *
  * Модель екрана — `checkoutModel(state)` (чиста функція); `update` патчить вузли на місці, тож
  * фокус лишається на кнопці, поки чек іде pending → confirming → paid.
  */
 
-import { hostOf } from "../data/api.js";
+import { hostOf, NETWORK_MESSAGE } from "../data/api.js";
 import { h, text } from "../dom.js";
 import { creditWord, formatCredits, formatNumber } from "../lib/credits.js";
 import { peekPending } from "../lib/pending.js";
@@ -23,8 +25,8 @@ import { mount as mountAccount } from "./account-controls.js";
 /**
  * @typedef {{ label: string, act: Act, disabled: boolean, spin: boolean, arrow: boolean }} Button
  * @typedef {{
- *   kind: "loading" | "main" | "notfound",
- *   eyebrow: string, big: string, word: string, lead: string, meta: string,
+ *   kind: "loading" | "main" | "notfound" | "error",
+ *   eyebrow: string, title: string, big: string, word: string, lead: string, meta: string,
  *   auto: string | null, primary: Button | null, secondary: Button | null, foot: boolean
  * }} Model
  */
@@ -33,6 +35,10 @@ export const LOADING_TEXT = "Завантажую поповнення…";
 export const FOOT_TEXT = "Це крок-заглушка: справжнього платіжного провайдера ще немає.";
 export const NOT_FOUND_TITLE = "Поповнення не знайдено";
 export const NOT_FOUND_LEAD = "Перевірте посилання або почніть поповнення з кабінету.";
+/** Мітка як у чаті при `conn: "lost"` (N15 `n15-net`). */
+export const ERROR_EYEBROW = "З'єднання втрачено";
+export const ERROR_TITLE = "Поповнення не завантажилось";
+export const ERROR_LEAD = NETWORK_MESSAGE;
 const FAILED_LEAD = "Кредити не зараховано. Можна спробувати ще раз — я створю нове поповнення.";
 
 /** @param {number} n */
@@ -80,6 +86,7 @@ export function checkoutModel(state) {
   const m = {
     kind: "loading",
     eyebrow: "",
+    title: "",
     big: "",
     word: "",
     lead: "",
@@ -91,11 +98,24 @@ export function checkoutModel(state) {
   };
   const co = state.checkout;
   if (!co || co.status === "loading") return m;
+  if (co.status === "error") {
+    return {
+      ...m,
+      kind: "error",
+      eyebrow: ERROR_EYEBROW,
+      title: ERROR_TITLE,
+      lead: ERROR_LEAD,
+      meta: `поповнення ${co.id}`,
+      primary: button("Спробувати ще раз", "again"),
+      secondary: button(co.returnTo.kind === "project" ? "До проєкту" : "До кабінету", "return"),
+    };
+  }
   if (co.status === "notfound" || !co.topup) {
     return {
       ...m,
       kind: "notfound",
       eyebrow: `Поповнення · ${co.id}`,
+      title: NOT_FOUND_TITLE,
       lead: NOT_FOUND_LEAD,
       primary: button("До кабінету", "return", { arrow: true }),
     };
@@ -228,11 +248,13 @@ export function mount(el, ctx) {
     LOADING_TEXT,
   );
 
-  const eyebrowEl = h("span", { class: "co-eyebrow" });
+  const eyebrowDot = h("span", { class: "dot dot--danger", "aria-hidden": "true", hidden: true });
+  const eyebrowLabel = h("span", {});
+  const eyebrowEl = h("span", { class: "co-eyebrow" }, eyebrowDot, eyebrowLabel);
   const bigEl = h("span", { class: "co-num" });
   const wordEl = h("span", { class: "co-word" });
   const amountEl = h("span", { class: "co-amount" }, bigEl, wordEl);
-  const titleEl = h("h1", { class: "co-title", text: NOT_FOUND_TITLE });
+  const titleEl = h("h1", { class: "co-title" });
   const leadEl = h("p", { class: "co-lead" });
   const metaEl = h("span", { class: "co-meta" });
   const sumEl = h("div", { class: "co-sum" }, eyebrowEl, amountEl, titleEl, leadEl, metaEl);
@@ -284,10 +306,15 @@ export function mount(el, ctx) {
     root.dataset.status = state.checkout?.status ?? "loading";
     loadingEl.hidden = m.kind !== "loading";
     sumEl.hidden = m.kind === "loading";
+    // Як K3: помилку оголошує role="alert"; інші стани — без ролі.
+    if (m.kind === "error") sumEl.setAttribute("role", "alert");
+    else sumEl.removeAttribute("role");
     amountEl.hidden = m.kind !== "main";
-    metaEl.hidden = m.kind !== "main";
-    titleEl.hidden = m.kind !== "notfound";
-    text(eyebrowEl, m.eyebrow);
+    metaEl.hidden = m.kind !== "main" && m.kind !== "error";
+    titleEl.hidden = !m.title;
+    eyebrowDot.hidden = m.kind !== "error";
+    text(eyebrowLabel, m.eyebrow);
+    text(titleEl, m.title);
     text(bigEl, m.big);
     text(wordEl, m.word);
     text(leadEl, m.lead);

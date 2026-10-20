@@ -6,7 +6,8 @@
  *
  * Аркуш `sheet-n10` (9 клітинок, усі названі в `#M`): n10-loading, n10-pending, n10-confirming,
  * n10-paid, n10-paid-start, n10-paid-ws, n10-failed, n10-revisit, n10-404. Плюс n10-guest —
- * гість на чеку з модалкою входу (B1) у контексті checkout.
+ * гість на чеку з модалкою входу (B1) у контексті checkout, і n10-net — `GET topup` не вдався
+ * (мережа / 5xx), кадру в Референсі немає.
  */
 import { authState, checkoutState, initialState } from "../../js/initial.js";
 import { accountFixture, at, meOf, OLENA, PENDING_TOPUP, PRICES } from "./_base.js";
@@ -75,5 +76,6 @@ export default {
   "n10-failed": checkout({ status: "failed", topup: FAILED }),
   "n10-revisit": checkout({ status: "paid", topup: PAID, revisit: true }, 37),
   "n10-404": checkout({ status: "notfound", id: "t_zz00", topup: null }),
+  "n10-net": checkout({ status: "error", topup: null }),
   "n10-guest": guest,
 };
