@@ -7,7 +7,8 @@
  * - `setProfileField` — поле форми; будь-яка правка знімає помилки й «✓» (як у Референсі).
  * - `saveName` — клієнтська перевірка (1…80 символів після trim, без запиту) → `PATCH /api/account`
  *   → `refreshMe()` → `saved`. 400 від сервера — та сама помилка імені.
- * - `changePassword` — `POST /api/account/password`: 401 `invalid_credentials` / 400 → `pwError`;
+ * - `changePassword` — `POST /api/account/password`: 401 `invalid_credentials` / 400 → `pwError`
+ *   (400 — ще й `pwMessage`, текст сервера; знімається правкою поля і новою спробою);
  *   успіх → `pwDone`, поля очищено (cookie нової сесії ставить сервер).
  * - Мережа / 5xx — у кадрах N13 стану немає: busy знімається, введене лишається.
  * У `?mock=1` (`offline`) — без мережі, лише стан.
@@ -37,6 +38,13 @@ const statusOf = (err) =>
 const codeOf = (err) =>
   typeof err === "object" && err !== null && "code" in err && typeof err.code === "string" ? err.code : null;
 
+/** Текст сервера (`message` з тіла відповіді) або null. @param {unknown} err */
+const serverMessage = (err) => {
+  const body = typeof err === "object" && err !== null && "body" in err ? err.body : null;
+  const message = body && typeof body === "object" && "message" in body ? body.message : null;
+  return typeof message === "string" && message ? message : null;
+};
+
 /**
  * @param {Store} store
  * @param {Partial<ProfileState>} patch
@@ -58,7 +66,14 @@ export const profileActions = (store, deps) => {
 
   return {
     setProfileField(key, value) {
-      setProfile(store, { [key]: value, nameError: false, saved: false, pwError: null, pwDone: false });
+      setProfile(store, {
+        [key]: value,
+        nameError: false,
+        saved: false,
+        pwError: null,
+        pwMessage: null,
+        pwDone: false,
+      });
     },
 
     async saveName() {
@@ -99,7 +114,7 @@ export const profileActions = (store, deps) => {
     async changePassword() {
       const { profile } = store.getState().cabinet;
       if (profile.pwBusy) return;
-      setProfile(store, { pwBusy: true, pwError: null, pwDone: false });
+      setProfile(store, { pwBusy: true, pwError: null, pwMessage: null, pwDone: false });
       try {
         if (!offline) await api.changePassword({ current: profile.current, next: profile.next });
         setProfile(store, { pwBusy: false, pwDone: true, current: "", next: "" });
@@ -107,7 +122,8 @@ export const profileActions = (store, deps) => {
         const status = statusOf(err);
         if (status === 401 && codeOf(err) === "invalid_credentials")
           setProfile(store, { pwBusy: false, pwError: "invalid_credentials" });
-        else if (status === 400) setProfile(store, { pwBusy: false, pwError: "weak_password" });
+        else if (status === 400)
+          setProfile(store, { pwBusy: false, pwError: "weak_password", pwMessage: serverMessage(err) });
         else {
           if (status !== 401) console.warn("[profile] changePassword", err);
           setProfile(store, { pwBusy: false });

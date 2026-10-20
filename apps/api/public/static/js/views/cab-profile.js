@@ -22,11 +22,23 @@ export const SAVED = "✓ Збережено";
 export const PW_DONE = "✓ Пароль змінено. Інші сесії завершено.";
 export const ADMIN_ROLE = "роль · адміністратор (ADMIN_EMAILS)";
 
-/** Тексти помилок пароля: `invalid_credentials` — копірайт UI; `weak_password` — текст сервера. */
+/**
+ * Тексти помилок пароля: `invalid_credentials` — копірайт UI; `weak_password` — текст сервера
+ * (`profile.pwMessage`), а цей — лише запасний, з кадру.
+ */
 export const PW_ERRORS = {
   invalid_credentials: "Поточний пароль невірний.",
   weak_password: "Пароль — від 8 до 128 символів.",
 };
+
+/**
+ * Текст під полями пароля: `weak_password` — текст сервера, якщо є.
+ * @param {ProfileState} p
+ */
+export function pwErrorText(p) {
+  if (p.pwError === "weak_password") return p.pwMessage ?? PW_ERRORS.weak_password;
+  return p.pwError ? PW_ERRORS[p.pwError] : "";
+}
 
 /**
  * Підказка довжини під «Новий пароль»: «від 8 символів» → «ще N» → «✓».
@@ -239,7 +251,7 @@ export function mount(el, ctx) {
     pwSubmit.disabled = p.pwBusy;
     pwSpinner.hidden = !p.pwBusy;
     pwError.hidden = !p.pwError;
-    text(pwError, p.pwError ? PW_ERRORS[p.pwError] : "");
+    text(pwError, pwErrorText(p));
     pwDone.hidden = !p.pwDone;
     text(pwDone, p.pwDone ? PW_DONE : "");
   }

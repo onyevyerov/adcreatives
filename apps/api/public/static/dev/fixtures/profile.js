@@ -51,7 +51,13 @@ export default {
     next: "Zerno-ranok",
     pwError: "invalid_credentials",
   }),
-  "sheet-n13-pw-weak": profile({ current: "kava2026!", next: "kava", pwError: "weak_password" }),
+  // Текст — з відповіді сервера (400 weak_password).
+  "sheet-n13-pw-weak": profile({
+    current: "kava2026!",
+    next: "kava",
+    pwError: "weak_password",
+    pwMessage: "Пароль — від 8 до 128 символів.",
+  }),
   "sheet-n13-pw-done": profile({ pwDone: true }),
   "sheet-n13-admin": profile({}, { me: ADMIN_ME }),
 };

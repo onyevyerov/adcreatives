@@ -19,6 +19,7 @@ import {
   nextHint,
   PW_DONE,
   PW_ERRORS,
+  pwErrorText,
   SAVED,
   sinceDate,
 } from "../../public/static/js/views/cab-profile.js";
@@ -211,6 +212,18 @@ describe("views/cab-profile.js", () => {
     expect(current().getAttribute("aria-invalid")).toBe("false");
     expect(next().getAttribute("aria-invalid")).toBe("true");
     expect(q(".cab-prof__hint").textContent).toBe("ще 4");
+    patch(store, { pwMessage: "Пароль — від 10 символів." });
+    expect(err.textContent).toBe("Пароль — від 10 символів.");
+  });
+
+  it("pwErrorText: weak_password — текст сервера, без нього — з кадру; invalid_credentials — копірайт UI", () => {
+    const p = state().cabinet.profile;
+    expect(pwErrorText(p)).toBe("");
+    expect(pwErrorText({ ...p, pwError: "weak_password", pwMessage: "Сервер." })).toBe("Сервер.");
+    expect(pwErrorText({ ...p, pwError: "weak_password", pwMessage: null })).toBe(PW_ERRORS.weak_password);
+    expect(
+      pwErrorText({ ...p, pwError: "invalid_credentials", pwMessage: "Невірний поточний пароль." }),
+    ).toBe("Поточний пароль невірний.");
   });
 
   it("зміна пароля: busy — кнопка disabled зі спінером; успіх — «✓ Пароль змінено…»", () => {
@@ -384,13 +397,14 @@ describe("data/profile-actions.js", () => {
       next: "",
       pwBusy: false,
       pwError: null,
+      pwMessage: null,
       pwDone: false,
     });
   });
 
   it("setProfileField: значення поля і зняття помилок та «✓»", () => {
     const { actions, profile } = make(
-      state({ nameError: true, saved: true, pwError: "invalid_credentials", pwDone: true }),
+      state({ nameError: true, saved: true, pwError: "weak_password", pwMessage: "x", pwDone: true }),
     );
     actions.setProfileField("current", "kava");
     expect(profile()).toMatchObject({
@@ -398,6 +412,7 @@ describe("data/profile-actions.js", () => {
       nameError: false,
       saved: false,
       pwError: null,
+      pwMessage: null,
       pwDone: false,
     });
     actions.setProfileField("nameDraft", "Олена К.");
@@ -504,9 +519,17 @@ describe("data/profile-actions.js", () => {
       next: "Zerno-ranok",
     });
     expect(unauthorized).not.toHaveBeenCalled();
+    expect(profile().pwMessage).toBeNull();
     actions.setProfileField("next", "kava");
     await actions.changePassword();
-    expect(profile()).toMatchObject({ pwBusy: false, pwError: "weak_password", next: "kava" });
+    expect(profile()).toMatchObject({
+      pwBusy: false,
+      pwError: "weak_password",
+      pwMessage: "Пароль — від 8 до 128 символів.",
+      next: "kava",
+    });
+    actions.setProfileField("next", "kava2026!!");
+    expect(profile()).toMatchObject({ pwError: null, pwMessage: null });
   });
 
   it("changePassword: мережа — busy знімається без помилки", async () => {
