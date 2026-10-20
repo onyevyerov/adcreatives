@@ -26,6 +26,7 @@ import {
   loadPrices,
   ProjectState,
   projectPaths,
+  RenderMeta,
   type ReviewIssue,
   readTuning,
   type SoundCue,
@@ -309,7 +310,11 @@ describe("prepareRerun", () => {
   it("render: стан rendering, по job на формат з новими спробами", async () => {
     const storage = new LocalStorage(tmp);
     await delivered(storage);
+    const metaKey = projectPaths("p1").rev(1).renderMeta("vertical");
+    await storage.writeJson(metaKey, { inputsHash: "abc123" });
     const jobs = await prepareRerun(storage, "p1", "render", new Date("2026-10-07T00:00:00Z"));
+    // хеш входів попереднього рендеру скинуто: job рендерить заново, а не перевикористовує mp4
+    expect((await storage.readJson(metaKey, (v) => RenderMeta.parse(v))).inputsHash).not.toBe("abc123");
     expect(jobs.map((j) => j.jobId)).toEqual(["p1.render.r1.a2.vertical", "p1.render.r1.a2.square"]);
     const project = await storage.readJson(projectPaths("p1").project, (v) => ProjectState.parse(v));
     expect(project).toMatchObject({ status: "rendering", phase: "first_delivery", firstDeliveredAt: null });

@@ -43,6 +43,9 @@ const freeze =
   (o: RenderStillOptions): number | null =>
     sceneIdOf(o) === sceneId && o.frame >= from && o.frame <= to ? from : null;
 
+/** `o.out` — абсолютний шлях ОС: на Windows роздільник `\`. */
+const norm = (p: string) => p.replace(/\\/g, "/");
+
 const thumb = (v: number, n = 96 * 171) => new Uint8Array(n * 3).fill(v);
 
 describe("static_hold: детектор", () => {
@@ -127,7 +130,7 @@ describe("checkStage: стрічка кадрів (мок RenderEngine)", () => 
       });
     }
     // s1: 10 кадрів стрічки, 75 і 135 збігаються зі стілами → 8 рендерів на формат
-    const s1Strip = engine.stills.filter((o) => sceneIdOf(o) === "s1" && o.out.includes("/strips/"));
+    const s1Strip = engine.stills.filter((o) => sceneIdOf(o) === "s1" && norm(o.out).includes("/strips/"));
     expect(s1Strip).toHaveLength(16);
     expect(s1Strip.every((o) => o.composition === "ScenePreview" && o.inputProps.qa === true)).toBe(true);
     expect(new Set(s1Strip.map((o) => o.frame))).toEqual(new Set([15, 30, 45, 60, 90, 105, 120, 149]));
