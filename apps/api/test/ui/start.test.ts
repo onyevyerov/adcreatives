@@ -313,7 +313,7 @@ describe("N3-A · шапка", () => {
     const login = q<HTMLButtonElement>(".st-head .st-login");
     expect(login.textContent).toBe("Увійти");
     expect(login.classList.contains("btn--ghost")).toBe(true);
-    expect(el.querySelector('[data-stub="account-controls"]')).toBeNull();
+    expect(el.querySelector(".st-account .ac")).toBeNull();
     login.click();
     expect(actions.dismissFlash).toHaveBeenCalledOnce();
     expect(actions.openAuth).toHaveBeenCalledWith("login", "header");
@@ -325,10 +325,10 @@ describe("N3-A · шапка", () => {
     expect(head?.childElementCount).toBe(0);
     setAccount({ me: ME, meStatus: "ready" });
     expect(el.querySelector(".st-login")).toBeNull();
-    const controls = el.querySelector('.st-account [data-stub="account-controls"]');
-    expect(controls?.textContent).toContain("start");
+    const controls = el.querySelector(".st-account .ac");
+    expect(controls?.classList.contains("ac--start")).toBe(true);
     setAccount({ me: null, meStatus: "anon" });
-    expect(el.querySelector('[data-stub="account-controls"]')).toBeNull();
+    expect(el.querySelector(".st-account .ac")).toBeNull();
     expect(el.querySelector(".st-login")).not.toBeNull();
   });
 });
