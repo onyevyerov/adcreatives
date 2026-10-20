@@ -35,7 +35,6 @@ import {
   FORMATS,
   ROLE_LABELS,
 } from "../contracts.js";
-import { lastRefusedText, userTextBefore } from "../data/retry-actions.js";
 import { clear, h, text } from "../dom.js";
 import { parseCreditMessage } from "../lib/credit-messages.js";
 import {
@@ -155,6 +154,37 @@ export function liveOwners(state) {
       owners.restart_confirm = last.id;
   }
   return owners;
+}
+
+/**
+ * Текст останнього повідомлення клієнта перед елементом стрічки `before` (не включно) — правка,
+ * на яку відмовив білінг. Без `before` — шукати з кінця.
+ * @param {readonly FeedItem[]} feed
+ * @param {number} [before]
+ * @returns {string | null}
+ */
+export function userTextBefore(feed, before = feed.length) {
+  for (let i = Math.min(before, feed.length) - 1; i >= 0; i--) {
+    const it = feed[i];
+    if (it?.kind === "message" && it.role === "user" && it.text) return it.text;
+  }
+  return null;
+}
+
+/**
+ * Текст правки для повтору, якщо його не донесли з оплати: останнє повідомлення клієнта перед
+ * останньою відмовою білінгу.
+ * @param {readonly FeedItem[]} feed
+ * @returns {string | null}
+ */
+export function lastRefusedText(feed) {
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const it = feed[i];
+    if (it?.kind !== "message" || it.role === "user") continue;
+    const kind = parseCreditMessage(it.text)?.kind;
+    if (kind === "insufficient" || kind === "insufficientFormats") return userTextBefore(feed, i);
+  }
+  return null;
 }
 
 /**
