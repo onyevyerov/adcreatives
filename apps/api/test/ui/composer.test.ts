@@ -4,7 +4,7 @@ import { createDevActions } from "../../public/static/dev/dev-actions.js";
 import { fixtureStates } from "../../public/static/dev/fixture-states.js";
 import type { Actions, UiState } from "../../public/static/js/contracts.js";
 import { createStore } from "../../public/static/js/store.js";
-import { mount, PLACEHOLDERS, placeholderFor } from "../../public/static/js/views/composer.js";
+import { mount, PLACEHOLDERS, placeholderFor, revisionHint } from "../../public/static/js/views/composer.js";
 
 function fixture(name: string): UiState {
   const s = fixtureStates[name];
@@ -15,6 +15,10 @@ function fixture(name: string): UiState {
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const fn of cleanups.splice(0)) fn();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  localStorage.clear();
+  sessionStorage.clear();
   document.body.textContent = "";
 });
 
@@ -253,5 +257,80 @@ describe("composer · чернетка", () => {
     store.setState((s) => ({ ui: { ...s.ui, draft: "abcdefgh" } }));
     expect(input.value).toBe("abcdefgh");
     expect(input.selectionStart).toBe(2);
+  });
+});
+
+// ───────────── B5 · ціна правки після видачі (N5-A) ─────────────
+
+const NB = " ";
+
+describe("composer · ціна правки (N5-A)", () => {
+  function priced(state: UiState) {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("мережа в тесті"))),
+    );
+    return setup(state);
+  }
+  const price = (el: HTMLElement) => el.querySelector(".cmp-price") as HTMLElement;
+  const shown = (el: HTMLElement) => !(price(el).parentElement as HTMLElement).hidden;
+
+  it("n5-done: «↵ надіслати · правка — 3 кредити»", () => {
+    const { el } = priced(fixture("n5-done"));
+    expect(shown(el)).toBe(true);
+    expect(el.querySelector(".cmp-hint")?.textContent).toBe(`↵ надіслати · правка — 3${NB}кредити`);
+    expect(price(el).classList.contains("cmp-price--short")).toBe(false);
+  });
+
+  it("n5-done-short: «правка — 3 кредити, у вас 2» кольором --ink, надсилання не блокується", async () => {
+    const { el, dev, type, key, send } = priced(fixture("n5-done-short"));
+    expect(price(el).textContent).toBe(`правка — 3${NB}кредити, у вас 2`);
+    expect(price(el).classList.contains("cmp-price--short")).toBe(true);
+    type("Зроби заголовок коротшим");
+    expect(send.disabled).toBe(false);
+    key({});
+    await flush();
+    expect(sent(dev)).toEqual(["Зроби заголовок коротшим"]);
+  });
+
+  it("баланс 0 — так само надсилається", async () => {
+    const base = fixture("n5-done-short");
+    const me = base.account.me;
+    if (!me) throw new Error("немає me");
+    const { dev, type, form } = priced({ ...base, account: { ...base.account, me: { ...me, balance: 0 } } });
+    type("Інша музика");
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await flush();
+    expect(sent(dev)).toEqual(["Інша музика"]);
+  });
+
+  it("n5-done-typing: чернетка в полі, кнопка активна, підказка лишається", () => {
+    const { el, input, send } = priced(fixture("n5-done-typing"));
+    expect(input.value).toBe("Зроби заголовок коротшим");
+    expect(send.disabled).toBe(false);
+    expect(shown(el)).toBe(true);
+  });
+
+  it("до видачі й без цін підказки ціни немає; поява — за статусом", () => {
+    const { el, store } = priced(fixture("n5-cp1"));
+    expect(shown(el)).toBe(false);
+    expect(price(el).textContent).toBe("");
+    store.setState({ status: "delivered" });
+    expect(shown(el)).toBe(true);
+    store.setState((s) => ({ account: { ...s.account, prices: null } }));
+    expect(shown(el)).toBe(false);
+  });
+
+  it("revisionHint", () => {
+    const base = fixture("n5-done");
+    expect(revisionHint(base)).toEqual({ text: `правка — 3${NB}кредити`, short: false });
+    expect(revisionHint({ ...base, status: "revising" })).toBeNull();
+    expect(revisionHint({ ...base, account: { ...base.account, prices: null } })).toBeNull();
+    // Баланс невідомий — без «у вас».
+    expect(revisionHint({ ...base, account: { ...base.account, me: null } })).toEqual({
+      text: `правка — 3${NB}кредити`,
+      short: false,
+    });
   });
 });

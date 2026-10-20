@@ -6,7 +6,10 @@ import { fixtureStates } from "../../public/static/dev/fixture-states.js";
 import type { BrandCheckpointPayload, UiState } from "../../public/static/js/contracts.js";
 import { createStore } from "../../public/static/js/store.js";
 import {
+  chargeNote,
   contrast,
+  formatsCharge,
+  formatTag,
   googleFontsHref,
   hexColor,
   linkUrl,
@@ -59,6 +62,9 @@ afterEach(() => {
   document.body.textContent = "";
   for (const link of document.head.querySelectorAll("link[data-cb-font]")) link.remove();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  localStorage.clear();
+  sessionStorage.clear();
 });
 
 function setup(state: UiState = awaitingBrand()) {
@@ -560,5 +566,134 @@ describe("cp-brand · чисті функції", () => {
     ).toEqual(["vertical", "landscape"]);
     expect(toggleFormat(["vertical"], "vertical")).toBeNull();
     expect(toggleFormat(["landscape"], "vertical")).toEqual(["vertical", "landscape"]);
+  });
+});
+
+// ───────────── B5 · ціни на ЧП1 (N5-A) ─────────────
+
+const PRICES = { video: 10, revision: 3, extraFormat: 2 };
+
+describe("cp-brand · ціни (N5-A)", () => {
+  beforeEach(() => {
+    // Ціни — лише зі стану; мережі у view немає.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("мережа в тесті"))),
+    );
+  });
+
+  function priced(name: string) {
+    const s = fixtureStates[name];
+    if (!s) throw new Error(`немає фікстури ${name}`);
+    return setup(s);
+  }
+  const tags = (root: { $$: (sel: string) => HTMLElement[] }) =>
+    root.$$(".cb-fmt").map((t) => {
+      const tag = t.querySelector<HTMLElement>(".cb-fmt__tag");
+      return tag && !tag.hidden ? tag.textContent : null;
+    });
+  const strong = (root: { $$: (sel: string) => HTMLElement[] }) =>
+    root.$$(".cb-fmt__tag--on").map((t) => t.closest<HTMLElement>(".cb-fmt")?.dataset.format);
+
+  it("n5-cp1: перший обраний — «у ціні», решта «+2» (обраний — --ink), рядок «спишу на ЧП3»", () => {
+    const v = priced("n5-cp1");
+    expect(tags(v)).toEqual(["у ціні", "+2", "+2"]);
+    expect(strong(v)).toEqual(["square"]);
+    const note = v.$(".cb-price");
+    expect(note.hidden).toBe(false);
+    expect(note.textContent).toBe("+2 за 1:1 спишу на ЧП3");
+    expect(note.querySelector(".cb-price__topup")).toBeNull();
+    // Рядок — у групі «Формати», одразу під тайлами.
+    expect(v.$('[data-group="formats"]').lastElementChild).toBe(note);
+  });
+
+  it("n5-cp1-short: «· у вас 1 · поповнити» → openTopup(ws, cp3); дії не блокуються", () => {
+    const v = priced("n5-cp1-short");
+    expect(v.$(".cb-price").textContent).toBe("+2 за 1:1 спишу на ЧП3·у вас 1·поповнити");
+    expect(v.$(".cb-price__have").textContent).toBe("у вас 1");
+    v.$<HTMLButtonElement>(".cb-price__topup").click();
+    expect(v.called("openTopup")).toEqual([[{ from: "ws", ctx: "cp3" }]]);
+    expect(v.$<HTMLButtonElement>(".cb-approve").disabled).toBe(false);
+    for (const t of v.$$<HTMLButtonElement>(".cb-fmt")) expect(t.disabled).toBe(false);
+  });
+
+  it("n5-cp1-one: теги без підсвітки, рядка доплати немає", () => {
+    const v = priced("n5-cp1-one");
+    expect(tags(v)).toEqual(["у ціні", "+2", "+2"]);
+    expect(strong(v)).toEqual([]);
+    expect(v.$(".cb-price").hidden).toBe(true);
+  });
+
+  it("оплачений у проєкті формат — «оплачено» і не рахується в доплату", () => {
+    const base = fixtureStates["n5-cp1"];
+    if (!base) throw new Error("немає n5-cp1");
+    const v = setup({
+      ...base,
+      ui: { ...base.ui, pendingFormats: ["vertical", "square", "landscape"] },
+      projectCredits: {
+        charged: 12,
+        refunded: 0,
+        parts: [
+          { kind: "video", credits: -10 },
+          { kind: "format", credits: -2, format: "square" },
+        ],
+      },
+    });
+    expect(tags(v)).toEqual(["у ціні", "оплачено", "+2"]);
+    expect(v.$(".cb-price").textContent).toBe("+2 за 16:9 спишу на ЧП3");
+  });
+
+  it("клік по тайлу, зміна балансу й цін оновлюють теги й рядок без перебудови", () => {
+    const v = priced("n5-cp1");
+    const tile = v.$('.cb-fmt[data-format="landscape"]');
+    tile.click();
+    expect(v.store.getState().ui.pendingFormats).toEqual(["vertical", "square", "landscape"]);
+    expect(v.$(".cb-price").textContent).toBe("+4 за 1:1, 16:9 спишу на ЧП3");
+    expect(strong(v)).toEqual(["square", "landscape"]);
+
+    v.store.setState((s) => ({
+      account: { ...s.account, me: s.account.me && { ...s.account.me, balance: 3 } },
+    }));
+    expect(v.$(".cb-price__have").textContent).toBe("у вас 3");
+    expect(v.$('.cb-fmt[data-format="landscape"]')).toBe(tile);
+
+    v.store.setState((s) => ({ account: { ...s.account, prices: null } }));
+    expect(tags(v)).toEqual([null, null, null]);
+    expect(v.$(".cb-price").hidden).toBe(true);
+  });
+
+  it("formatTag / chargeNote / formatsCharge", () => {
+    expect(formatTag("vertical", ["vertical", "square"], [], PRICES)).toEqual({
+      text: "у ціні",
+      strong: false,
+    });
+    expect(formatTag("square", ["vertical", "square"], [], PRICES)).toEqual({ text: "+2", strong: true });
+    expect(formatTag("landscape", ["vertical"], [], PRICES)).toEqual({ text: "+2", strong: false });
+    expect(formatTag("square", ["vertical", "square"], ["square"], PRICES)).toEqual({
+      text: "оплачено",
+      strong: false,
+    });
+    expect(formatTag("vertical", ["vertical"], [], null)).toBeNull();
+    expect(chargeNote({ need: 0, extra: [] })).toBeNull();
+    expect(chargeNote({ need: 4, extra: ["square", "landscape"] })).toBe("+4 за 1:1, 16:9 спишу на ЧП3");
+
+    const s = awaitingBrand();
+    expect(formatsCharge(s, ["vertical", "square"])).toBeNull(); // цін немає
+    const me = {
+      ...(fixtureStates["n5-cp1"]?.account.me as NonNullable<UiState["account"]["me"]>),
+      balance: 1,
+    };
+    const account = { ...s.account, prices: PRICES, me };
+    expect(formatsCharge({ ...s, account }, ["vertical", "square"])).toEqual({
+      need: 2,
+      extra: ["square"],
+      paid: [],
+      balance: 1,
+      short: true,
+    });
+    // Невідомий баланс — нестача не підписується.
+    expect(formatsCharge({ ...s, account: { ...account, me: null } }, ["vertical", "square"])?.short).toBe(
+      false,
+    );
   });
 });

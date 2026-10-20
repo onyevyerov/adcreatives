@@ -8,9 +8,14 @@
  *   `--ink` і фокус у полі;
  * - чернетка: введення → `actions.setDraft`; зовнішня зміна `ui.draft` переноситься в поле лише
  *   коли відрізняється від його значення (textarea не перестворюється, курсор зберігається).
+ *
+ * B5 · ціна правки (N5-A): після видачі підказка «↵ надіслати · правка — 3 кредити»; якщо
+ * балансу не вистачає — «правка — 3 кредити, у вас 2» кольором --ink. Лише інформує:
+ * надсилання не блокується за будь-якого балансу. Ціна — лише `account.prices`.
  */
 import { AWAITING } from "../contracts.js";
 import { h, text } from "../dom.js";
+import { formatCredits, formatNumber } from "../lib/credits.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
 
@@ -36,6 +41,21 @@ export function placeholderFor(state) {
   return PLACEHOLDERS.busy;
 }
 
+/**
+ * Підказка ціни правки після видачі (N5-A); `null` — не видано або цін немає.
+ * `short` — баланс відомий і менший за ціну правки.
+ * @param {Pick<UiState, "status" | "account">} state
+ * @returns {{ text: string, short: boolean } | null}
+ */
+export function revisionHint(state) {
+  const prices = state.account.prices;
+  if (state.status !== "delivered" || !prices) return null;
+  const price = `правка — ${formatCredits(prices.revision)}`;
+  const balance = state.account.me?.balance ?? null;
+  const short = balance !== null && balance < prices.revision;
+  return short ? { text: `${price}, у вас ${formatNumber(balance)}`, short } : { text: price, short };
+}
+
 /** @type {import("../contracts.js").MountFn} */
 export function mount(el, ctx) {
   const { actions } = ctx;
@@ -54,6 +74,9 @@ export function mount(el, ctx) {
     tabindex: "-1",
   });
   const photo = h("button", { type: "button", class: "btn btn--tag", text: "+ Фото" });
+  const price = h("span", { class: "cmp-price" });
+  const priceSep = h("span", { "aria-hidden": "true", text: " · " });
+  const priceWrap = h("span", { hidden: true }, priceSep, price);
   const send = h("button", {
     type: "submit",
     class: "btn-round",
@@ -73,7 +96,12 @@ export function mount(el, ctx) {
       h(
         "span",
         { class: "ch-composer__send" },
-        h("span", { class: "ch-composer__hint", "aria-hidden": "true", text: "↵ надіслати" }),
+        h(
+          "span",
+          { class: "ch-composer__hint cmp-hint" },
+          h("span", { "aria-hidden": "true", text: "↵ надіслати" }),
+          priceWrap,
+        ),
         send,
       ),
     ),
@@ -112,6 +140,11 @@ export function mount(el, ctx) {
       }
       grow();
     }
+
+    const hint = revisionHint(s);
+    text(price, hint?.text ?? "");
+    price.classList.toggle("cmp-price--short", hint?.short ?? false);
+    priceWrap.hidden = !hint;
 
     text(notice, s.ui.notice ?? "");
     notice.hidden = !s.ui.notice;
