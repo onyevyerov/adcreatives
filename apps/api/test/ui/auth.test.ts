@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ME, meOf, OLENA } from "../../public/static/dev/fixtures/_base.js";
-import fixtures from "../../public/static/dev/fixtures/auth.js";
+import fixtures, { FIXTURE_NOW } from "../../public/static/dev/fixtures/auth.js";
 import type {
   AccountApi,
   Actions,
@@ -257,7 +257,8 @@ describe("фікстури N1–N2", () => {
 
   it.each(STATES)("%s — модалка з заголовком і текстом стану", (name, title, mark) => {
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
-    vi.setSystemTime(Date.now());
+    // Кулдаун фікстур рахується від FIXTURE_NOW: «0:42» не залежить від того, скільки йшов тест.
+    vi.setSystemTime(FIXTURE_NOW);
     const state = fixtures[name] as UiState;
     harness(state);
     expect(visible($(".au-overlay"))).toBe(true);
