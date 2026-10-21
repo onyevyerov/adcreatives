@@ -4,7 +4,8 @@
  *
  * Дані чека вантажить підписка `deps.onRoute` (ядро викликає її на boot, navigate, popstate і
  * після входу на захищеному маршруті): `GET topup` → `pending`, або `paid` / `failed` з
- * `revisit: true` (оплату вже завершено раніше), або 404 → `notfound`. Точку повернення
+ * `revisit: true` (оплату вже завершено раніше), або 404 → `notfound`, або мережа / 5xx при першому
+ * завантаженні → `error` («Спробувати ще раз» — той самий `checkoutAgain`). Точку повернення
  * (`adc.return`, кладе B7 у `openTopup`) чек забирає один раз — при першому відкритті — і
  * тримає в `checkout.returnTo`; без неї — кабінет.
  *
@@ -14,7 +15,7 @@
  * - `checkoutReturn()` — кнопки «Повернутися до проєкту» / «До проєкту» / «До кабінету»:
  *   у проєкт після оплати — ще й `ui.retry` (картка «Повторити» в чаті, B6).
  * - `checkoutAgain()` — після скасування: нове поповнення з тим самим пакетом або сумою →
- *   новий чек з тією самою точкою повернення.
+ *   новий чек з тією самою точкою повернення; у стані `error` — повторне завантаження того самого чека.
  *
  * У `?mock=1` (`deps.offline`) — без мережі: чек «Кілька роликів» з фікстур, оплата миттєва.
  */
@@ -71,6 +72,7 @@ export const checkoutActions = (store, deps) => {
       const back = takeReturn();
       if (back) patch(id, { returnTo: back });
     }
+    if (co.status === "error") patch(id, { status: "loading" });
     const my = ++loadSeq;
     try {
       const topup = deps.offline ? await offlineTopUp(id) : (await deps.api.getTopUp(id)).topup;
@@ -85,7 +87,11 @@ export const checkoutActions = (store, deps) => {
       if (my !== loadSeq) return;
       if (isStatus(err, 404)) patch(id, { status: "notfound", topup: null });
       // 401 обробило ядро (модалка входу); після входу onRoute завантажить чек ще раз.
-      else if (!isStatus(err, 401)) console.warn("[checkout] getTopUp", err);
+      else if (!isStatus(err, 401)) {
+        console.warn("[checkout] getTopUp", err);
+        // Мережа / 5xx: замість вічного спінера — «Спробувати ще раз». Уже показаний чек лишається.
+        if (current()?.status === "loading") patch(id, { status: "error" });
+      }
     }
   }
 
@@ -156,6 +162,7 @@ export const checkoutActions = (store, deps) => {
 
     async checkoutAgain() {
       const co = current();
+      if (co?.status === "error") return load(co.id);
       if (!co?.topup || againBusy) return;
       againBusy = true;
       try {
@@ -193,7 +200,7 @@ export const checkoutActions = (store, deps) => {
         void a.startPending();
         return;
       }
-      if (back.kind === "project" && (paidNow || co.status === "failed")) {
+      if (back.kind === "project" && (paidNow || co.status === "failed" || co.status === "error")) {
         a.navigate({ route: "project", projectId: back.projectId });
         // Вхід у проєкт скидає гілки проєкту (і ui.retry) — тож картку кладемо після нього.
         const retry = back.retry;
