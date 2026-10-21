@@ -1,1 +1,161 @@
-/* .cab- · B9 · історія (N11-B). Крок 0 — порожній файл; наповнює B9. */
+/* .cab- · B9 · класи .cab-hist… · історія (N11-B): стрічка по днях. Розміри — Референс #N11 «День», «Рядок
+ * операції», «Пагінація».
+ */
+
+.cab-hist {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  padding-bottom: 48px;
+}
+
+.cab-hist__title {
+  margin: 0;
+}
+
+.cab-hist__loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font: 400 12.5px / 1.4 var(--f-mono);
+}
+
+.cab-hist__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px 0;
+  border-top: 1px solid var(--line);
+}
+
+.cab-hist__empty-title {
+  font: 500 16px / 1.35 var(--f-ui);
+}
+
+.cab-hist__empty-text {
+  color: var(--muted);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+/* ───── Дні ───── */
+
+.cab-hist__days {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cab-hist__day {
+  display: flex;
+  flex-direction: column;
+}
+
+.cab-hist__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ink);
+}
+
+.cab-hist__day-title {
+  margin: 0;
+  font: 300 20px / 1.1 var(--f-display);
+  letter-spacing: -0.04em;
+}
+
+.cab-hist__day-meta {
+  display: flex;
+  gap: 14px;
+  color: var(--muted);
+  font: 400 12px / 1 var(--f-mono);
+  white-space: nowrap;
+}
+
+.cab-hist__day-meta b {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* ───── Рядок операції ───── */
+
+.cab-hist__row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: baseline;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.cab-hist__time {
+  color: var(--muted);
+  font: 400 12px / 1.4 var(--f-mono);
+}
+
+.cab-hist__what {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cab-hist__label {
+  font: 400 14px / 1.4 var(--f-ui);
+}
+
+.cab-hist__note {
+  color: var(--ink-2);
+  font: 400 13px / 1.45 var(--f-ui);
+  overflow-wrap: anywhere;
+}
+
+.cab-hist__proj {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: 400 12px / 1.4 var(--f-mono);
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+  transition: color var(--t-hover);
+}
+
+.cab-hist__proj:hover {
+  color: var(--accent);
+}
+
+.cab-hist__sum {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.cab-hist__credits {
+  font: 500 13.5px / 1.4 var(--f-mono);
+}
+
+.cab-hist__after {
+  color: var(--muted);
+  font: 400 11px / 1 var(--f-mono);
+}
+
+/* ───── Пагінація ───── */
+
+.cab-hist__more {
+  align-self: flex-start;
+}
+
+.cab-hist__end {
+  color: var(--muted);
+  font: 400 12px / 1.4 var(--f-mono);
+}

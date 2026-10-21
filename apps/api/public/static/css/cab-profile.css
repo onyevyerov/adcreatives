@@ -1,1 +1,159 @@
-/* .cab- · B10 · профіль і пароль (N13-A). Крок 0 — порожній файл; наповнює B10. */
+/* .cab- · B10 · класи .cab-prof… · профіль і пароль (N13-A, одна форма). Значення — Референс `#N13`
+ * (AcCabinet.dc.html, profA) і tokens.css. Каркас кабінету (padding, max-width) — cabinet.css (B7).
+ */
+
+.cab-prof {
+  padding: 0 0 48px;
+}
+
+.cab-prof__body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  max-width: 720px;
+}
+
+.cab-prof__title {
+  margin: 0;
+}
+
+/* ───── Поля ───── */
+
+.cab-prof__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cab-prof__input {
+  min-width: 0;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-14);
+  background: var(--card);
+  color: var(--ink);
+  font: 400 15px / 1.2 var(--f-ui);
+  transition: border-color var(--t-hover);
+}
+
+.cab-prof__input:hover,
+.cab-prof__input:focus {
+  border-color: var(--ink);
+}
+
+.cab-prof__input:focus-visible {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.cab-prof__input[aria-invalid="true"] {
+  border-color: var(--danger-field);
+}
+
+.cab-prof__error {
+  margin: 0;
+  color: var(--danger);
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+/* ───── Ім'я ───── */
+
+.cab-prof__name {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cab-prof__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cab-prof__row .cab-prof__input {
+  flex: 1;
+}
+
+.cab-prof__save {
+  flex: none;
+}
+
+.cab-prof__saved {
+  margin: 0;
+  font: 500 11px / 1.4 var(--f-mono);
+}
+
+/* ───── Лише читання ───── */
+
+.cab-prof__info {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.cab-prof__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cab-prof__value {
+  font: 400 13.5px / 1.3 var(--f-mono);
+  overflow-wrap: anywhere;
+}
+
+.cab-prof__role {
+  grid-column: 1 / -1;
+}
+
+/* ───── Пароль ───── */
+
+.cab-prof__pw {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cab-prof__pw-title {
+  font: 500 16px / 1.35 var(--f-ui);
+}
+
+.cab-prof__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.cab-prof__label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.cab-prof__hint {
+  font: 400 11.5px / 1.2 var(--f-mono);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.cab-prof__done {
+  margin: 0;
+  font: 400 13.5px / 1.5 var(--f-ui);
+}
+
+.cab-prof__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Спінер на primary — світлий (Референс: доріжка --on-ink 30%, верх --on-ink). */
+.cab-prof__submit .spinner {
+  border-color: color-mix(in srgb, var(--on-ink) 30%, transparent);
+  border-top-color: var(--on-ink);
+}
