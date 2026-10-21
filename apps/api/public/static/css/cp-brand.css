@@ -431,6 +431,7 @@ button.cb-logo:hover:not(:disabled) {
 }
 
 .cb-fmt {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -498,6 +499,51 @@ button.cb-logo:hover:not(:disabled) {
 .cb-fmt__name {
   color: var(--muted);
   font: 400 12px / 1 var(--f-ui);
+}
+
+/* ── B5 · N5-A: ціни біля дії ── */
+
+/* Тег у правому верхньому куті тайла: «у ціні» / «оплачено» / «+2» (обраний — --ink). */
+.cb-fmt__tag {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  color: var(--muted);
+  font: 500 11px / 1 var(--f-mono);
+}
+
+.cb-fmt__tag--on {
+  color: var(--ink);
+}
+
+/* Під тайлами: «+2 за 1:1 спишу на ЧП3 · у вас 1 · поповнити». */
+.cb-price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--muted);
+  font: 400 12px / 1.5 var(--f-mono);
+}
+
+.cb-price__have {
+  color: var(--ink);
+}
+
+.cb-price__topup {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+  transition: color var(--t-hover);
+}
+
+.cb-price__topup:hover {
+  color: var(--accent);
 }
 
 /* ── S6 · 1024×768: сцена ≈ 640px — тісніші відступи панелі ── */
