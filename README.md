@@ -3,11 +3,7 @@
 Демо-сервіс: URL сайту бізнесу (+ фото) → бренд-кіт → сценарій → код сцен (Remotion) → музика й SFX →
 рекламні motion-відео 15–30 с у форматах 9:16 / 1:1 / 16:9. Діалог у web-чаті з трьома чекпоінтами.
 
-Специфікація: [docs/superpowers/specs/2026-10-06-adcreative-design.md](docs/superpowers/specs/2026-10-06-adcreative-design.md),
-повне ТЗ з блоками робіт: [docs/superpowers/specs/adcreative-tz-v2.md](docs/superpowers/specs/adcreative-tz-v2.md),
-якість звуку (LUFS, моно-сумісність, такт, тональність): [docs/superpowers/specs/2026-10-13-audio-quality-tz.md](docs/superpowers/specs/2026-10-13-audio-quality-tz.md),
-звукорежисер і рецензент фільму: [docs/superpowers/specs/2026-10-15-sound-designer-film-review-tz.md](docs/superpowers/specs/2026-10-15-sound-designer-film-review-tz.md),
-акаунти, кабінет і кредити (бекенд): [docs/superpowers/specs/2026-10-19-auth-monetization-tz.md](docs/superpowers/specs/2026-10-19-auth-monetization-tz.md).
+Акаунти й кредити — контракт API ↔ UI, свідомі прогалини й беклог: [docs/accounts-api.md](docs/accounts-api.md).
 
 ## Вимоги
 
@@ -153,7 +149,7 @@ storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx
 
 ### Провайдер музики і SFX (тест Epidemic Sound)
 
-Прототип для порівняння на слух ([ТЗ](docs/superpowers/specs/2026-10-19-epidemic-sound-test-tz.md)). Epidemic
+Прототип для порівняння на слух. Epidemic
 не генерує: стадія `audio` шукає готовий трек чи семпл у каталозі, підганяє трек під тривалість
 (`tracks/versions`, бета) і завантажує. Перевірки ті самі (`checkTrack`, `sfxQc`), мікшер не змінюється.
 
@@ -175,10 +171,10 @@ storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx
 
 ## Користувачі, кредити, адмін
 
-Макет монетизації (ТЗ [2026-10-19-auth-monetization-tz.md](docs/superpowers/specs/2026-10-19-auth-monetization-tz.md)):
+Макет монетизації:
 справжні акаунти й сесії, а листи, оплата і Google — заглушки. Екрани входу, кабінету, оплати й адмінки — у
 веб-чаті (див. [Інтерфейс акаунтів](#інтерфейс-акаунтів)); нижче — те саме через API (curl). Контракт API ↔ UI
-описаний у розділі 10 ТЗ.
+— [docs/accounts-api.md](docs/accounts-api.md).
 
 | Змінна | Дефолт | Що робить |
 |---|---|---|
@@ -228,7 +224,7 @@ curl -s -b jar.txt -X POST $API/api/projects -H "$J" -d '{"url":"https://example
 `/api/auth/reset {"token","password"}`. Профіль і пароль: `PATCH /api/account {"name"}`,
 `POST /api/account/password {"current","next"}`.
 
-### Ручний прохід (чеклист, розділ 11 ТЗ)
+### Ручний прохід (чеклист)
 
 API + воркер + Redis, у `.env` задані `ADMIN_EMAILS` і `APP_URL`:
 
@@ -361,8 +357,7 @@ pnpm --filter @adc/api dev      # http://localhost:3000 (інший порт: PO
 
 Вхід і реєстрація з активацією листом, скидання пароля, баланс у топбарі, ціни й нестача кредитів на старті та
 в робочому просторі, кабінет (баланс і поповнення, історія, проєкти, профіль), тестова оплата, адмінка і системні
-стани 401/403/404. ТЗ — [2026-10-20-accounts-frontend-tz.md](docs/superpowers/specs/2026-10-20-accounts-frontend-tz.md);
-контракт API — розділ 10 [ТЗ бекенду](docs/superpowers/specs/2026-10-19-auth-monetization-tz.md). Сторінка та сама
+стани 401/403/404. Контракт API — [docs/accounts-api.md](docs/accounts-api.md). Сторінка та сама
 (`apps/api/public`), без збірки й нових залежностей; ядро акаунта — `static/js/data/account.js`, маршрути —
 `static/js/router.js`.
 
@@ -406,9 +401,8 @@ pnpm --filter @adc/api dev      # http://localhost:3000 (інший порт: PO
 Повна карта станів — розділ `#M` Референсу; аркуші станів (`sheet-n1`, `sheet-n9`…) — у розділах `#N1`–`#N15`.
 Клітинка аркуша без власного імені має фікстуру `sheet-nX-<slug>` (напр. `sheet-n11-empty`, `sheet-n11-more`).
 
-**Референс** (візуальний еталон) — `docs/design/AdCreative Accounts Reference.html`: самодостатній файл,
-відкривається напряму в браузері. Інтерактивний набір — `docs/design/AdCreative Accounts Reference.dc.html` + `Ac*.dc.html`
-і `support.js`: він підтягує сусідні файли через `fetch`, тож із `file://` не працює — потрібен http-сервер:
+**Референс** (візуальний еталон) — інтерактивний набір `docs/design/AdCreative Accounts Reference.dc.html` +
+`Ac*.dc.html` і `support.js`: він підтягує сусідні файли через `fetch`, тож із `file://` не працює — потрібен http-сервер:
 
 ```bash
 npx serve docs/design -l 5000
@@ -429,7 +423,7 @@ in-memory стаб `fetch` за контрактом розділу 10, поті
 «нова вкладка» для посилання з листа — новий boot з тим самим localStorage і cookie. Тести окремих екранів —
 `test/ui/<екран>.test.ts`, ядро й бібліотеки — `test/ui/account-core.test.ts`.
 
-### Ручний прохід (розділ 10 ТЗ)
+### Ручний прохід інтерфейсу
 
 `pnpm --filter @adc/api dev` + воркер + Redis; у `.env` — `ADMIN_EMAILS=admin@example.com` і `APP_URL`. Листи —
 `.data/outbox/*.json` або адмінка → Outbox.

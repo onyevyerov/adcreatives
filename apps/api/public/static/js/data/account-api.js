@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Крок 0 · Тонкі обгортки API акаунтів (розділ 10 ТЗ бекенду). Кожна — `Promise<тіло відповіді>`,
+ * Крок 0 · Тонкі обгортки API акаунтів (`docs/accounts-api.md`). Кожна — `Promise<тіло відповіді>`,
  * без логіки; помилки — `ApiError` з data/api.js (`status`, `code`, `message`, `body`).
  */
 import { api } from "./api.js";
