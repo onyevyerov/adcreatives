@@ -123,20 +123,27 @@
  *             retry: { ctx: "cp3" | "rev", text: string | null } | null } | { kind: "cabinet" }} ReturnTo
  */
 /**
- * Відкладений старт гостя (sessionStorage `adc.pendingStart`; файли — лише в пам'яті модуля).
+ * Відкладений старт гостя (localStorage `adc.pendingStart`, TTL 24 год від `at`; файли — лише в пам'яті модуля).
  * @typedef {{ url: string | null, manualText: string | null, hadPhotos: boolean, at: string }} PendingStart
  */
 
 /**
  * `delta` — мітка «−3 / +10» у топбарі (анімація один раз на зміну `key`); `flash` — рядок-статус
- * на старті (вихід); `pending` — відкладений старт гостя; `autostart` — рядок «Починаю ролик…».
+ * на старті (вихід); `pending` — відкладений старт гостя; `autostart` — рядок «Починаю ролик…»;
+ * `projectCount` — кількість проєктів для «Мої проєкти · N» (`null` — ще невідомо): ядро вантажить
+ * `listProjects()`, коли `me` стає ready, і після успішного `createProject`; B9 може оновлювати
+ * його з довжини `cabinet.projects.rows`;
+ * `prices` — **єдине джерело цін для view** (і для гостя): ready → `me.prices`; гість → тихий
+ * публічний `GET /api/billing/packages`; збій — `null` (view ховає ціну). Після виходу лишаються.
  * @typedef {{
  *   me: Me | null,
  *   meStatus: "loading" | "ready" | "anon",
  *   delta: { credits: number, key: number } | null,
  *   flash: string | null,
  *   pending: PendingStart | null,
- *   autostart: { host: string | null, charged: number, after: number, photosLost: boolean } | null
+ *   autostart: { host: string | null, charged: number, after: number, photosLost: boolean } | null,
+ *   projectCount: number | null,
+ *   prices: CreditPrices | null
  * }} AccountState
  */
 
@@ -148,26 +155,36 @@
  * Модалка входу; `null` — закрита. Посилання з листа (`/?auth=activate|reset&token=…`) Крок 0
  * перетворює на `view: "activating"` з `token` і викликає `submitAuth()` (той робить
  * `POST activate`) або на `view: "reset"` з `token` (новий пароль → `submitAuth()`).
+ * Коли `route === "project" && session === "401"`, B1 модалку не показує: ту саму форму малює
+ * сцена (B12, `mountAuthForm(el, ctx, { layout: "stage" })`) за цим самим станом (context `session`).
+ * `message` — текст сервера (`message` з тіла відповіді) для поточного `error`; `null` — view бере
+ * копірайт UI з кадру Референсу (`network`, `empty`, `bad_email`, `empty_name` тощо).
  * @typedef {{
  *   view: AuthView, context: "start" | "header" | "checkout" | "session" | null,
  *   name: string, email: string, password: string, showPassword: boolean,
- *   token: string | null, busy: boolean, error: AuthError | null, resent: boolean,
+ *   token: string | null, busy: boolean, error: AuthError | null, message: string | null, resent: boolean,
  *   cooldownUntil: number | null, bonus: number, fails: number
  * } | null} AuthState
  */
 
 /**
  * `backTo` — банер повернення в «Баланс».
+ * `history.topups` — карта `topupId → packageId` (`"custom"` — своя сума, як `TopUp.packageId`) для
+ * назв «Поповнення · {пакет}» / «Поповнення · своя сума»; заповнює B9 з `listTopUps()` у `loadHistory`.
+ * `profile.pwMessage` — текст сервера для `pwError === "weak_password"` (як `AuthState.message`);
+ * `null` — копірайт UI з кадру.
  * @typedef {{
  *   section: "balance" | "history" | "projects" | "profile",
  *   loading: boolean,
  *   backTo: ReturnTo | null,
  *   topup: { mode: "package" | "custom", packageId: string | null, custom: string, error: boolean, busy: boolean },
  *   pendingTopups: TopUp[],
- *   history: { entries: LedgerEntry[], nextBefore: string | null, loading: boolean, more: boolean },
+ *   history: { entries: LedgerEntry[], nextBefore: string | null, loading: boolean, more: boolean,
+ *              topups: Record<string, string> },
  *   projects: { rows: ProjectRow[] | null, loading: boolean, open: string | null },
  *   profile: { nameDraft: string, saving: boolean, saved: boolean, nameError: boolean,
- *              current: string, next: string, pwBusy: boolean, pwError: "invalid_credentials" | "weak_password" | null, pwDone: boolean }
+ *              current: string, next: string, pwBusy: boolean, pwError: "invalid_credentials" | "weak_password" | null,
+ *              pwMessage: string | null, pwDone: boolean }
  * }} CabinetState
  */
 

@@ -221,7 +221,7 @@ Part-файли `data/{auth,start,retry,topup,checkout,cabinet,profile,admin}-ac
 ### 2.5 Відкладений старт і повернення — `public/static/js/lib/pending.js` (новий, повна реалізація)
 
 ```js
-export const PENDING_KEY = "adc.pendingStart";   // sessionStorage, JSON PendingStart
+export const PENDING_KEY = "adc.pendingStart";   // localStorage, JSON PendingStart, TTL 24 год від `at`
 export const RETURN_KEY  = "adc.return";         // sessionStorage, JSON ReturnTo
 export function savePending(p: PendingStart, files: File[]): void;  // файли — лише в пам’яті модуля
 export function takePending(): { pending: PendingStart, files: File[] } | null; // читає й видаляє
@@ -232,6 +232,11 @@ export function takeReturn(): ReturnTo | null;
 
 `photosLost = pending.hadPhotos && files.length === 0` (сторінку перезавантажили — лист відкрито в
 новій вкладці).
+
+`adc.pendingStart` — у **localStorage з TTL 24 год** (рішення користувача 2026-10-20): посилання з
+листа відкривається в новій вкладці, куди sessionStorage не переходить. Протухлий або битий запис
+видаляється, `peekPending`/`takePending` → `null`. `adc.return` лишається в sessionStorage
+(повернення після оплати — у тій самій вкладці).
 
 ### 2.6 Спільні бібліотеки — `lib/credits.js`, `lib/credit-messages.js` (нові, повна реалізація)
 
@@ -274,7 +279,7 @@ export function shortageCard(o: {
 
 Розміри — Референс `#K` і `#n3-402`, `#n7-fmt-short`. `role="alert"`.
 
-### 2.8 Токени — `css/tokens.css` (+3)
+### 2.8 Токени — `css/tokens.css` (+4)
 
 ```css
 --scrim: rgba(21, 20, 18, 0.32);        /* підкладка модалки входу */
@@ -397,7 +402,7 @@ pnpm --filter @adc/api exec vitest run test/ui      # наявні UI-тести
   лише рядок на старті (кадр `#n3-auto`), без повідомлення в чаті. Flash після виходу;
   «Мої проєкти · N».
 - **Критерії приймання:** фікстури `n3-guest, n3-guest-url, n3-user, n3-low, n3-402, n3-auto,
-  n3-empty, n15-logout` збігаються з кадрами на 1440 і 390; гість → pending у sessionStorage і
+  n3-empty, n15-logout` збігаються з кадрами на 1440 і 390; гість → pending у localStorage і
   модалка register; клієнтська перевірка не робить запиту; 402 від сервера дає ту саму картку;
   наявні тести старту зелені (адаптовані).
 - **Тести:** `pnpm --filter @adc/api exec vitest run test/ui/start.test.ts`
@@ -619,11 +624,12 @@ pnpm --filter @adc/api exec vitest run test/ui      # наявні UI-тести
 
 ## 5. Спільні ресурси й ізоляція
 
-- **Тести** не ходять у мережу: `globalThis.fetch` — стаб на тест, `sessionStorage` — happy-dom
+- **Тести** не ходять у мережу: `globalThis.fetch` — стаб на тест, `localStorage`/`sessionStorage` — happy-dom
   (чистити в `afterEach`), час — `vi.useFakeTimers()` для кулдауну, автостарту й `delta`.
 - **Ручні прогони** з різних worktree: свій `PORT` і `REDIS_URL=redis://localhost:6379/<N>` у
   `.env.local`, свій `DATA_DIR`. Листи — `.data/outbox/*.json` або `GET /api/admin/outbox`.
-- **sessionStorage** (`adc.pendingStart`, `adc.return`) — ключі заморожені; інші ключі не вводити.
+- **localStorage** `adc.pendingStart` (TTL 24 год; рішення користувача 2026-10-20) і **sessionStorage**
+  `adc.return` — ключі заморожені; інші ключі не вводити.
 - **Платні API** не чіпаються; `LIVE=1` і `pnpm eval` не запускати.
 
 ## 6. План інтеграції
@@ -667,7 +673,7 @@ pnpm --filter @adc/api exec vitest run test/ui      # наявні UI-тести
 - «Якщо фінальний повний прогін падає в модулі поза скоупом ТЗ — спершу перевір, чи падало це на `main` до змін; якщо падало — не чіпай, лише зафіксуй у звіті.»
 - «Фінальний прогін — це ворота перед деплоєм: поки він не зелений, ТЗ не вважається виконаним.»
 - «Жодних правок у файлах Кроку 0 з гілки блоку. Потрібна зміна — міні-PR власника Кроку 0.»
-- «Візуальні значення — лише з Референсу і `tokens.css`. Не вигадуй відступів, кольорів, радіусів чи розмірів кнопок; нових токенів, окрім трьох із 2.8, немає.»
+- «Візуальні значення — лише з Референсу і `tokens.css`. Не вигадуй відступів, кольорів, радіусів чи розмірів кнопок; нових токенів, окрім чотирьох із 2.8, немає.»
 - «DOM — лише через `h()`/`text()`; вставка HTML-рядків заборонена (тексти користувачів і сайтів).»
 - «Кожна нова фікстура має ім’я стану з карти Референсу (`#M`) і відкривається через `/?fixture=<ім’я>`; перед здачею блоку порівняй її з кадром на всіх розмірах, указаних у кадрі.»
 - «Валюти в інтерфейсі немає (крім `$` для адміна в топбарі та «Усі проєкти»). Плюралізація — лише через `creditWord`/`formatCredits`.»

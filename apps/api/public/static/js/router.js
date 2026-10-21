@@ -11,6 +11,8 @@
  * | `/?admin=users\|outbox\|all[&user=<id>]`    | admin                          |
  * | `/?auth=activate\|reset&token=…`            | start + `auth` (модалка)       |
  *
+ * `auth` повертається за будь-якого маршруту (ядро прибирає токен з адреси завжди).
+ *
  * У mock-режимі (`?mock=1`) `urlForRoute` зберігає службові параметри (`mock`, `speed`, `fail`…).
  */
 
@@ -42,6 +44,17 @@ const oneOf = (list, value, fallback) =>
  * @returns {Route & { auth?: { kind: "activate" | "reset", token: string } }}
  */
 export function routeFromUrl(params) {
+  const route = baseRoute(params);
+  const kind = params.get("auth");
+  const token = params.get("token");
+  return (kind === "activate" || kind === "reset") && token ? { ...route, auth: { kind, token } } : route;
+}
+
+/**
+ * @param {URLSearchParams} params
+ * @returns {Route}
+ */
+function baseRoute(params) {
   const project = params.get("project");
   if (project) return { route: "project", projectId: project };
   const checkout = params.get("checkout");
@@ -56,9 +69,6 @@ export function routeFromUrl(params) {
       ...(userId ? { userId } : {}),
     };
   }
-  const kind = params.get("auth");
-  const token = params.get("token");
-  if ((kind === "activate" || kind === "reset") && token) return { route: "start", auth: { kind, token } };
   return { route: "start" };
 }
 

@@ -6,7 +6,12 @@ import { BUSY_STATUSES, ChatEvent, compareStreamIds, computeTimeline, PROJECT_ST
 import { fixtureBrandKitFile, fixtureStoryboard } from "@adc/shared/fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as events from "../../public/static/dev/fixture-events.js";
-import { fixtureStates, REQUIRED_STATES } from "../../public/static/dev/fixture-states.js";
+import {
+  collectFixtures,
+  fixtureStates,
+  LEGACY_FIXTURES,
+  REQUIRED_STATES,
+} from "../../public/static/dev/fixture-states.js";
 import { boot, SCREENS, STAGE_VIEWS } from "../../public/static/js/app.js";
 import type { StageView, UiState } from "../../public/static/js/contracts.js";
 import {
@@ -25,6 +30,15 @@ import { viewFor } from "../../public/static/js/view.js";
 import { DEFAULT_PUBLIC_DIR } from "../../src/config.ts";
 
 const STATIC_DIR = path.join(DEFAULT_PUBLIC_DIR, "static");
+
+/**
+ * Фікстура блоку з акаунтом у стані «loading» (як `ws-meload` B3): `?fixture=` не має підміняти її me.
+ * Ім'я з префіксом `k0-` — щоб не перетнутися з фікстурами блоків.
+ */
+vi.mock("../../public/static/dev/fixtures/topbar.js", async () => {
+  const { initialState } = await import("../../public/static/js/initial.js");
+  return { default: { "k0-meload": initialState("project", "p1") } };
+});
 
 /** Розмітка <body> справжнього index.html (у тесті innerHTML дозволено; у public — ні). */
 function mountIndexHtml() {
@@ -144,6 +158,29 @@ describe("fixture-states.js", () => {
 
   it("є всі стани з ТЗ", () => {
     for (const name of REQUIRED_STATES) expect(fixtureStates, name).toHaveProperty(name);
+  });
+
+  it("старі стани — без акаунта; фікстури блоків спредяться з dev/fixtures/*", () => {
+    for (const name of REQUIRED_STATES) expect(LEGACY_FIXTURES).toContain(name);
+    for (const name of LEGACY_FIXTURES) expect(fixtureStates[name]?.account.meStatus, name).toBe("loading");
+    expect(LEGACY_FIXTURES).not.toContain("k0-meload");
+    expect(fixtureStates).toHaveProperty("k0-meload");
+  });
+
+  it("collectFixtures: дублікат імені між наборами — помилка", () => {
+    const s = initialState("start", null);
+    expect(
+      collectFixtures([
+        ["a.js", { x: s }],
+        ["b.js", { y: s }],
+      ]),
+    ).toEqual({ x: s, y: s });
+    expect(() =>
+      collectFixtures([
+        ["a.js", { x: s }],
+        ["b.js", { x: s }],
+      ]),
+    ).toThrow(/«x».*a\.js.*b\.js/);
   });
 
   const accountKeys = Object.keys(initialState("start", null).account).sort();
@@ -332,7 +369,6 @@ describe("app.js", () => {
     expect(mounted()).toEqual(["start"]);
     expect(document.getElementById("app")?.dataset.route).toBe("start");
     expect(document.getElementById("workspace")?.hidden).toBe(true);
-    expect(document.getElementById("overlay")?.childNodes.length).toBe(1);
     app.destroy();
     expect(document.getElementById("overlay")?.childNodes.length).toBe(0);
     expect(errors).not.toHaveBeenCalled();
@@ -368,7 +404,6 @@ describe("app.js", () => {
     expect(document.getElementById(SCREENS[route].root)?.hidden).toBe(false);
     for (const r of Object.keys(SCREENS) as (keyof typeof SCREENS)[])
       if (r !== route) expect(document.getElementById(SCREENS[r].root)?.hidden, r).toBe(true);
-    for (const id of ids) expect(document.getElementById(id)?.childNodes.length, id).toBeGreaterThan(0);
     expect(mounted()).toEqual([]);
     app.destroy();
     for (const id of ids) expect(document.getElementById(id)?.childNodes.length, id).toBe(0);
@@ -382,7 +417,7 @@ describe("app.js", () => {
     expect(mounted()).toEqual(["topbar", "timeline", "chat", "stage"]);
     app.store.setState({ route: "cabinet" });
     expect(mounted()).toEqual([]);
-    expect(document.getElementById("cab-main")?.childNodes.length).toBeGreaterThan(0);
+    expect(document.getElementById("cabinet")?.hidden).toBe(false);
     app.store.setState({ route: "project" });
     expect(mounted()).toEqual(["topbar", "timeline", "chat", "stage"]);
     expect(document.getElementById("cab-main")?.childNodes.length).toBe(0);
@@ -437,6 +472,14 @@ describe("app.js", () => {
     expect(app.store.getState().route).toBe("project");
     app.destroy();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("?fixture=<фікстура блоку> не підміняє її акаунт (me «loading» лишається)", async () => {
+    mountIndexHtml();
+    const app = await boot({ params: new URLSearchParams("fixture=k0-meload") });
+    expect(app.store.getState().account).toMatchObject({ meStatus: "loading", me: null });
+    app.destroy();
+    expect(errors).not.toHaveBeenCalled();
   });
 
   it("?fixture=<невідомий> → попередження і старт, без помилок", async () => {

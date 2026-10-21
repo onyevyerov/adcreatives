@@ -75,7 +75,8 @@ const times = (n, price) => (price > 0 ? Math.floor(Math.max(0, n) / price) : 0)
 
 /**
  * На що вистачить `n` кредитів: «1 ролик або 4 правки» · «4 правки, на ролик — ні» ·
- * «ні на ролик, ні на правку». Префікс («вистачить на» / «не вистачить») — справа view.
+ * «ні на ролик, ні на правку» (U+00A0 між числом і словом). Префікс («вистачить на» /
+ * «не вистачить») — справа view.
  * @param {number} n
  * @param {CreditPrices} prices
  * @returns {string}
@@ -83,9 +84,9 @@ const times = (n, price) => (price > 0 ? Math.floor(Math.max(0, n) / price) : 0)
 export function enoughFor(n, prices) {
   const videos = times(n, prices.video);
   const revisions = times(n, prices.revision);
-  const rev = `${formatNumber(revisions)} ${plural(revisions, ["правку", "правки", "правок"])}`;
+  const rev = `${formatNumber(revisions)}${NBSP}${plural(revisions, ["правку", "правки", "правок"])}`;
   if (videos > 0)
-    return `${formatNumber(videos)} ${plural(videos, ["ролик", "ролики", "роликів"])} або ${rev}`;
+    return `${formatNumber(videos)}${NBSP}${plural(videos, ["ролик", "ролики", "роликів"])} або ${rev}`;
   if (revisions > 0) return `${rev}, на ролик — ні`;
   return "ні на ролик, ні на правку";
 }

@@ -8,10 +8,14 @@
  * 1. На старті — `GET /api/auth/me` → `account.me`, `meStatus: "ready"`; 401 / мережа → `"anon"`.
  *    У `?mock=1` — фейковий `me` (Олена, 12) з dev/fixtures/_base.js без мережі.
  * 2. `refreshMe()` — повторний `me`; змінився баланс при `meStatus: "ready"` → `account.delta`.
- * 3. Нове повідомлення `assistant`, яке розпізнає `parseCreditMessage`, → `refreshMe()`.
+ *    Відповідь застарілого запиту (пізніший `refreshMe` уже пішов) відкидається; 401 після
+ *    `ready` (сесія протухла) — як 401 нижче (п. 4). `me` став ready → `account.projectCount`.
+ *    Ціни (`account.prices`): ready → `me.prices`; гість → тихий публічний `api.packages()`.
+ * 3. Нове (не з реплею історії SSE) повідомлення `assistant`, яке розпізнає `parseCreditMessage`,
+ *    → `refreshMe()`.
  * 4. 401 `unauthorized` (крім самого `me`): на project — `session: "401"` + форма входу в сцені
  *    (`auth` login/session), потік проєкту зупиняється; на інших маршрутах — `openAuth("login", "session")`.
- * 5. `logout()` → `me: null`, `"anon"`, старт із `flash`.
+ * 5. `logout()` → `me: null`, `"anon"`, кабінет / адмінка / чек — до початкових, старт із `flash`.
  * 6. Маршрути: `navigate` — `pushState` + стан; `popstate` — той самий шлях; project → інше —
  *    `backend.stop()`, вхід у project — скидання гілок проєкту і `backend.start()`.
  * 7. Охорона: cabinet / checkout / admin для гостя — маршрут лишається, модалка login (context
@@ -20,7 +24,14 @@
  * Посилання з листа (`?auth=activate|reset&token=…`): токен прибирається з URL, `auth` —
  * `activating` (+ `submitAuth()`) або `reset`.
  */
-import { authState, checkoutState, initialState, projectState } from "../initial.js";
+import {
+  authState,
+  checkoutState,
+  initialAdmin,
+  initialCabinet,
+  initialState,
+  projectState,
+} from "../initial.js";
 import { parseCreditMessage } from "../lib/credit-messages.js";
 import { routeFromUrl, urlForRoute } from "../router.js";
 import * as accountApi from "./account-api.js";
@@ -49,6 +60,12 @@ import { topupActions } from "./topup-actions.js";
 /** Рядок-статус на старті після виходу. */
 export const LOGOUT_FLASH = "Ви вийшли з акаунта. Проєкти збережено — увійдіть, щоб продовжити.";
 
+/**
+ * Повідомлення білінгу старше за відкриття потоку на стільки — з реплею історії SSE,
+ * `refreshMe` на нього не потрібен (запас на розбіжність годинників клієнта й сервера).
+ */
+export const REPLAY_MARGIN_MS = 60_000;
+
 /** Маршрути лише для користувача. @type {readonly UiState["route"][]} */
 export const GUARDED = ["cabinet", "checkout", "admin"];
 
@@ -73,12 +90,20 @@ export function applyRoute(s, r) {
         session: null,
         checkout: s.checkout?.id === r.id ? s.checkout : checkoutState(r.id),
       };
-    case "admin":
+    case "admin": {
+      const selectedId = r.userId ?? null;
       return {
         route: "admin",
         session: null,
-        admin: { ...s.admin, tab: r.tab ?? "users", selectedId: r.userId ?? null },
+        admin: {
+          ...s.admin,
+          tab: r.tab ?? "users",
+          selectedId,
+          forbidden: false,
+          selected: selectedId === s.admin.selectedId ? s.admin.selected : null,
+        },
       };
+    }
     default:
       return {};
   }
@@ -164,7 +189,11 @@ export function createAccountActions(store, opts) {
   const base = createActions(store, {
     params,
     backend,
-    refreshMe: () => all.refreshMe(),
+    // Успішний старт проєкту: баланс і «Мої проєкти · N».
+    refreshMe: async () => {
+      void loadProjectCount();
+      await all.refreshMe();
+    },
   });
   const baseDispose = base.dispose;
 
@@ -185,11 +214,53 @@ export function createAccountActions(store, opts) {
   // ───────────── me ─────────────
 
   let deltaKey = 0;
+  /** Номер останнього запиту `me`: відповіді старіших відкидаються. */
+  let meSeq = 0;
+
+  /**
+   * Сесії більше немає (401 на будь-якому запиті після входу): на project — форма входу в сцені
+   * і зупинка потоку, на інших маршрутах — модалка login у контексті session.
+   */
+  function sessionLost() {
+    const s = store.getState();
+    setAccount(store, { me: null, meStatus: "anon" });
+    if (s.route === "project") {
+      backend.stop();
+      store.setState({ session: "401", auth: authState("login", "session") });
+    } else {
+      all.openAuth("login", "session");
+    }
+  }
+
+  async function loadProjectCount() {
+    if (offline) return;
+    try {
+      const { projects } = await api.listProjects();
+      if (store.getState().account.meStatus === "ready" && Array.isArray(projects))
+        setAccount(store, { projectCount: projects.length });
+    } catch (err) {
+      // 401 обробив setUnauthorizedHandler; лічильник — не критичний.
+      if (statusOf(err) !== 401) console.warn("[account] listProjects", err);
+    }
+  }
+
+  /** Ціни для гостя — з публічного `GET /api/billing/packages`; збій — тихо лишаємо як є. */
+  async function loadPublicPrices() {
+    if (offline) return;
+    try {
+      const { prices } = await api.packages();
+      if (prices && store.getState().account.meStatus === "anon") setAccount(store, { prices });
+    } catch {
+      // ціна для гостя не критична: view без неї ховає рядок ціни
+    }
+  }
 
   async function refreshMe() {
     if (offline) return;
+    const my = ++meSeq;
     try {
       const me = await api.me();
+      if (my !== meSeq) return;
       const s = store.getState().account;
       const old = s.meStatus === "ready" ? s.me?.balance : undefined;
       const changed = old !== undefined && me.balance !== old;
@@ -197,13 +268,18 @@ export function createAccountActions(store, opts) {
       setAccount(store, {
         me,
         meStatus: "ready",
+        prices: me.prices ?? s.prices,
         ...(changed && old !== undefined ? { delta: { credits: me.balance - old, key: deltaKey } } : {}),
       });
     } catch (err) {
+      if (my !== meSeq) return;
       const s = store.getState().account;
-      // 401 — гість; мережа на першому завантаженні — теж гість (сторінка працює без бекенду).
-      if (statusOf(err) === 401) setAccount(store, { me: null, meStatus: "anon" });
-      else if (s.meStatus === "loading") setAccount(store, { meStatus: "anon" });
+      // 401 — гість (або протухла сесія після входу); мережа на першому завантаженні — теж гість
+      // (сторінка працює без бекенду).
+      if (statusOf(err) === 401) {
+        if (s.meStatus === "ready") sessionLost();
+        else setAccount(store, { me: null, meStatus: "anon" });
+      } else if (s.meStatus === "loading") setAccount(store, { meStatus: "anon" });
       else console.warn("[account] refreshMe", err);
     }
   }
@@ -211,8 +287,8 @@ export function createAccountActions(store, opts) {
   /** У mock-режимі — фейковий me без мережі. */
   async function fakeMe() {
     try {
-      const { ME } = await import("../../dev/fixtures/_base.js");
-      setAccount(store, { me: ME, meStatus: "ready" });
+      const { ME, PROJECTS } = await import("../../dev/fixtures/_base.js");
+      setAccount(store, { me: ME, meStatus: "ready", projectCount: PROJECTS.length, prices: ME.prices });
     } catch (err) {
       console.warn("[account] mock me", err);
       setAccount(store, { meStatus: "anon" });
@@ -275,7 +351,9 @@ export function createAccountActions(store, opts) {
     } catch (err) {
       console.warn("[account] logout", err);
     }
-    setAccount(store, { me: null, meStatus: "anon", delta: null, autostart: null });
+    meSeq++; // відповідь me, що ще летить, не поверне користувача
+    setAccount(store, { me: null, meStatus: "anon", delta: null, autostart: null, projectCount: null });
+    store.setState({ cabinet: initialCabinet(), admin: initialAdmin(), checkout: null });
     navigate({ route: "start" });
     setAccount(store, { flash: LOGOUT_FLASH });
   }
@@ -299,31 +377,37 @@ export function createAccountActions(store, opts) {
   // ───────────── підписки ─────────────
 
   setUnauthorizedHandler((_err, path) => {
-    if (path === "/api/auth/me") return; // гість — це обробляє refreshMe
-    const s = store.getState();
-    setAccount(store, { me: null, meStatus: "anon" });
-    if (s.route === "project") {
-      backend.stop();
-      store.setState({ session: "401", auth: authState("login", "session") });
-    } else {
-      all.openAuth("login", "session");
-    }
+    // me обробляє refreshMe; ціни для гостя — публічні (старий бекенд міг віддати 401).
+    if (path === "/api/auth/me" || path === "/api/billing/packages") return;
+    sessionLost();
   });
+
+  /** Коли востаннє відкрито потік проєкту (порожня стрічка) — межа реплею історії SSE. */
+  let streamOpenedAt = Date.now();
 
   const unsubscribe = store.subscribe((s, prev) => {
     // Охорона маршруту: me прийшов (або гість визначився) — дозволити або відкрити вхід.
     const was = prev.account.meStatus;
     const now = s.account.meStatus;
     if (now !== was && (now === "ready" || (was === "loading" && now === "anon"))) {
+      if (now === "ready") void loadProjectCount();
       if (GUARDED.includes(s.route)) enter();
     }
-    // Відмови, списання й повернення приходять звичайними повідомленням assistant.
-    if (s.feed !== prev.feed && s.feed.length > 0) {
-      const seen = new Set(prev.feed.map((f) => f.id));
-      const billing = s.feed.some(
-        (f) =>
-          f.kind === "message" && f.role === "assistant" && !seen.has(f.id) && parseCreditMessage(f.text),
-      );
+    if (now === "anon" && was !== "anon") void loadPublicPrices();
+    // Відмови, списання й повернення приходять звичайними повідомленнями assistant. Редьюсер
+    // лише дописує в кінець стрічки, тож нові — хвіст; старіші за відкриття потоку — реплей.
+    if (s.projectId !== prev.projectId || s.feed.length === 0) streamOpenedAt = Date.now();
+    if (s.feed !== prev.feed && s.feed.length > prev.feed.length) {
+      const since = streamOpenedAt - REPLAY_MARGIN_MS;
+      const billing = s.feed
+        .slice(prev.feed.length)
+        .some(
+          (f) =>
+            f.kind === "message" &&
+            f.role === "assistant" &&
+            !(Date.parse(f.at) < since) &&
+            parseCreditMessage(f.text) !== null,
+        );
       if (billing) void refreshMe();
     }
   });
@@ -333,8 +417,12 @@ export function createAccountActions(store, opts) {
   // ───────────── старт сторінки ─────────────
 
   const fromUrl = routeFromUrl(params);
+  // Токен з листа не лишається в адресі за жодного маршруту.
+  if (params.has("token") || params.has("auth")) {
+    const { auth: _auth, ...route } = fromUrl;
+    replaceUrl(urlForRoute(route, params));
+  }
   if (fromUrl.auth) {
-    replaceUrl(urlForRoute({ route: "start" }, params));
     const { kind, token } = fromUrl.auth;
     store.setState({ auth: authState(kind === "activate" ? "activating" : "reset", null, { token }) });
     if (kind === "activate") void all.submitAuth();
