@@ -55,6 +55,7 @@ import {
   projectPaths,
   projectStatsRow,
   QaReport,
+  type RenderMeta,
   readCosts,
   readTrace,
   readTuning,
@@ -417,6 +418,9 @@ export function currentGenerationMode(env: NodeJS.ProcessEnv = process.env): Gen
 
 // ───────────────────────────── перезапуск етапу ─────────────────────────────
 
+/** Хеш входів у `renders/<format>.meta.json` після `--from render`: не збігається з жодним sha256. */
+const RERUN_RENDER_HASH = "eval-rerun";
+
 /**
  * Готує проєкт збереженого прогону до перезапуску етапу: стан і `pipeline.json` поточної ревізії
  * виставляються так, ніби оркестратор щойно поставив цей job (далі все йде звичайним шляхом).
@@ -430,6 +434,9 @@ export function currentGenerationMode(env: NodeJS.ProcessEnv = process.env): Gen
  * у параметри кожного `audio` job. `--from audio` скидає `project.audioPlanHash`: трек вирішує
  * `ensureMusic` за кешем `planHash` і провайдером, а не «той, що був» (інакше прогін з іншим провайдером
  * узяв би трек попереднього).
+ *
+ * `--from render` скидає хеш входів у `renders/<format>.meta.json`: входи не змінилися, і без цього
+ * render перевикористав би mp4 попереднього прогону — без витрат і часу Remotion у звіті.
  */
 export async function prepareRerun(
   storage: Storage,
@@ -600,7 +607,14 @@ export async function prepareRerun(
     case "render":
       next.status = "rendering";
       next.branches = { video: "done", audio: "done" };
-      for (const format of project.formats) enqueue("render", { format }, format);
+      for (const format of project.formats) {
+        // Входи ті самі, тож без цього render перевикористав би mp4 за хешем (без витрат і часу Remotion).
+        const metaKey = paths.rev(rev).renderMeta(format);
+        if (await storage.exists(metaKey)) {
+          await storage.writeJson(metaKey, { inputsHash: RERUN_RENDER_HASH } satisfies RenderMeta);
+        }
+        enqueue("render", { format }, format);
+      }
       break;
   }
   await storage.writeJson(pipeKey, pipe);
