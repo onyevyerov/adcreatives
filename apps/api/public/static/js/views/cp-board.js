@@ -12,9 +12,16 @@
  * `update` перебудовує вміст лише при новому payload/ревізії (плеєр з тим самим URL переноситься
  * без перестворення `<audio>`); зміна статусу чи стану чекпоінта лише вмикає/вимикає кнопки й
  * перемикає ромб. Тексти — лише через `textContent`, URL медіа — через `safeMediaUrl`.
+ *
+ * B5 · ціни (N5-A): сума доплати за формати в «Затвердити й рендерити | 2 кредити →» і рядок під
+ * шапкою «1:1 оплачено раніше · 2 кредити за 16:9 · у вас 1 · поповнити». Формати — вибір
+ * клієнта (`ui.pendingFormats`), інакше формати проєкту з payload (`primaryFormat` + аркуші).
+ * Ціни — лише `account.prices`; затвердження не блокується за будь-якого балансу.
  */
 import { CHECKPOINT_STATUS, FORMAT_LABELS, FORMATS } from "../contracts.js";
 import { clear, h, text } from "../dom.js";
+import { formatCredits, formatNumber } from "../lib/credits.js";
+import { formatList, formatsCharge } from "./cp-brand.js";
 import { PURPOSE_LABELS, plural, safeMediaUrl } from "./cp-script.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
@@ -209,6 +216,36 @@ export function sortWarnings(warnings) {
 function boardPayloadOf(entry) {
   const p = entry?.payload;
   return p && p.checkpoint === "storyboard" ? p : null;
+}
+
+/**
+ * Формати проєкту на чекпоінті 3: незавершений вибір клієнта (`ui.pendingFormats`), інакше
+ * `primaryFormat` + формати аркушів (бекенд робить аркуш на кожен неосновний формат) — у
+ * канонічному порядку.
+ * @param {Pick<UiState, "ui" | "checkpoints">} state
+ * @returns {Format[]}
+ */
+export function boardFormats(state) {
+  if (state.ui.pendingFormats) return FORMATS.filter((f) => state.ui.pendingFormats?.includes(f));
+  const p = boardPayloadOf(state.checkpoints.storyboard);
+  if (!p) return [];
+  const list = [p.primaryFormat, ...p.sheets.map((s) => s.format)];
+  return FORMATS.filter((f) => list.includes(f));
+}
+
+/**
+ * Рядок під шапкою: «1:1 оплачено раніше · 2 кредити за 16:9 · у вас 1»; `null` — нема що
+ * підписувати (один формат або цін немає).
+ * @param {NonNullable<ReturnType<typeof formatsCharge>>} charge
+ */
+export function boardPriceLine(charge) {
+  const parts = [];
+  if (charge.paid.length > 0) parts.push(`${formatList(charge.paid)} оплачено раніше`);
+  if (charge.need > 0) {
+    parts.push(`${formatCredits(charge.need)} за ${formatList(charge.extra)}`);
+    if (charge.short && charge.balance !== null) parts.push(`у вас ${formatNumber(charge.balance)}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 /**
@@ -509,12 +546,18 @@ export function mount(el, ctx) {
     "data-action": "edit",
     text: "Правки",
   });
+  const approvePrice = h("span", { class: "cd-approve__price", hidden: true });
   const approveBtn = h(
     "button",
     { type: "button", class: "btn btn--primary cd-approve", "data-action": "approve" },
     "Затвердити й рендерити",
+    approvePrice,
     h("span", { class: "btn__arrow", "aria-hidden": "true", text: "→" }),
   );
+  const priceText = h("span");
+  const priceTopup = h("button", { type: "button", class: "cd-price__topup", text: "поповнити" });
+  const priceSep = h("span", { "aria-hidden": "true", text: "·" });
+  const priceLine = h("p", { class: "cd-price", hidden: true }, priceText, priceSep, priceTopup);
   const body = h("div", { class: "cd-body" });
   const root = h(
     "section",
@@ -525,10 +568,12 @@ export function mount(el, ctx) {
       h("p", { class: "eyebrow cd-eyebrow" }, diamond, eyebrow),
       h("div", { class: "cd-actions" }, editBtn, approveBtn),
     ),
+    priceLine,
     body,
   );
   el.append(root);
 
+  priceTopup.addEventListener("click", () => ctx.actions.openTopup({ from: "ws", ctx: "cp3" }));
   editBtn.addEventListener("click", () => {
     if (editBtn.disabled || !isActive(ctx.store.getState())) return;
     ctx.actions.startEdit();
@@ -558,6 +603,30 @@ export function mount(el, ctx) {
     diamond.classList.toggle("diamond--done", st === "approved");
     diamond.classList.toggle("diamond--stale", st === "superseded");
     root.dataset.state = active ? "open" : (st ?? "none");
+  }
+
+  /** @type {string | null} */
+  let priceKey = null;
+
+  /**
+   * Сума в кнопці й рядок під шапкою (N5-A).
+   * @param {UiState} state
+   */
+  function syncPrice(state) {
+    const formats = boardFormats(state);
+    const charge = formatsCharge(state, formats);
+    const key = JSON.stringify(charge);
+    if (key === priceKey) return;
+    priceKey = key;
+    const need = charge?.need ?? 0;
+    text(approvePrice, need > 0 ? formatCredits(need) : "");
+    approvePrice.hidden = need === 0;
+    const line = charge ? boardPriceLine(charge) : null;
+    text(priceText, line ?? "");
+    priceLine.hidden = !line;
+    const short = charge?.short ?? false;
+    priceSep.hidden = !short;
+    priceTopup.hidden = !short;
   }
 
   /**
@@ -638,6 +707,7 @@ export function mount(el, ctx) {
     ) {
       syncControls(state);
     }
+    syncPrice(state);
   }
 
   render(ctx.store.getState(), null);

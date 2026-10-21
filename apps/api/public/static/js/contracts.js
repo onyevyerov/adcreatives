@@ -188,8 +188,12 @@
  * }} CabinetState
  */
 
-/** @typedef {{ status: "loading" | "pending" | "confirming" | "paid" | "failed" | "notfound",
- *   id: string, topup: TopUp | null, returnTo: ReturnTo, revisit: boolean }} CheckoutState */
+/**
+ * `error` — `GET topup` не вдався (мережа / 5xx) при першому завантаженні; `checkoutAgain()` у цьому
+ * стані повторює завантаження того самого чека (адитивно до Кроку 0).
+ * @typedef {{ status: "loading" | "pending" | "confirming" | "paid" | "failed" | "notfound" | "error",
+ *   id: string, topup: TopUp | null, returnTo: ReturnTo, revisit: boolean }} CheckoutState
+ */
 
 /**
  * @typedef {{
