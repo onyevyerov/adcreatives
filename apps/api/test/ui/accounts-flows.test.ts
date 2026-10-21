@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 // @vitest-environment-options {"settings":{"disableCSSFileLoading":true,"handleDisabledFileLoadingAsSuccess":true}}
 /**
- * B13 · Наскрізні сценарії F1–F5 (Референс `#F`, ТЗ фронтенду акаунтів §10): справжній index.html +
- * app.js + ядро акаунта + view блоків; бекенд — in-memory стаб `fetch` за контрактом розділу 10 ТЗ
- * бекенду (`docs/superpowers/specs/2026-10-19-auth-monetization-tz.md`), потік проєкту — фейковий
+ * B13 · Наскрізні сценарії F1–F5 (Референс `#F`): справжній index.html +
+ * app.js + ядро акаунта + view блоків; бекенд — in-memory стаб `fetch` за контрактом API акаунтів
+ * (`docs/accounts-api.md`), потік проєкту — фейковий
  * EventSource з подіями фікстури «Зерно» (dev/fixture-events.js). Кроки — кліками й введенням у DOM,
  * за видимими текстами кадрів, а не через `actions`.
  *

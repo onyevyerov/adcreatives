@@ -91,7 +91,7 @@
  */
 
 /**
- * Відповіді API акаунтів (розділ 10 ТЗ бекенду). `PublicUser.createdAt`/`activatedAt` — ISO.
+ * Відповіді API акаунтів (`docs/accounts-api.md`). `PublicUser.createdAt`/`activatedAt` — ISO.
  * @typedef {{ id: string, email: string, name: string, isAdmin: boolean, activatedAt: string | null, createdAt: string }} PublicUser
  * @typedef {{ id: string, credits: number, priceUsd: number, label: string }} CreditPackage
  * @typedef {{ video: number, revision: number, extraFormat: number }} CreditPrices

@@ -1,5 +1,5 @@
 /**
- * Замір звуку — інструмент приймання ТЗ якості звуку (`docs/superpowers/specs/2026-10-13-audio-quality-tz.md`):
+ * Замір звуку — інструмент приймання якості звуку:
  *   pnpm audio-measure -- <файл.wav|mp3|mp4> [ще файли]
  *   pnpm audio-measure -- --project <id> [--rev n]     сирий трек, music.wav, soundtrack.wav, рендери ревізії
  *                                                      і звукова відомість (`sound-sheet.json`), якщо вона є
