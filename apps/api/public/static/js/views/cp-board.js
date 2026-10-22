@@ -17,6 +17,13 @@
  * шапкою «1:1 оплачено раніше · 2 кредити за 16:9 · у вас 1 · поповнити». Формати — вибір
  * клієнта (`ui.pendingFormats`), інакше формати проєкту з payload (`primaryFormat` + аркуші).
  * Ціни — лише `account.prices`; затвердження не блокується за будь-якого балансу.
+ *
+ * B4 · відео-превʼю: рядок «Превʼю» між вступом і стілами, якщо `entry.preview` не null —
+ * `pending` (смугаста заглушка у пропорції формату), `ready` (`<video>` з нативними контролами),
+ * `failed` (текст). Коли превʼю `ready` і `payload.timeline` непорожній, кожна сцена має кнопку
+ * «▶ Сцена»: перемотка на початок сцени, пауза на її кінці. Під час відтворення поточна сцена
+ * підсвічена (`cd-scene--playing`). Відео й музика взаємовиключні. Зміна лише `entry.preview`
+ * не перебудовує дошку — оновлюються рядок превʼю і кнопки сцен.
  */
 import { CHECKPOINT_STATUS, FORMAT_LABELS, FORMATS } from "../contracts.js";
 import { clear, h, text } from "../dom.js";
@@ -32,6 +39,8 @@ import { PURPOSE_LABELS, plural, safeMediaUrl } from "./cp-script.js";
 /** @typedef {StoryboardCheckpointPayload["warnings"][number]} QaIssue */
 /** @typedef {QaIssue["severity"]} Severity */
 /** @typedef {{ id: string, purpose: string }} SceneInfo */
+/** @typedef {NonNullable<StoryboardCheckpointPayload["timeline"]>[number]} SceneTiming */
+/** @typedef {import("../contracts.js").PreviewState} PreviewState */
 
 /** Кількість декоративних смуг хвильової форми. */
 export const WAVE_BARS = 72;
@@ -51,6 +60,12 @@ const SEVERITY_ORDER = { critical: 0, major: 1, minor: 2 };
 
 export const QA_OK = "✓ Перевірка не знайшла проблем";
 export const MUSIC_PENDING = "Музика ще генерується";
+export const PREVIEW_PENDING = "Відео-превʼю рендериться — зазвичай 1–2 хв. Затвердити можна, не чекаючи.";
+export const PREVIEW_FAILED =
+  "Превʼю не вдалося зібрати. Розкадровку можна затвердити — фінальне відео зрендериться як завжди.";
+
+/** Допуск зупинки на кінці сцени, с (~1 кадр при 30 fps). */
+const SCENE_END_TOLERANCE = 1 / 30;
 
 /**
  * Чи можна зараз затвердити/правити: статус `awaiting_storyboard` і відкритий чекпоінт.
@@ -118,6 +133,22 @@ export function formatClock(seconds) {
 export function playedRatio(current, duration) {
   if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(current)) return 0;
   return Math.min(1, Math.max(0, current / duration));
+}
+
+/**
+ * Сцена фільму на моменті `ms`: кінець сцени не входить; при перекритті переходу — пізніша
+ * (з більшим `fromMs`). `null` — поза сценами.
+ * @param {readonly SceneTiming[]} timeline
+ * @param {number} ms
+ * @returns {string | null}
+ */
+export function sceneAt(timeline, ms) {
+  /** @type {SceneTiming | null} */
+  let found = null;
+  for (const t of timeline) {
+    if (ms >= t.fromMs && ms < t.fromMs + t.durationMs && (!found || t.fromMs >= found.fromMs)) found = t;
+  }
+  return found ? found.sceneId : null;
 }
 
 /**
@@ -423,10 +454,35 @@ function qaRow(payload, scenes) {
 }
 
 /**
+ * `play()` без необробленого відхилення промісу (автоплей заборонено, медіа немає).
+ * @param {HTMLMediaElement} media
+ */
+function playMedia(media) {
+  try {
+    const p = media.play();
+    if (p && typeof p.catch === "function") {
+      p.catch((/** @type {unknown} */ err) => console.warn("[cp-board] play", err));
+    }
+  } catch (err) {
+    console.warn("[cp-board] play", err);
+  }
+}
+
+/** @param {HTMLMediaElement} media */
+function pauseMedia(media) {
+  try {
+    media.pause();
+  } catch {
+    // середовище без медіа — нічого зупиняти
+  }
+}
+
+/**
  * Плеєр музики: кнопка 44 px, прихований `<audio>`, декоративна хвиля, тайм-код.
  * @param {string} url безпечний URL
+ * @param {{ onPlay?: () => void }} [hooks] `onPlay` — музика почала грати
  */
-function createPlayer(url) {
+function createPlayer(url, hooks = {}) {
   const icon = h("span", { class: "icon-play", "aria-hidden": "true" });
   const button = h(
     "button",
@@ -475,6 +531,7 @@ function createPlayer(url) {
       () => {
         playing = true;
         syncButton();
+        hooks.onPlay?.();
       },
     ],
     [
@@ -501,14 +558,7 @@ function createPlayer(url) {
       audio.pause();
       return;
     }
-    try {
-      const p = audio.play();
-      if (p && typeof p.catch === "function") {
-        p.catch((/** @type {unknown} */ err) => console.warn("[cp-board] play", err));
-      }
-    } catch (err) {
-      console.warn("[cp-board] play", err);
-    }
+    playMedia(audio);
   };
   button.addEventListener("click", onClick);
 
@@ -516,12 +566,12 @@ function createPlayer(url) {
     url,
     node,
     audio,
+    /** Пауза, якщо музика грає (взаємовиключення з відео). */
+    pause() {
+      if (playing) pauseMedia(audio);
+    },
     destroy() {
-      try {
-        audio.pause();
-      } catch {
-        // середовище без медіа — нічого зупиняти
-      }
+      pauseMedia(audio);
       for (const [type, fn] of listeners) audio.removeEventListener(type, fn);
       button.removeEventListener("click", onClick);
       node.remove();
@@ -531,12 +581,140 @@ function createPlayer(url) {
 
 /** @typedef {ReturnType<typeof createPlayer>} Player */
 
+/**
+ * Плеєр відео-превʼю: `<video>` з нативними контролами; `playScene` грає відрізок сцени й стає на
+ * паузу на його кінці (допуск ~1 кадр): поки сцена грає, кінець перевіряється щокадру
+ * (`requestAnimationFrame`), `timeupdate` — запасний шлях (браузер шле його раз на ~250 мс).
+ * Перемотка поза сцену чи пауза скасовують зупинку.
+ * @param {string} url безпечний URL
+ * @param {Format} format
+ * @param {{ onPlay: () => void, onTime: (ms: number) => void, onStop: () => void }} hooks
+ *   `onPlay` — відео почало грати; `onTime` — позиція під час відтворення; `onStop` — пауза/кінець
+ */
+function createVideo(url, format, hooks) {
+  const video = h("video", {
+    class: "cd-video",
+    "data-format": format,
+    src: url,
+    controls: true,
+    playsinline: true,
+    preload: "metadata",
+    "aria-label": "Відео-превʼю ролика",
+  });
+
+  let playing = false;
+  /** Відрізок сцени з «▶ Сцена», с; `null` — відтворення вільне. @type {{ from: number, to: number } | null} */
+  let scene = null;
+  let raf = 0;
+
+  /** Кінець сцени досягнуто — пауза. */
+  const checkEnd = () => {
+    if (scene && video.currentTime >= scene.to - SCENE_END_TOLERANCE) {
+      scene = null;
+      pauseMedia(video);
+    }
+  };
+  const watch = () => {
+    raf = 0;
+    checkEnd();
+    if (scene && !video.paused) raf = requestAnimationFrame(watch);
+  };
+  const startWatch = () => {
+    if (scene && !raf && typeof requestAnimationFrame === "function") raf = requestAnimationFrame(watch);
+  };
+  const stopWatch = () => {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+  };
+
+  const stop = () => {
+    playing = false;
+    scene = null;
+    stopWatch();
+    hooks.onStop();
+  };
+
+  /** @type {[string, () => void][]} */
+  const listeners = [
+    [
+      "play",
+      () => {
+        playing = true;
+        hooks.onPlay();
+        hooks.onTime(video.currentTime * 1000);
+        startWatch();
+      },
+    ],
+    [
+      "timeupdate",
+      () => {
+        checkEnd();
+        if (playing) hooks.onTime(video.currentTime * 1000);
+      },
+    ],
+    [
+      "seeked",
+      () => {
+        const t = video.currentTime;
+        if (scene && (t < scene.from - SCENE_END_TOLERANCE || t > scene.to)) scene = null;
+      },
+    ],
+    ["pause", stop],
+    ["ended", stop],
+  ];
+  for (const [type, fn] of listeners) video.addEventListener(type, fn);
+
+  return {
+    url,
+    node: video,
+    /**
+     * Грає рівно сцену: з `fromMs` до `fromMs + durationMs`.
+     * @param {SceneTiming} t
+     */
+    playScene(t) {
+      const from = t.fromMs / 1000;
+      try {
+        video.currentTime = from;
+      } catch {
+        // медіа ще не готове — гратиме з поточної позиції
+      }
+      scene = { from, to: (t.fromMs + t.durationMs) / 1000 };
+      playMedia(video);
+      startWatch();
+    },
+    /** Пауза, якщо відео грає (взаємовиключення з музикою). */
+    pause() {
+      if (playing) pauseMedia(video);
+    },
+    destroy() {
+      for (const [type, fn] of listeners) video.removeEventListener(type, fn);
+      stopWatch();
+      pauseMedia(video);
+      video.remove();
+    },
+  };
+}
+
+/** @typedef {ReturnType<typeof createVideo>} VideoPlayer */
+
 /** @type {import("../contracts.js").MountFn} */
 export function mount(el, ctx) {
   let pending = false;
   let destroyed = false;
   /** @type {Player | null} */
   let player = null;
+  /** @type {VideoPlayer | null} */
+  let video = null;
+  /** Рядок «Превʼю» (стоїть одразу після вступу). @type {HTMLElement | null} */
+  let previewEl = null;
+  /** @type {HTMLElement | null} */
+  let introEl = null;
+  /** Картки сцен за ID — для кнопок «▶ Сцена» і підсвітки. @type {Map<string, HTMLElement>} */
+  let sceneEls = new Map();
+  /** @type {HTMLButtonElement[]} */
+  let sceneButtons = [];
+  /** Таймінг сцен поточного payload. @type {readonly SceneTiming[]} */
+  let timeline = [];
 
   const diamond = h("span", { class: "diamond", "aria-hidden": "true" });
   const eyebrow = h("span", { class: "cd-eyebrow__text" });
@@ -639,12 +817,87 @@ export function mount(el, ctx) {
       player.destroy();
       player = null;
     }
-    if (url && !player) player = createPlayer(url);
+    if (url && !player) player = createPlayer(url, { onPlay: () => video?.pause() });
     return specRow(
       "cd-music",
       "Музика",
       player ? player.node : h("p", { class: "mono cd-music-pending", text: MUSIC_PENDING }),
     );
+  }
+
+  /**
+   * Підсвітка картки сцени, що грає; `null` — зняти.
+   * @param {string | null} sceneId
+   */
+  function markPlaying(sceneId) {
+    for (const [id, li] of sceneEls) li.classList.toggle("cd-scene--playing", id === sceneId);
+  }
+
+  /**
+   * Тіло рядка «Превʼю» за станом.
+   * @param {PreviewState} preview
+   */
+  function previewBody(preview) {
+    if (video) return [video.node];
+    if (preview.state === "pending") {
+      return [
+        h("div", {
+          class: "cd-preview__frame stripes",
+          "data-format": preview.format,
+          role: "img",
+          "aria-label": "Відео-превʼю ще рендериться",
+        }),
+        h("p", { class: "mono cd-preview-note", text: PREVIEW_PENDING }),
+      ];
+    }
+    // failed або ready з небезпечним URL.
+    return [h("p", { class: "mono cd-preview-note", text: PREVIEW_FAILED })];
+  }
+
+  /**
+   * Рядок «Превʼю» і кнопки сцен за `entry.preview` — без перебудови дошки. Плеєр з тим самим URL
+   * переноситься без перестворення `<video>`.
+   * @param {UiState} state
+   */
+  function syncPreview(state) {
+    const entry = state.checkpoints.storyboard;
+    const preview = boardPayloadOf(entry) ? (entry?.preview ?? null) : null;
+    const url = preview?.state === "ready" ? safeMediaUrl(preview.url) : null;
+    if (video && video.url !== url) {
+      video.destroy();
+      video = null;
+      markPlaying(null);
+    }
+    if (preview && url && !video) {
+      video = createVideo(url, preview.format, {
+        onPlay: () => player?.pause(),
+        onTime: (ms) => markPlaying(sceneAt(timeline, ms)),
+        onStop: () => markPlaying(null),
+      });
+    }
+
+    const row = preview ? specRow("cd-preview", "Превʼю", ...previewBody(preview)) : null;
+    previewEl?.remove();
+    if (row) introEl?.after(row);
+    previewEl = row;
+
+    for (const b of sceneButtons) b.remove();
+    sceneButtons = [];
+    const v = video;
+    if (!v) return;
+    timeline.forEach((t, i) => {
+      const caption = sceneEls.get(t.sceneId)?.querySelector(".cd-scene__caption");
+      if (!caption) return;
+      const button = h("button", {
+        type: "button",
+        class: "mono cd-scene__play",
+        "aria-label": `Програти сцену ${i + 1}`,
+        text: "▶ Сцена",
+      });
+      button.addEventListener("click", () => v.playScene(t));
+      caption.append(button);
+      sceneButtons.push(button);
+    });
   }
 
   /** @param {UiState} state */
@@ -654,30 +907,37 @@ export function mount(el, ctx) {
     text(eyebrow, `Чекпоінт 3 / 3 · Розкадровка${entry ? ` · ревізія ${entry.rev}` : ""}`);
     if (player) player.node.remove();
     clear(body);
+    introEl = null;
+    previewEl = null;
+    sceneEls = new Map();
+    sceneButtons = [];
+    timeline = payload?.timeline ?? [];
     if (!payload) {
       player?.destroy();
       player = null;
+      syncPreview(state);
       body.append(h("p", { class: "body-l cd-empty", text: "Розкадровка ще не надійшла." }));
       return;
     }
     const scenes = scriptScenesOf(state);
     const changed = payload.changedScenes ?? [];
     const n = changed.length;
+    introEl = h(
+      "div",
+      { class: "cd-intro" },
+      h("h1", { class: "display-m cd-title", text: "Розкадровка" }),
+      h("p", { class: "body-l cd-lead", text: leadText(payload.primaryFormat) }),
+      n > 0
+        ? h("p", {
+            class: "mono cd-changed-note",
+            text: `Після правки ${plural(n, ["змінено сцену", "змінено сцени", "змінено сцен"])} ${changed
+              .map((id) => sceneLabel(id, scenes))
+              .join(", ")}; решта — без змін.`,
+          })
+        : null,
+    );
     body.append(
-      h(
-        "div",
-        { class: "cd-intro" },
-        h("h1", { class: "display-m cd-title", text: "Розкадровка" }),
-        h("p", { class: "body-l cd-lead", text: leadText(payload.primaryFormat) }),
-        n > 0
-          ? h("p", {
-              class: "mono cd-changed-note",
-              text: `Після правки ${plural(n, ["змінено сцену", "змінено сцени", "змінено сцен"])} ${changed
-                .map((id) => sceneLabel(id, scenes))
-                .join(", ")}; решта — без змін.`,
-            })
-          : null,
-      ),
+      introEl,
       payload.stills.length > 0
         ? stillsGrid(payload, scenes)
         : h("p", { class: "mono cd-stills-empty", text: "Стілів у цій ревізії немає." }),
@@ -685,6 +945,10 @@ export function mount(el, ctx) {
     const sheets = sheetsRow(payload);
     if (sheets) body.append(sheets);
     body.append(qaRow(payload, scenes), musicRow(payload));
+    for (const li of /** @type {NodeListOf<HTMLElement>} */ (body.querySelectorAll(".cd-scene"))) {
+      if (li.dataset.scene) sceneEls.set(li.dataset.scene, li);
+    }
+    syncPreview(state);
   }
 
   /** @param {UiState} state @param {UiState | null} prev */
@@ -698,6 +962,8 @@ export function mount(el, ctx) {
       state.checkpoints.script?.payload !== prev.checkpoints.script?.payload
     ) {
       rebuild(state);
+    } else if (entry?.preview !== before?.preview) {
+      syncPreview(state);
     }
     if (
       !prev ||
@@ -718,6 +984,8 @@ export function mount(el, ctx) {
       destroyed = true;
       player?.destroy();
       player = null;
+      video?.destroy();
+      video = null;
       root.remove();
     },
   };

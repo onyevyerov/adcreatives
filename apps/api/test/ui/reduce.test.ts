@@ -7,6 +7,7 @@ import {
   SITE_HOST,
   type StoredEvent,
   segments,
+  storyboardPayload,
 } from "../../public/static/dev/fixture-events.js";
 import { fixtureStates, fold } from "../../public/static/dev/fixture-states.js";
 import type { ChatEvent, UiState } from "../../public/static/js/contracts.js";
@@ -287,5 +288,63 @@ describe("reduce: правила", () => {
   it("невідомий тип події не змінює стан", () => {
     const s = base();
     expect(reduce(s, { type: "nope", at: at(0) } as unknown as ChatEvent, "1-0")).toBe(s);
+  });
+});
+
+describe("reduce: відео-превʼю ЧП3", () => {
+  const timeline = [
+    { sceneId: "s1", fromMs: 0, durationMs: 5000 },
+    { sceneId: "s2", fromMs: 4500, durationMs: 5500 },
+  ];
+  const boardEv = (rev: number, extra: Record<string, unknown> = {}) =>
+    ev({ type: "checkpoint", rev, checkpoint: "storyboard", payload: { ...storyboardPayload, ...extra } });
+  const previewEv = (rev: number, state: "ready" | "failed", url: string | null = null) =>
+    ev({ type: "preview", rev, format: "vertical", state, url });
+  const URL = "/files/p1/rev/1/renders/vertical.mp4";
+
+  it("checkpoint storyboard з payload.preview → pending; preview: null → null; стара подія — без поля", () => {
+    const s = reduceAll(base(), [boardEv(1, { timeline, preview: { format: "vertical" } })]);
+    expect(s.checkpoints.storyboard?.preview).toEqual({ format: "vertical", state: "pending", url: null });
+
+    expect(reduceAll(base(), [boardEv(1, { preview: null })]).checkpoints.storyboard?.preview).toBeNull();
+    const old = reduceAll(base(), [boardEv(1)]).checkpoints.storyboard;
+    expect(old && "preview" in old).toBe(false);
+  });
+
+  it("інші чекпоінти поля preview не мають", () => {
+    const s = reduceAll(base(), eventsOf(PATHS.script));
+    expect(s.checkpoints.brand && "preview" in s.checkpoints.brand).toBe(false);
+    expect(s.checkpoints.script && "preview" in s.checkpoints.script).toBe(false);
+  });
+
+  it("preview з rev поточного ЧП3 → ready/failed з url; у feed не потрапляє", () => {
+    const s = reduceAll(base(), [boardEv(1, { preview: { format: "vertical" } })]);
+    const ready = reduceAll(s, [previewEv(1, "ready", URL)]);
+    expect(ready.checkpoints.storyboard?.preview).toEqual({ format: "vertical", state: "ready", url: URL });
+    expect(ready.checkpoints.storyboard?.payload).toBe(s.checkpoints.storyboard?.payload);
+    expect(ready.feed).toBe(s.feed);
+
+    const failed = reduceAll(s, [previewEv(1, "failed")]);
+    expect(failed.checkpoints.storyboard?.preview).toEqual({
+      format: "vertical",
+      state: "failed",
+      url: null,
+    });
+  });
+
+  it("preview іншої ревізії або без ЧП3 — стан без змін", () => {
+    const s = reduceAll(base(), [boardEv(2, { preview: { format: "vertical" } })]);
+    expect(reduce(s, previewEv(1, "ready", URL).event, "9001-0")).toBe(s);
+    const empty = base();
+    expect(reduce(empty, previewEv(1, "ready", URL).event, "9002-0")).toBe(empty);
+  });
+
+  it("повтор події preview — ідемпотентно (той самий стан)", () => {
+    const s = reduceAll(base(), [
+      boardEv(1, { preview: { format: "vertical" } }),
+      previewEv(1, "ready", URL),
+    ]);
+    const again = previewEv(1, "ready", URL);
+    expect(reduce(s, again.event, again.id)).toBe(s);
   });
 });
