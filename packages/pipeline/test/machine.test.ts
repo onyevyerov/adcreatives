@@ -1,4 +1,5 @@
 import {
+  type Format,
   type PipelineCommand,
   type ProjectState,
   type ProjectStatus,
@@ -496,6 +497,7 @@ describe("nextStep — directing: branches, fix and QA limits", () => {
       checkpoint: "storyboard",
       rev: 1,
       changedScenes: null,
+      preview: null,
     });
   });
 
@@ -847,8 +849,9 @@ describe("nextStep — failures", () => {
   });
 });
 
-describe("nextStep — speculative render (Tuning.speculativeRender)", () => {
+describe("nextStep — speculative render (Tuning.speculativeRender, Tuning.storyboardPreview)", () => {
   const SPEC = ctx({ speculativeRender: true });
+  const PREVIEW = ctx({ storyboardPreview: true });
   const step = (s: MachineState, input: StepInput, c: StepContext = SPEC) => {
     const r = nextStep(s, input, c);
     return { r, s: { project: r.state, pipe: r.pipe } as MachineState };
@@ -882,20 +885,23 @@ describe("nextStep — speculative render (Tuning.speculativeRender)", () => {
     return { kind: "stage_event", event: event as StageDoneEvent };
   }
   /** Відео й аудіо готові: подія qa приводить на чекпоінт 3. */
-  function joinToCheckpoint3(c: StepContext = SPEC) {
-    const s0 = state("directing", {
-      formats: ["vertical", "square"],
-      branches: { video: "running", audio: "done" },
-    });
+  function joinToCheckpoint3(c: StepContext = SPEC, formats: Format[] = ["vertical", "square"]) {
+    const s0 = state("directing", { formats, branches: { video: "running", audio: "done" } });
     return step(s0, running(s0, "qa", {}, { verdict: "pass", seriousScenes: [] }), c);
   }
+  const checkpointEffect = (r: StepResult) => r.effects.find((e) => e.type === "checkpoint");
+  const previews = (r: StepResult) => r.effects.filter((e) => e.type === "preview");
 
   it("entering awaiting_storyboard enqueues a speculative render per selected format", () => {
     const { r } = joinToCheckpoint3();
     expect(r.state.status).toBe("awaiting_storyboard");
-    expect(r.effects).toContainEqual(
-      expect.objectContaining({ type: "checkpoint", checkpoint: "storyboard" }),
-    );
+    expect(checkpointEffect(r)).toEqual({
+      type: "checkpoint",
+      checkpoint: "storyboard",
+      rev: 1,
+      changedScenes: null,
+      preview: "vertical",
+    });
     expect(r.jobs).toEqual([
       expect.objectContaining({
         stage: "render",
@@ -910,12 +916,117 @@ describe("nextStep — speculative render (Tuning.speculativeRender)", () => {
     ]);
   });
 
-  it("flag off → no speculative jobs (current behaviour)", () => {
-    for (const c of [ctx(), ctx({ speculativeRender: false })]) {
+  it("flags off → no speculative jobs, checkpoint without preview (current behaviour)", () => {
+    for (const c of [ctx(), ctx({ speculativeRender: false, storyboardPreview: false })]) {
       const { r } = joinToCheckpoint3(c);
       expect(r.state.status).toBe("awaiting_storyboard");
       expect(r.jobs).toEqual([]);
       expect(r.pipe.outstanding).toEqual([]);
+      expect(checkpointEffect(r)).toEqual({
+        type: "checkpoint",
+        checkpoint: "storyboard",
+        rev: 1,
+        changedScenes: null,
+        preview: null,
+      });
+    }
+  });
+
+  it("storyboardPreview → exactly one speculative render of the primary format", () => {
+    const { r } = joinToCheckpoint3(PREVIEW);
+    expect(r.state.status).toBe("awaiting_storyboard");
+    expect(checkpointEffect(r)).toMatchObject({ checkpoint: "storyboard", preview: "vertical" });
+    expect(r.jobs).toEqual([
+      expect.objectContaining({
+        stage: "render",
+        jobId: "p1.render.r1.a1.spec-vertical",
+        params: { format: "vertical", speculative: true },
+      }),
+    ]);
+    expect(r.pipe.outstanding.map((j) => j.jobId)).toEqual(["p1.render.r1.a1.spec-vertical"]);
+  });
+
+  it("storyboardPreview: primary format follows the canonical order, not the selection order", () => {
+    const { r } = joinToCheckpoint3(PREVIEW, ["landscape", "square"]);
+    expect(checkpointEffect(r)).toMatchObject({ preview: "square" });
+    expect(r.jobs.map((j) => [j.jobId, j.params])).toEqual([
+      ["p1.render.r1.a1.spec-square", { format: "square", speculative: true }],
+    ]);
+  });
+
+  it("speculativeRender wins over storyboardPreview: all formats, preview = primary", () => {
+    const { r } = joinToCheckpoint3(ctx({ speculativeRender: true, storyboardPreview: true }));
+    expect(checkpointEffect(r)).toMatchObject({ preview: "vertical" });
+    expect(r.jobs.map((j) => j.jobId)).toEqual([
+      "p1.render.r1.a1.spec-vertical",
+      "p1.render.r1.a1.spec-square",
+    ]);
+  });
+
+  it("preview ready: primary stage_done → preview ok; status unchanged, no delivery", () => {
+    for (const c of [PREVIEW, SPEC]) {
+      const { s: s0 } = joinToCheckpoint3(c);
+      const { r } = step(s0, finish(s0, "p1.render.r1.a1.spec-vertical"), c);
+      expect(r.state.status).toBe("awaiting_storyboard");
+      expect(r.effects).toEqual([
+        { type: "cost", stage: "render", rev: 1, durationMs: 700 },
+        { type: "preview", rev: 1, format: "vertical", ok: true },
+      ]);
+      expect(r.events).toEqual([]);
+      expect(r.jobs).toEqual([]);
+    }
+  });
+
+  it("preview failed: primary stage_failed → preview not ok; no failure, no error in chat", () => {
+    for (const c of [PREVIEW, SPEC]) {
+      const { s: s0 } = joinToCheckpoint3(c);
+      const { r } = step(s0, finish(s0, "p1.render.r1.a1.spec-vertical", { fail: true }), c);
+      expect(r.state.status).toBe("awaiting_storyboard");
+      expect(r.state.failure).toBeNull();
+      expect(r.pipe.failedJobs).toEqual([]);
+      expect(r.effects).toEqual([
+        { type: "cost", stage: "render", rev: 1, durationMs: 700 },
+        { type: "preview", rev: 1, format: "vertical", ok: false },
+      ]);
+      expect(r.events).toEqual([]);
+    }
+  });
+
+  it("non-primary speculative format → no preview effect", () => {
+    const { s: s0 } = joinToCheckpoint3();
+    for (const fail of [false, true]) {
+      const { r } = step(s0, finish(s0, "p1.render.r1.a1.spec-square", { fail }));
+      expect(r.state.status).toBe("awaiting_storyboard");
+      expect(previews(r)).toEqual([]);
+      expect(r.effects.some((e) => e.type === "delivery")).toBe(false);
+    }
+  });
+
+  it("storyboardPreview: approve after a ready preview renders all formats as usual", () => {
+    let { s, r } = joinToCheckpoint3(PREVIEW);
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.spec-vertical"), PREVIEW));
+    expect(previews(r)).toEqual([{ type: "preview", rev: 1, format: "vertical", ok: true }]);
+    ({ s, r } = step(s, cmd({ type: "approve", rev: null }), PREVIEW));
+    expect(r.state.status).toBe("rendering");
+    expect(r.jobs.map((j) => [j.jobId, j.params])).toEqual([
+      ["p1.render.r1.a1.vertical", { format: "vertical" }],
+      ["p1.render.r1.a1.square", { format: "square" }],
+    ]);
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.vertical"), PREVIEW));
+    ({ s, r } = step(s, finish(s, "p1.render.r1.a1.square"), PREVIEW));
+    expect(r.state.status).toBe("delivered");
+    expect(r.effects).toContainEqual({ type: "delivery", rev: 1, formats: ["vertical", "square"] });
+    expect(previews(r)).toEqual([]);
+  });
+
+  it("storyboardPreview: edit at checkpoint 3 — the old revision's preview event is ignored", () => {
+    const { s: old } = joinToCheckpoint3(PREVIEW);
+    const { s } = step(old, msg("змінити s2", intent({ kind: "edit", edits: "s2" })), PREVIEW);
+    for (const fail of [false, true]) {
+      const late = nextStep(s, finish(old, "p1.render.r1.a1.spec-vertical", { fail }), PREVIEW);
+      expect(late.state).toEqual(s.project);
+      expect(late.pipe).toEqual(s.pipe);
+      expect(late.effects).toEqual([]);
     }
   });
 
@@ -1299,6 +1410,7 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
       checkpoint: "storyboard",
       rev: 1,
       changedScenes: null,
+      preview: null,
     });
     expect(r.pipe.reviewRounds).toBe(0);
   });
@@ -1520,6 +1632,7 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
       checkpoint: "storyboard",
       rev: 2,
       changedScenes: ["s2"],
+      preview: null,
     });
   });
 
