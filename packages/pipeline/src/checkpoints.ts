@@ -10,7 +10,10 @@ import {
   computeTimeline,
   FilmReview,
   type Format,
+  framesToMs,
   groupUsd,
+  type Logger,
+  noopLogger,
   type ProjectState,
   primaryFormat,
   projectPaths,
@@ -19,9 +22,11 @@ import {
   type ReviewRoute,
   readCosts,
   routeOf,
+  type SceneTiming,
   type Storage,
   Storyboard,
   sumUsd,
+  TimelineError,
   t,
 } from "@adc/shared";
 import { FORMAT_LABEL, formatsLabel } from "./labels.ts";
@@ -220,11 +225,36 @@ async function readReview(storage: Storage, key: string): Promise<FilmReview | n
   }
 }
 
+/**
+ * Таймінг усіх сцен фільму для плеєра превʼю (переходи перекривають сусідні сцени).
+ * Розкадровка, з якої таймінг не рахується, не ламає чекпоінт — тоді [] і попередження в лог.
+ */
+function sceneTimeline(storyboard: Storyboard, logger: Logger, projectId: string): SceneTiming[] {
+  try {
+    const { fps, scenes } = computeTimeline(storyboard);
+    return scenes.map((s) => ({
+      sceneId: s.id,
+      fromMs: framesToMs(s.from, fps),
+      durationMs: framesToMs(s.durationInFrames, fps),
+    }));
+  } catch (err) {
+    if (!(err instanceof TimelineError)) throw err;
+    logger.warn("таймінг сцен для чекпоінта 3 не пораховано", { projectId, err: String(err) });
+    return [];
+  }
+}
+
 export async function buildStoryboardCheckpoint(
   storage: Storage,
   project: ProjectState,
   rev: number,
-  opts: { templateScenes: string[]; changedScenes: string[] | null },
+  opts: {
+    templateScenes: string[];
+    changedScenes: string[] | null;
+    /** Формат відео-превʼю, що рендериться (основний); null — превʼю вимкнене. */
+    preview: Format | null;
+    logger?: Logger;
+  },
 ): Promise<ChatEventInput[]> {
   const rp = projectPaths(project.id).rev(rev);
   const storyboard = await readOptional(storage, rp.storyboard, (v) => Storyboard.parse(v));
@@ -292,9 +322,29 @@ export async function buildStoryboardCheckpoint(
         music,
         changedScenes: changed ? [...changed] : null,
         review: review ? { score: review.score, summary: review.summary, issues: notes } : null,
+        timeline: sceneTimeline(storyboard, opts.logger ?? noopLogger, project.id),
+        preview: opts.preview ? { format: opts.preview } : null,
       },
     },
   ];
+}
+
+/**
+ * Подія `preview` ЧП3: `ready` з URL, якщо спекулятивний рендер вдався і mp4 лежить у сховищі,
+ * інакше `failed` (UI лишає стіли, затвердити можна й без превʼю).
+ */
+export async function buildPreviewEvent(
+  storage: Storage,
+  project: ProjectState,
+  rev: number,
+  format: Format,
+  ok: boolean,
+): Promise<ChatEventInput> {
+  const key = projectPaths(project.id).rev(rev).render(format);
+  const ready = ok && (await storage.exists(key));
+  return ready
+    ? { type: "preview", rev, format, state: "ready", url: storage.publicUrl(key) }
+    : { type: "preview", rev, format, state: "failed", url: null };
 }
 
 // ─────────────────────────────── витрати ───────────────────────────────

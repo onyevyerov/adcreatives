@@ -2,10 +2,14 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  ChatEvent,
   CheckpointPayload,
   type ClaimsReport,
   type FilmReview,
+  type Format,
   LocalStorage,
+  type Logger,
+  noopLogger,
   projectPaths,
   type QaReport,
   type ReviewIssue,
@@ -15,6 +19,7 @@ import {
 import { fixtureProject, fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import {
+  buildPreviewEvent,
   buildScriptCheckpoint,
   buildStoryboardCheckpoint,
   formatReviewWarning,
@@ -164,6 +169,7 @@ describe("чекпоінт 3: зауваження рецензента", () => 
     const events = await buildStoryboardCheckpoint(storage, project, 1, {
       templateScenes,
       changedScenes: null,
+      preview: null,
     });
     const message = events[0];
     if (message?.type !== "message") throw new Error("немає повідомлення чекпоінта 3");
@@ -246,5 +252,116 @@ describe("чекпоінт 3: зауваження рецензента", () => 
     );
     expect(ws.map((w) => w.route)).toEqual(["fix", "music"]);
     expect(ws.map(formatReviewWarning)).toEqual(["- s1 [fix]: опис", "- [music]: опис"]);
+  });
+});
+
+describe("чекпоінт 3: таймінг сцен і відео-превʼю", () => {
+  function setup() {
+    const storage = new LocalStorage(mkdtempSync(path.join(tmpdir(), "adc-checkpoints-")));
+    const project = fixtureProject({ status: "awaiting_storyboard" });
+    return { storage, project, rp: projectPaths(project.id).rev(1) };
+  }
+  function recordingLogger() {
+    const warns: Array<{ msg: string; meta: unknown }> = [];
+    const logger: Logger = {
+      ...noopLogger,
+      warn: (msg, meta) => {
+        warns.push({ msg, meta });
+      },
+    };
+    return { logger, warns };
+  }
+  /** Подія чекпоінта 3 через схему чату (як її пише емітер). */
+  async function checkpointPayload(
+    storage: LocalStorage,
+    project: ReturnType<typeof fixtureProject>,
+    opts: Parameters<typeof buildStoryboardCheckpoint>[3],
+  ) {
+    const events = await buildStoryboardCheckpoint(storage, project, 1, opts);
+    const parsed = ChatEvent.parse({ ...events[1], at: NOW });
+    if (parsed.type !== "checkpoint" || parsed.payload.checkpoint !== "storyboard") {
+      throw new Error("не чекпоінт 3");
+    }
+    return parsed.payload;
+  }
+
+  it("timeline — для всіх сцен (і після правки), з перекриттям переходів; preview — формат", async () => {
+    const { storage, project, rp } = setup();
+    await storage.writeJson(rp.storyboard, fixtureStoryboard);
+    const payload = await checkpointPayload(storage, project, {
+      templateScenes: [],
+      changedScenes: ["s2"],
+      preview: "vertical",
+    });
+    // 30 fps: s1 150 кадрів; s2 і s3 по 165 з переходом 15 → старт s2 = 150 − 15 = 135 кадрів.
+    expect(payload.timeline).toEqual([
+      { sceneId: "s1", fromMs: 0, durationMs: 5000 },
+      { sceneId: "s2", fromMs: 4500, durationMs: 5500 },
+      { sceneId: "s3", fromMs: 9500, durationMs: 5500 },
+    ]);
+    expect(payload.preview).toEqual({ format: "vertical" });
+    expect(payload.changedScenes).toEqual(["s2"]);
+  });
+
+  it("без превʼю — preview: null; timeline однаково є", async () => {
+    const { storage, project, rp } = setup();
+    await storage.writeJson(rp.storyboard, fixtureStoryboard);
+    const payload = await checkpointPayload(storage, project, {
+      templateScenes: [],
+      changedScenes: null,
+      preview: null,
+    });
+    expect(payload.preview).toBeNull();
+    expect(payload.timeline).toHaveLength(3);
+  });
+
+  it("таймінг не порахувався (TimelineError) — timeline: [] і попередження в лог, чекпоінт є", async () => {
+    const { storage, project, rp } = setup();
+    const broken: Storyboard = {
+      ...fixtureStoryboard,
+      scenes: fixtureStoryboard.scenes.map((s) => (s.id === "s2" ? { ...s, transitionFrames: 160 } : s)),
+    };
+    await storage.writeJson(rp.storyboard, broken);
+    const { logger, warns } = recordingLogger();
+    const payload = await checkpointPayload(storage, project, {
+      templateScenes: [],
+      changedScenes: null,
+      preview: "vertical",
+      logger,
+    });
+    expect(payload.timeline).toEqual([]);
+    expect(payload.preview).toEqual({ format: "vertical" });
+    expect(warns).toEqual([
+      { msg: expect.stringContaining("таймінг"), meta: expect.objectContaining({ projectId: project.id }) },
+    ]);
+  });
+});
+
+describe("подія відео-превʼю ЧП3", () => {
+  async function previewEvent(opts: { ok: boolean; mp4: boolean; format?: Format }) {
+    const storage = new LocalStorage(mkdtempSync(path.join(tmpdir(), "adc-checkpoints-")));
+    const project = fixtureProject({ status: "awaiting_storyboard", formats: ["vertical", "square"] });
+    const format = opts.format ?? "vertical";
+    const key = projectPaths(project.id).rev(2).render(format);
+    if (opts.mp4) await storage.write(key, "mp4");
+    const ev = await buildPreviewEvent(storage, project, 2, format, opts.ok);
+    // Через схему чату: подія має пережити ChatEvent.parse емітера.
+    return { event: ChatEvent.parse({ ...ev, at: NOW }), url: storage.publicUrl(key) };
+  }
+
+  it("ok і mp4 є — ready з URL файлу", async () => {
+    const { event, url } = await previewEvent({ ok: true, mp4: true, format: "square" });
+    expect(event).toEqual({ type: "preview", at: NOW, rev: 2, format: "square", state: "ready", url });
+    expect(url).toMatch(/^\/files\/.+\/rev\/2\/renders\/square\.mp4$/);
+  });
+
+  it("ok, але mp4 немає — failed без URL", async () => {
+    const { event } = await previewEvent({ ok: true, mp4: false });
+    expect(event).toMatchObject({ type: "preview", rev: 2, format: "vertical", state: "failed", url: null });
+  });
+
+  it("рендер упав (ok: false) — failed, навіть якщо старий mp4 лежить", async () => {
+    const { event } = await previewEvent({ ok: false, mp4: true });
+    expect(event).toMatchObject({ state: "failed", url: null });
   });
 });
