@@ -9,6 +9,7 @@ import {
   type RenderMediaOptions,
   type RenderStillOptions,
   readCosts,
+  StageError,
 } from "@adc/shared";
 import { fixtureAudioManifest, fixtureBrandKit } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
@@ -73,10 +74,10 @@ async function setup(
   formats: Format[],
   format: Format,
   engineOpts: { failMedia?: boolean } = {},
-  opts: { motionKitHash?: () => string; speculative?: boolean } = {},
+  opts: { motionKitHash?: () => string; speculative?: boolean; projectRev?: number } = {},
 ) {
   const storage = await tempStorage();
-  await writeProject(storage, { formats, phase: "revision", rev: 2 });
+  await writeProject(storage, { formats, phase: "revision", rev: opts.projectRev ?? 2 });
   await storage.writeJson(projectPaths("p1").rev(2).pipeline, {
     attempts: {},
     fixRounds: {},
@@ -279,12 +280,49 @@ describe("renderStage — reuse by inputs hash", () => {
     expect(spec.reused).toBeUndefined();
     expect(calls.media).toHaveLength(1);
     expect(progressOf(deps)).toEqual([]);
-    expect(await readCosts(storage, "p1")).toHaveLength(1);
+    const costs = await readCosts(storage, "p1");
+    expect(costs).toHaveLength(1);
+    expect(costs[0]).toMatchObject({ provider: "remotion", detail: "preview vertical" });
 
     const approved = await stage((await nextCtx(1)) as never);
     expect(approved.reused).toBe(true);
     expect(calls.media).toHaveLength(1);
     expect(await readCosts(storage, "p1")).toHaveLength(1);
+  });
+
+  it("regular render records cost with detail `render <format>`", async () => {
+    const { storage, stage, ctx } = await setup(["vertical", "square"], "square");
+    await stage(ctx as never);
+    expect((await readCosts(storage, "p1"))[0]).toMatchObject({ detail: "render square" });
+  });
+
+  it("speculative render of a stale revision → superseded, nothing prepared or rendered", async () => {
+    const { storage, stage, ctx, calls, prepared, deps } = await setup(
+      ["vertical"],
+      "vertical",
+      {},
+      { speculative: true, projectRev: 3 },
+    );
+    const err = await stage(ctx as never).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(StageError);
+    expect(err).toMatchObject({ code: "superseded", userMessage: "Превʼю застаріло.", retryable: false });
+    expect(prepared).toEqual([]);
+    expect(calls.bundle).toEqual([]);
+    expect(calls.media).toEqual([]);
+    expect(calls.closed).toBe(0);
+    expect(await readCosts(storage, "p1")).toEqual([]);
+    expect(await storage.exists(projectPaths("p1").rev(2).render("vertical"))).toBe(false);
+    expect(progressOf(deps)).toEqual([]);
+  });
+
+  it("regular render of an older revision still renders (only speculative jobs are skipped)", async () => {
+    const { stage, ctx, calls } = await setup(["vertical"], "vertical", {}, { projectRev: 3 });
+    const result = await stage(ctx as never);
+    expect(result.reused).toBeUndefined();
+    expect(calls.media).toHaveLength(1);
   });
 
   it("render failure leaves no meta", async () => {

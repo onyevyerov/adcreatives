@@ -4,6 +4,7 @@ import {
   type PipelineJob,
   type Queue,
   type QueueName,
+  SPECULATIVE_RENDER_PRIORITY,
   STAGE_QUEUE,
   type StageJob,
 } from "./index.ts";
@@ -39,6 +40,15 @@ export const PIPELINE_JOB_OPTIONS: JobsOptions = {
 /** ID job події стадії в черзі `pipeline`: одна подія на job стадії (done або failed — що перше). */
 export function stageEventJobId(stageJobId: string): string {
   return `${stageJobId}.evt`;
+}
+
+/**
+ * Спекулятивний рендер (превʼю до «Затвердити») ставиться з `SPECULATIVE_RENDER_PRIORITY`: перевірено
+ * на BullMQ 6.3 (`moveToActive` спершу бере зі списку `wait`, потім із `prioritized`) — job без
+ * пріоритету обробляються раніше, тож звичайним рендерам пріоритет не потрібен.
+ */
+function isSpeculativeRender(job: StageJob): boolean {
+  return job.stage === "render" && (job as StageJob<"render">).params.speculative === true;
 }
 
 /** Мінімум BullMQ Queue, який нам потрібен (у тестах — фейк). */
@@ -79,7 +89,11 @@ export class BullQueue implements Queue {
   async enqueueStage(job: StageJob): Promise<void> {
     const queue = STAGE_QUEUE[job.stage];
     if (!queue) throw new Error(`невідома стадія: ${String(job.stage)}`);
-    await this.get(queue).add(job.stage, job, { ...STAGE_JOB_OPTIONS, jobId: job.jobId });
+    await this.get(queue).add(job.stage, job, {
+      ...STAGE_JOB_OPTIONS,
+      jobId: job.jobId,
+      ...(isSpeculativeRender(job) ? { priority: SPECULATIVE_RENDER_PRIORITY } : {}),
+    });
   }
 
   async enqueuePipeline(job: PipelineJob, opts: EnqueueOptions = {}): Promise<void> {

@@ -45,6 +45,13 @@ export const QUEUE_LOCK_MS: Record<QueueName, number> = {
 };
 
 /**
+ * Пріоритет BullMQ спекулятивних render-job (відео-превʼю ЧП3). У BullMQ 6.x job без пріоритету
+ * (`0`) беруться раніше за будь-який prioritized, серед prioritized — менше число раніше. Тож
+ * звичайні (оплачені) рендери йдуть без пріоритету й обганяють превʼю в єдиному слоті черги `render`.
+ */
+export const SPECULATIVE_RENDER_PRIORITY = 100;
+
+/**
  * ID job стадії: `<projectId>.<stage>.r<rev>.a<attempt>[.<format>]`.
  * (BullMQ 6 не приймає `:` у власних ID, тому роздільник — крапка; nanoid крапок не містить.)
  * Однаковий ID = BullMQ не поставить job удруге (захист від подвійних кліків).
