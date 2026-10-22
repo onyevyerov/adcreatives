@@ -99,6 +99,13 @@ describe("driver — happy path through three checkpoints", () => {
       expect(sb.payload.warnings).toHaveLength(1);
       expect(sb.payload.music).toEqual({ url: "/files/projects/p1/rev/1/video/public/music.mp3" });
       expect(sb.payload.templateScenes).toEqual([]);
+      // Таймінг усіх сцен для плеєра; превʼю в Harness за замовчуванням вимкнене.
+      expect(sb.payload.timeline?.map((x) => [x.sceneId, x.fromMs])).toEqual([
+        ["s1", 0],
+        ["s2", 4500],
+        ["s3", 9500],
+      ]);
+      expect(sb.payload.preview).toBeNull();
     }
 
     await h.approve();
