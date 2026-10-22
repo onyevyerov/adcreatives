@@ -21,6 +21,7 @@ import {
   segments,
 } from "./fixture-events.js";
 import adminFixtures from "./fixtures/admin.js";
+import adminUsageFixtures from "./fixtures/admin-usage.js";
 import authFixtures from "./fixtures/auth.js";
 import cabinetFixtures from "./fixtures/cabinet.js";
 import chatFixtures from "./fixtures/chat.js";
@@ -255,6 +256,7 @@ export const fixtureStates = collectFixtures([
   ["fixtures/projects.js", projectsFixtures],
   ["fixtures/profile.js", profileFixtures],
   ["fixtures/admin.js", adminFixtures],
+  ["fixtures/admin-usage.js", adminUsageFixtures],
   ["fixtures/session.js", sessionFixtures],
 ]);
 

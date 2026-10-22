@@ -1,5 +1,9 @@
 // @ts-check
+import { presetRange } from "./lib/usage.js";
+
 /** @typedef {import("./contracts.js").UiState} UiState */
+/** @typedef {import("./contracts.js").UsageState} UsageState */
+/** @typedef {import("./contracts.js").UsageProjectsTable} UsageProjectsTable */
 /** @typedef {import("./contracts.js").AccountState} AccountState */
 /** @typedef {import("./contracts.js").AuthState} AuthState */
 /** @typedef {import("./contracts.js").AuthView} AuthView */
@@ -140,6 +144,34 @@ export function checkoutState(id) {
   return { status: "loading", id, topup: null, returnTo: { kind: "cabinet" }, revisit: false };
 }
 
+/** @returns {UsageProjectsTable} */
+export function initialUsageTable() {
+  return { q: "", sort: { key: "usd", order: "desc" }, page: 1, data: null, loading: false };
+}
+
+/**
+ * Вкладка «Використання»: останні 30 днів, клієнтські витрати, сортування за $.
+ * @param {Date} [now]
+ * @returns {UsageState}
+ */
+export function initialUsage(now = new Date()) {
+  return {
+    preset: "30d",
+    range: presetRange("30d", now),
+    source: "chat",
+    rangeError: false,
+    loading: false,
+    error: false,
+    summary: null,
+    users: [],
+    usersSort: { key: "usd", order: "desc" },
+    expandedUserId: null,
+    userProjects: initialUsageTable(),
+    all: initialUsageTable(),
+    expandedProjectId: null,
+  };
+}
+
 /** @returns {AdminState} */
 export function initialAdmin() {
   return {
@@ -154,5 +186,6 @@ export function initialAdmin() {
     outbox: [],
     copied: null,
     allProjects: [],
+    usage: initialUsage(),
   };
 }

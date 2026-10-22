@@ -204,15 +204,84 @@
  */
 
 /**
+ * `usage` — вкладка «Використання» (ТЗ вкладки, 2.4).
  * @typedef {{
- *   tab: "users" | "outbox" | "all", loading: boolean, forbidden: boolean,
+ *   tab: "users" | "outbox" | "all" | "usage", loading: boolean, forbidden: boolean,
  *   users: (PublicUser & { balance: number })[], q: string, selectedId: string | null,
  *   selected: { user: PublicUser, balance: number, entries: LedgerEntry[] } | null,
  *   adjust: { credits: string, note: string, busy: boolean, confirm: boolean,
  *             error: "zero" | "note" | { need: number, have: number } | null,
  *             done: { credits: number, note: string, balance: number } | null },
- *   outbox: OutboxMail[], copied: string | null, allProjects: ProjectRow[]
+ *   outbox: OutboxMail[], copied: string | null, allProjects: ProjectRow[],
+ *   usage: UsageState
  * }} AdminState
+ */
+
+// ───────────── Використання (Крок 0 вкладки «Використання», заморожено) ─────────────
+
+/**
+ * Відповіді `GET /api/admin/usage/*` (`docs/usage-api.md`). Гроші — USD; дати вікна — дні UTC.
+ * `null` — лише там, де дозволено контрактом (кредити й маржа при source ∉ {chat, all}, середні при 0,
+ * мета проєкту, яку не вдалося прочитати).
+ * @typedef {import("@adc/shared/schemas").Provider} Provider
+ * @typedef {import("@adc/shared/schemas").CostStage} CostStage
+ * @typedef {{ input: number, output: number, cacheWrite: number, cacheRead: number, total: number }} UsageTokens
+ * @typedef {{ calls: number, tokens: UsageTokens, audioSeconds: number, renders: number, usd: number }} UsageAggregate
+ * @typedef {UsageAggregate & { provider: Provider, model: string }} UsageModelRow
+ * @typedef {{ stage: CostStage, calls: number, usd: number }} UsageStageRow
+ * @typedef {UsageAggregate & {
+ *   users: number, projects: number, delivered: number,
+ *   avgUsdPerDelivered: number | null, avgUsdPerRevision: number | null,
+ *   creditsCharged: number | null, creditsUsd: number | null, marginUsd: number | null
+ * }} UsageTotals
+ * @typedef {{
+ *   from: string | null, to: string | null, source: UsageSource,
+ *   totals: UsageTotals, byModel: UsageModelRow[], byStage: UsageStageRow[], system: UsageAggregate
+ * }} UsageSummary
+ * @typedef {UsageAggregate & {
+ *   id: string, email: string, name: string, createdAt: string,
+ *   projects: number, delivered: number, creditsCharged: number | null, marginUsd: number | null,
+ *   byModel: UsageModelRow[]
+ * }} UsageUserRow
+ * @typedef {UsageAggregate & {
+ *   projectId: string, ownerId: string | null, ownerEmail: string | null,
+ *   host: string | null, url: string | null, status: ProjectStatus | null,
+ *   createdAt: string | null, firstDeliveredAt: string | null,
+ *   revisions: number, firstDeliveryUsd: number, revisionUsd: number,
+ *   byModel: UsageModelRow[], byStage: UsageStageRow[]
+ * }} UsageProjectRow
+ * @typedef {{
+ *   owner: string | null, from: string | null, to: string | null, source: UsageSource,
+ *   page: number, pageSize: number, total: number, items: UsageProjectRow[], totals: UsageAggregate
+ * }} UsageProjectsPage
+ */
+
+/**
+ * Параметри запитів (`data/account-api.js`); порожні значення не передаються.
+ * @typedef {{ from?: string, to?: string, source?: UsageSource }} UsageQuery
+ * @typedef {UsageQuery & { owner?: string, search?: string, sort?: string, order?: "asc" | "desc",
+ *   page?: number, pageSize?: number }} UsageProjectsQuery
+ */
+
+/**
+ * Стан вкладки. `range` — межі в днях UTC (`YYYY-MM-DD`, обидві включно; `null` — без межі).
+ * `userProjects` — проєкти розгорнутого користувача (owner=<id>), `all` — секція «Усі проєкти»;
+ * `expandedProjectId` — розгорнутий проєкт у будь-якій із двох таблиць.
+ * @typedef {"7d" | "30d" | "month" | "all" | "custom"} UsagePreset
+ * @typedef {"chat" | "eval" | "test" | "all"} UsageSource
+ * @typedef {{ from: string | null, to: string | null }} UsageRange
+ * @typedef {{ key: string, order: "asc" | "desc" }} UsageSort
+ * @typedef {{ q: string, sort: UsageSort, page: number, data: UsageProjectsPage | null, loading: boolean }} UsageProjectsTable
+ * @typedef {{
+ *   preset: UsagePreset, range: UsageRange, source: UsageSource, rangeError: boolean,
+ *   loading: boolean, error: boolean,
+ *   summary: UsageSummary | null,
+ *   users: UsageUserRow[], usersSort: UsageSort,
+ *   expandedUserId: string | null,
+ *   userProjects: UsageProjectsTable,
+ *   all: UsageProjectsTable,
+ *   expandedProjectId: string | null
+ * }} UsageState
  */
 
 // ───────────── Дії ─────────────
@@ -255,7 +324,29 @@
  *   adminTab(tab: AdminState["tab"]): void, adminSearch(q: string): void, adminSelect(id: string): Promise<void>,
  *   adminField(key: "credits" | "note", value: string): void, adminAdjust(confirmed?: boolean): Promise<void>,
  *   adminCancelConfirm(): void, adminCopy(mailId: string): Promise<void>
- * }} AccountActions
+ * } & UsageActions} AccountActions
+ */
+
+/**
+ * Дії вкладки «Використання» (data/usage-actions.js, ТЗ вкладки 2.5). Проміс — завершення
+ * запитів, які дія запустила (без запитів — одразу; пошук із debounce — одразу після планування).
+ * - `usagePreset` — пресет і `range`; `custom` лише вмикає поля дат (`range` не змінюється);
+ * - `usageRange` — ручний період; `to < from` → `rangeError: true`, запитів немає;
+ * - `usageSortUsers` — той самий ключ перемикає `order`, новий — `desc`;
+ * - `usageToggleUser` — розгорнути/згорнути; розгортання вантажить його проєкти;
+ * - `usageProjects` — пошук (debounce `USAGE_SEARCH_DEBOUNCE_MS`), сортування, сторінка таблиці;
+ * - `usageToggleProject` — розгорнути/згорнути проєкт (дані вже в рядку — без запиту);
+ * - `usageReload` — повторити все після помилки.
+ * @typedef {{
+ *   usagePreset(preset: UsagePreset): Promise<void>,
+ *   usageRange(range: UsageRange): Promise<void>,
+ *   usageSource(source: UsageSource): Promise<void>,
+ *   usageSortUsers(key: string): Promise<void>,
+ *   usageToggleUser(id: string): Promise<void>,
+ *   usageProjects(table: "user" | "all", patch: { q?: string, sort?: string, page?: number }): Promise<void>,
+ *   usageToggleProject(id: string): void,
+ *   usageReload(): Promise<void>
+ * }} UsageActions
  */
 
 /** Усі дії сторінки (`ctx.actions`). @typedef {ProjectActions & AccountActions} Actions */

@@ -11,6 +11,7 @@ import { FORMAT_LABELS, STATUS_LABELS } from "../contracts.js";
 import { NOTE_MAX, needsConfirm, PANEL_ENTRIES, parseCredits } from "../data/admin-actions.js";
 import { clear, h, text } from "../dom.js";
 import { creditWord, formatCredits, formatNumber, signed } from "../lib/credits.js";
+import { mount as mountUsage } from "./admin-usage.js";
 import { mountForbidden } from "./session.js";
 import { formatUsd, statusKind } from "./topbar.js";
 
@@ -29,6 +30,7 @@ export const TABS = [
   { tab: "users", label: "Користувачі" },
   { tab: "outbox", label: "Outbox" },
   { tab: "all", label: "Усі проєкти" },
+  { tab: "usage", label: "Використання" },
 ];
 
 /** @type {Record<OutboxMail["kind"], string>} */
@@ -165,12 +167,12 @@ export function mount(el, ctx) {
 
   const tabs = TABS.map(({ tab, label }) => {
     const count = h("span", { class: "adm-tab__count" });
+    // У «Використання» лічильника немає.
     const btn = h(
       "button",
       { class: "seg__opt adm-tab", type: "button", role: "tab", onclick: () => actions.adminTab(tab) },
       label,
-      " ",
-      count,
+      tab === "usage" ? [] : [" ", count],
     );
     btn.dataset.tab = tab;
     return { tab, btn, count };
@@ -273,6 +275,9 @@ export function mount(el, ctx) {
     allBody,
   );
 
+  // Використання (views/admin-usage.js монтується при першому показі)
+  const usageSection = h("section", { class: "adm-usage", "aria-label": "Використання" });
+
   const main = h(
     "main",
     { class: "adm-main" },
@@ -281,6 +286,7 @@ export function mount(el, ctx) {
     usersSection,
     outboxSection,
     allSection,
+    usageSection,
   );
 
   // ───────────── Бічна панель ─────────────
@@ -513,6 +519,8 @@ export function mount(el, ctx) {
 
   /** @type {ViewHandle | null} */
   let forbidden = null;
+  /** @type {ViewHandle | null} */
+  let usage = null;
   /** id записів, які вже показано в панелі — новий зверху з’являється з fade. */
   let shownOps = /** @type {{ userId: string | null, ids: Set<string> }} */ ({
     userId: null,
@@ -697,7 +705,11 @@ export function mount(el, ctx) {
     usersSection.hidden = !(showMain && a.tab === "users");
     outboxSection.hidden = !(showMain && a.tab === "outbox");
     allSection.hidden = !(showMain && a.tab === "all");
+    usageSection.hidden = !(showMain && a.tab === "usage");
     panel.hidden = !(usersTab && !a.loading);
+
+    if (!usage && !usageSection.hidden) usage = mountUsage(usageSection, ctx);
+    else if (usage && prev) usage.update(state, prev);
 
     if (
       !p ||
@@ -706,7 +718,13 @@ export function mount(el, ctx) {
       a.outbox !== p.outbox ||
       a.allProjects !== p.allProjects
     ) {
-      const counts = { users: a.users.length, outbox: a.outbox.length, all: a.allProjects.length };
+      /** @type {Record<AdminState["tab"], number>} */
+      const counts = {
+        users: a.users.length,
+        outbox: a.outbox.length,
+        all: a.allProjects.length,
+        usage: 0,
+      };
       for (const t of tabs) {
         const on = t.tab === a.tab;
         t.btn.setAttribute("aria-selected", String(on));
@@ -757,6 +775,8 @@ export function mount(el, ctx) {
     destroy() {
       if (forbidden) forbidden.destroy();
       forbidden = null;
+      if (usage) usage.destroy();
+      usage = null;
       root.remove();
     },
   };

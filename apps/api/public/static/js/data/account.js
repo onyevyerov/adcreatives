@@ -45,6 +45,7 @@ import { profileActions } from "./profile-actions.js";
 import { retryActions } from "./retry-actions.js";
 import { startActions } from "./start-actions.js";
 import { topupActions } from "./topup-actions.js";
+import { usageActions } from "./usage-actions.js";
 
 /** @typedef {import("../contracts.js").Store} Store */
 /** @typedef {import("../contracts.js").UiState} UiState */
@@ -372,6 +373,7 @@ export function createAccountActions(store, opts) {
     cabinetActions(store, deps),
     profileActions(store, deps),
     adminActions(store, deps),
+    usageActions(store, deps),
   );
 
   // ───────────── підписки ─────────────

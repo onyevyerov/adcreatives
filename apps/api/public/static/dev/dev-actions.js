@@ -68,6 +68,14 @@ export function createDevActions(store) {
     adminAdjust: async (confirmed) => info("adminAdjust", [confirmed]),
     adminCancelConfirm: () => info("adminCancelConfirm", []),
     adminCopy: async (mailId) => info("adminCopy", [mailId]),
+    usagePreset: async (preset) => info("usagePreset", [preset]),
+    usageRange: async (range) => info("usageRange", [range]),
+    usageSource: async (source) => info("usageSource", [source]),
+    usageSortUsers: async (key) => info("usageSortUsers", [key]),
+    usageToggleUser: async (id) => info("usageToggleUser", [id]),
+    usageProjects: async (table, patch) => info("usageProjects", [table, patch]),
+    usageToggleProject: (id) => info("usageToggleProject", [id]),
+    usageReload: async () => info("usageReload", []),
   };
   return {
     calls,
