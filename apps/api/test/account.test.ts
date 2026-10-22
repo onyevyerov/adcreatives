@@ -130,53 +130,66 @@ describe("зміна пароля", () => {
 
 describe("історія транзакцій", () => {
   type Page = { entries: LedgerEntry[]; nextBefore: string | null };
+  /**
+   * Десятки послідовних записів у леджер — IO: окремо ~2 с, але під паралельним `pnpm test`
+   * (кілька пакетів одночасно) дефолтних 5 с не вистачає.
+   */
+  const LEDGER_FILL_TIMEOUT_MS = 20_000;
 
-  it("120 записів пагінуються before без дублів і пропусків; новіші першими", async () => {
-    const env = await setup();
-    const uid = env.user?.id ?? "";
-    for (let i = 0; i < 120; i++)
-      await env.accounts.apply(uid, { id: `adjust:t${i}`, kind: "adjust", credits: 1 });
+  it(
+    "120 записів пагінуються before без дублів і пропусків; новіші першими",
+    async () => {
+      const env = await setup();
+      const uid = env.user?.id ?? "";
+      for (let i = 0; i < 120; i++)
+        await env.accounts.apply(uid, { id: `adjust:t${i}`, kind: "adjust", credits: 1 });
 
-    const seen: string[] = [];
-    const sizes: number[] = [];
-    let before: string | null = null;
-    for (let guard = 0; guard < 10; guard++) {
-      const q: string = before ? `&before=${encodeURIComponent(before)}` : "";
-      const res = await env.request(`/api/account/transactions?limit=50${q}`);
-      expect(res.status).toBe(200);
-      const page = (await res.json()) as Page;
-      sizes.push(page.entries.length);
-      seen.push(...page.entries.map((e) => e.id));
-      if (page.nextBefore === null) break;
-      expect(page.nextBefore).toBe(page.entries.at(-1)?.id);
-      before = page.nextBefore;
-    }
-    expect(sizes).toEqual([50, 50, 20]);
-    expect(new Set(seen).size).toBe(120);
-    expect(seen).toEqual(Array.from({ length: 120 }, (_, i) => `adjust:t${119 - i}`));
-  });
+      const seen: string[] = [];
+      const sizes: number[] = [];
+      let before: string | null = null;
+      for (let guard = 0; guard < 10; guard++) {
+        const q: string = before ? `&before=${encodeURIComponent(before)}` : "";
+        const res = await env.request(`/api/account/transactions?limit=50${q}`);
+        expect(res.status).toBe(200);
+        const page = (await res.json()) as Page;
+        sizes.push(page.entries.length);
+        seen.push(...page.entries.map((e) => e.id));
+        if (page.nextBefore === null) break;
+        expect(page.nextBefore).toBe(page.entries.at(-1)?.id);
+        before = page.nextBefore;
+      }
+      expect(sizes).toEqual([50, 50, 20]);
+      expect(new Set(seen).size).toBe(120);
+      expect(seen).toEqual(Array.from({ length: 120 }, (_, i) => `adjust:t${119 - i}`));
+    },
+    LEDGER_FILL_TIMEOUT_MS,
+  );
 
-  it("limit за замовчуванням 50; межі 1…200; неповна сторінка → nextBefore null", async () => {
-    const env = await setup({}, { user: { credits: 5 } });
-    const uid = env.user?.id ?? "";
-    for (let i = 0; i < 60; i++)
-      await env.accounts.apply(uid, { id: `adjust:d${i}`, kind: "adjust", credits: 1 });
+  it(
+    "limit за замовчуванням 50; межі 1…200; неповна сторінка → nextBefore null",
+    async () => {
+      const env = await setup({}, { user: { credits: 5 } });
+      const uid = env.user?.id ?? "";
+      for (let i = 0; i < 60; i++)
+        await env.accounts.apply(uid, { id: `adjust:d${i}`, kind: "adjust", credits: 1 });
 
-    const def = (await (await env.request("/api/account/transactions")).json()) as Page;
-    expect(def.entries).toHaveLength(50);
-    expect(def.nextBefore).toBe("adjust:d10");
+      const def = (await (await env.request("/api/account/transactions")).json()) as Page;
+      expect(def.entries).toHaveLength(50);
+      expect(def.nextBefore).toBe("adjust:d10");
 
-    const all = (await (await env.request("/api/account/transactions?limit=200")).json()) as Page;
-    expect(all.entries).toHaveLength(61);
-    expect(all.nextBefore).toBeNull();
-    expect(all.entries.at(-1)?.id).toBe(`bonus:seed:${uid}`);
+      const all = (await (await env.request("/api/account/transactions?limit=200")).json()) as Page;
+      expect(all.entries).toHaveLength(61);
+      expect(all.nextBefore).toBeNull();
+      expect(all.entries.at(-1)?.id).toBe(`bonus:seed:${uid}`);
 
-    for (const bad of ["0", "201", "abc", "1.5", "-1"]) {
-      const res = await env.request(`/api/account/transactions?limit=${bad}`);
-      expect(res.status, bad).toBe(400);
-      expect(((await res.json()) as { error: string }).error).toBe("invalid_body");
-    }
-  });
+      for (const bad of ["0", "201", "abc", "1.5", "-1"]) {
+        const res = await env.request(`/api/account/transactions?limit=${bad}`);
+        expect(res.status, bad).toBe(400);
+        expect(((await res.json()) as { error: string }).error).toBe("invalid_body");
+      }
+    },
+    LEDGER_FILL_TIMEOUT_MS,
+  );
 
   it("порожній леджер → {entries: [], nextBefore: null}; бачить лише свої", async () => {
     const env = await setup();
