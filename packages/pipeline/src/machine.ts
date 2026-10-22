@@ -19,6 +19,7 @@ import {
   type PipelineInput,
   type ProjectState,
   type ProjectStatus,
+  primaryFormat,
   projectPaths,
   type ReviewIssue,
   readTuning,
@@ -721,8 +722,10 @@ function onStageEvent(d: Draft, ev: StageDoneEvent): void {
   if (idx < 0) return; // застаріла ревізія або подвійна подія — ігноруємо
   const [job] = d.pipe.outstanding.splice(idx, 1) as [JobRecord];
   d.effects.push({ type: "cost", stage: ev.stage, rev: ev.rev, durationMs: ev.durationMs });
-  // Готовий mp4 перевикористає звичайний job після «Затвердити»; тут лише знімаємо job з обліку.
-  if (isSpeculative(job)) return;
+  if (isSpeculative(job)) {
+    onSpeculativeDone(d, job, ev);
+    return;
+  }
 
   if (ev.type === "stage_failed") {
     onStageFailed(d, job, ev);
@@ -1070,20 +1073,35 @@ function maybeJoin(d: Draft): void {
   if (d.status !== "directing" || branches.video !== "done" || branches.audio !== "done") return;
   if (d.hasOutstanding((j) => !isIoStage(j.stage)) || d.pipe.failedJobs.length > 0) return;
   d.setStatus("awaiting_storyboard");
+  // Відео-превʼю ЧП3 — завжди основний формат: його рендерять обидва перемикачі.
+  const previewFormat =
+    d.ctx.speculativeRender || d.ctx.storyboardPreview ? primaryFormat(d.project.formats) : null;
   d.effects.push({
     type: "checkpoint",
     checkpoint: "storyboard",
     rev: d.project.rev,
     changedScenes: d.pipe.changedScenes,
+    preview: previewFormat,
   });
-  if (d.ctx.speculativeRender) startSpeculativeRender(d);
+  if (d.ctx.speculativeRender) startSpeculativeRender(d, d.project.formats);
+  else if (previewFormat) startSpeculativeRender(d, [previewFormat]);
 }
 
 /** Рендер до затвердження розкадровки (jobId із суфіксом `spec-<format>`). */
-function startSpeculativeRender(d: Draft): void {
-  for (const format of d.project.formats) {
+function startSpeculativeRender(d: Draft, formats: readonly Format[]): void {
+  for (const format of formats) {
     d.enqueue("render", { format, speculative: true } satisfies RenderParams, `spec-${format}`);
   }
+}
+
+/**
+ * Спекулятивний рендер завершився: статус, `failedJobs` і видачу не чіпаємо — готовий mp4
+ * перевикористає звичайний job після «Затвердити». Для основного формату — подія превʼю ЧП3.
+ */
+function onSpeculativeDone(d: Draft, job: JobRecord, ev: StageDoneEvent): void {
+  const { format } = job.params as RenderParams;
+  if (format !== primaryFormat(d.project.formats)) return;
+  d.effects.push({ type: "preview", rev: ev.rev, format, ok: ev.type === "stage_done" });
 }
 
 function onRenderDone(d: Draft): void {
