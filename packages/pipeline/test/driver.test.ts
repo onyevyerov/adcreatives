@@ -1,4 +1,4 @@
-import { PipelineCounters, ProjectState, projectPaths, t } from "@adc/shared";
+import { ChatEvent, PipelineCounters, ProjectState, projectPaths, t } from "@adc/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Harness, intent } from "./helpers.ts";
 
@@ -99,6 +99,13 @@ describe("driver — happy path through three checkpoints", () => {
       expect(sb.payload.warnings).toHaveLength(1);
       expect(sb.payload.music).toEqual({ url: "/files/projects/p1/rev/1/video/public/music.mp3" });
       expect(sb.payload.templateScenes).toEqual([]);
+      // Таймінг усіх сцен для плеєра; превʼю в Harness за замовчуванням вимкнене.
+      expect(sb.payload.timeline?.map((x) => [x.sceneId, x.fromMs])).toEqual([
+        ["s1", 0],
+        ["s2", 4500],
+        ["s3", 9500],
+      ]);
+      expect(sb.payload.preview).toBeNull();
     }
 
     await h.approve();
@@ -162,6 +169,16 @@ async function toStoryboard(h: Harness) {
   await h.approve();
   await h.runUntilIdle();
 }
+/** До чекпоінта 3, не запускаючи спекулятивні job. */
+async function toCheckpoint3(h: Harness) {
+  await toScript(h);
+  await h.approve();
+  for (let i = 0; i < 100 && (await h.project()).project.status !== "awaiting_storyboard"; i++) {
+    if (!(await h.runNext())) break;
+  }
+  expect((await h.project()).project.status).toBe("awaiting_storyboard");
+}
+const renderJobs = (h: Harness) => h.pendingJobs().filter((j) => j.stage === "render");
 
 describe("driver — edits on each checkpoint", () => {
   it("checkpoint 1: brand edit → brandkit-patch → checkpoint 1 again", async () => {
@@ -442,17 +459,6 @@ describe("driver — speculative render (ADC_SPECULATIVE_RENDER)", () => {
     vi.unstubAllEnvs();
   });
 
-  /** До чекпоінта 3, не запускаючи спекулятивні job. */
-  async function toCheckpoint3(h: Harness) {
-    await toScript(h);
-    await h.approve();
-    for (let i = 0; i < 100 && (await h.project()).project.status !== "awaiting_storyboard"; i++) {
-      if (!(await h.runNext())) break;
-    }
-    expect((await h.project()).project.status).toBe("awaiting_storyboard");
-  }
-  const renderJobs = (h: Harness) => h.pendingJobs().filter((j) => j.stage === "render");
-
   it("reads the flag via readTuning: spec renders start with checkpoint 3 and never deliver", async () => {
     const h = new Harness();
     await toCheckpoint3(h);
@@ -539,6 +545,83 @@ describe("driver — speculative render (ADC_SPECULATIVE_RENDER)", () => {
     vi.stubEnv("ADC_SPECULATIVE_RENDER", "");
     const h = new Harness();
     await toStoryboard(h);
+    expect(h.jobsOf("render")).toEqual([]);
+  });
+});
+
+describe("driver — відео-превʼю ЧП3 (storyboardPreview)", () => {
+  beforeEach(() => {
+    // Превʼю саме по собі, без спекулятивного рендеру всіх форматів.
+    vi.stubEnv("ADC_SPECULATIVE_RENDER", "");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** Усі події стріму проходять схему чату (як їх читає API). */
+  function expectValidEvents(h: Harness) {
+    for (const ev of h.events) expect(() => ChatEvent.parse(ev)).not.toThrow();
+  }
+
+  it("вхід у ЧП3 → checkpoint з preview.format; спекулятивний stage_done → подія preview ready з URL", async () => {
+    const h = new Harness({ storyboardPreview: true });
+    await toCheckpoint3(h);
+    expect(renderJobs(h).map((j) => [j.jobId, j.params])).toEqual([
+      ["p1.render.r1.a1.spec-vertical", { format: "vertical", speculative: true }],
+    ]);
+    const cp = h.checkpoints().at(-1);
+    if (cp?.payload.checkpoint !== "storyboard") throw new Error("очікувався чекпоінт 3");
+    expect(cp.payload.preview).toEqual({ format: "vertical" });
+    expect(cp.payload.timeline).toHaveLength(3);
+    expect(h.eventsOf("preview")).toEqual([]);
+
+    await h.runNext("render");
+    const url = h.storage.publicUrl(projectPaths("p1").rev(1).render("vertical"));
+    expect(h.eventsOf("preview")).toEqual([
+      { type: "preview", at: expect.any(String), rev: 1, format: "vertical", state: "ready", url },
+    ]);
+    const s = await h.project();
+    expect(s.project.status).toBe("awaiting_storyboard");
+    expect(h.eventsOf("artifact")).toEqual([]);
+    expect(h.eventsOf("error")).toEqual([]);
+    expectValidEvents(h);
+
+    // «Затвердити» — звичайний рендер основного формату (перевикористання — справа воркера).
+    await h.approve();
+    expect(renderJobs(h).map((j) => j.jobId)).toEqual(["p1.render.r1.a1.vertical"]);
+    await h.runUntilIdle();
+    expect((await h.project()).project.status).toBe("delivered");
+    expect(h.eventsOf("preview")).toHaveLength(1);
+    expectValidEvents(h);
+  });
+
+  it("спекулятивний рендер упав → preview failed без URL; ні error-події, ні повідомлення", async () => {
+    const h = new Harness({
+      storyboardPreview: true,
+      behaviors: {
+        render: (job) => (job.params.speculative ? { fail: { userMessage: "Рендер упав." } } : undefined),
+      },
+    });
+    await toCheckpoint3(h);
+    const messages = h.messages().length;
+    await h.runNext("render");
+    expect(h.eventsOf("preview")).toEqual([
+      { type: "preview", at: expect.any(String), rev: 1, format: "vertical", state: "failed", url: null },
+    ]);
+    expect(h.eventsOf("error")).toEqual([]);
+    expect(h.messages()).toHaveLength(messages);
+    const s = await h.project();
+    expect(s.project.status).toBe("awaiting_storyboard");
+    expect(s.project.failure).toBeNull();
+    expectValidEvents(h);
+  });
+
+  it("Harness без опції — превʼю вимкнене: checkpoint з preview: null, жодного render-job", async () => {
+    const h = new Harness();
+    await toCheckpoint3(h);
+    const cp = h.checkpoints().at(-1);
+    if (cp?.payload.checkpoint !== "storyboard") throw new Error("очікувався чекпоінт 3");
+    expect(cp.payload.preview).toBeNull();
     expect(h.jobsOf("render")).toEqual([]);
   });
 });

@@ -34,6 +34,7 @@ import {
   buildBrandCheckpoint,
   buildCostEvent,
   buildDelivery,
+  buildPreviewEvent,
   buildScriptCheckpoint,
   buildStageCostEvent,
   buildStoryboardCheckpoint,
@@ -80,8 +81,9 @@ export interface PipelineDriverDeps {
   /** Писати репліку клієнта в стрім (`role: "user"`). Дефолт false — це робить API. */
   echoUserMessages?: boolean;
   /**
-   * Перемикачі (`speculativeRender`, `generationMode`, `sfxMode`, `musicProvider`, `sfxProvider`,
-   * `filmReview`, `reviewMaxRounds`); дефолт — `readTuning()` з env на кожен крок. Режими генерації і
+   * Перемикачі (`speculativeRender`, `storyboardPreview`, `generationMode`, `sfxMode`, `musicProvider`,
+   * `sfxProvider`, `filmReview`, `reviewMaxRounds`); дефолт — `readTuning()` з env на кожен крок.
+   * Не задане `storyboardPreview` — превʼю ЧП3 вимкнене (машина env не читає). Режими генерації і
    * звуку та провайдери читаються на кожен крок, тож зміна `ADC_GENERATION_MODE`/`ADC_SFX_MODE`/
    * `ADC_MUSIC_PROVIDER`/`ADC_SFX_PROVIDER` діє з наступного старту режисури (поточна ревізія доходить
    * тим самим шляхом: обробник `author` не залежить від env, режим звуку і провайдери — у `pipe`).
@@ -91,7 +93,13 @@ export interface PipelineDriverDeps {
     Partial<
       Pick<
         Tuning,
-        "generationMode" | "sfxMode" | "musicProvider" | "sfxProvider" | "filmReview" | "reviewMaxRounds"
+        | "storyboardPreview"
+        | "generationMode"
+        | "sfxMode"
+        | "musicProvider"
+        | "sfxProvider"
+        | "filmReview"
+        | "reviewMaxRounds"
       >
     >;
   /**
@@ -298,6 +306,7 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
     const ctx: StepContext = { now: now().toISOString() };
     const tun = tuning();
     if (tun.speculativeRender) ctx.speculativeRender = true;
+    if (tun.storyboardPreview) ctx.storyboardPreview = true;
     if (tun.generationMode === "agent") ctx.generationMode = "agent";
     if (tun.sfxMode !== undefined) ctx.sfxMode = tun.sfxMode;
     if (tun.musicProvider !== undefined) ctx.musicProvider = tun.musicProvider;
@@ -358,12 +367,29 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
           events = await buildStoryboardCheckpoint(storage, project, effect.rev, {
             templateScenes: res.pipe.templateScenes,
             changedScenes: effect.changedScenes,
+            preview: effect.preview ?? null,
+            logger,
           });
         await emitAll(project.id, events);
         return;
       }
       case "delivery":
         await emitAll(project.id, await buildDelivery(storage, project, effect.rev, effect.formats));
+        return;
+      case "preview":
+        // Превʼю необовʼязкове: збій — лише слід у журналі, без error-події в чат.
+        try {
+          await emitAll(project.id, [
+            await buildPreviewEvent(storage, project, effect.rev, effect.format, effect.ok),
+          ]);
+        } catch (err) {
+          logger.warn("подію превʼю не зібрано", {
+            projectId: project.id,
+            rev: effect.rev,
+            format: effect.format,
+            err: String(err),
+          });
+        }
         return;
       case "reply": {
         let text: string;

@@ -78,7 +78,15 @@
  * )} FeedItem
  */
 
-/** @typedef {{ rev: number, at: string, payload: CheckpointPayload, state: "open" | "approved" | "superseded" }} CheckpointEntry */
+/**
+ * Відео-превʼю ЧП3: `pending` — з checkpoint-події до події `preview`; `url` — лише при `ready`.
+ * @typedef {{ format: Format, state: "pending" | "ready" | "failed", url: string | null }} PreviewState
+ */
+
+/**
+ * `preview` — лише в entry `storyboard` (null — превʼю вимкнене або стара подія).
+ * @typedef {{ rev: number, at: string, payload: CheckpointPayload, state: "open" | "approved" | "superseded", preview?: PreviewState | null }} CheckpointEntry
+ */
 
 // ───────────── Акаунти (Крок 0 фронтенду акаунтів, заморожено) ─────────────
 
@@ -305,7 +313,16 @@
 // ───────────── Константи (перенесені з попереднього index.html без змін) ─────────────
 
 /** @type {readonly ChatEventType[]} */
-export const EVENT_TYPES = ["message", "progress", "checkpoint", "artifact", "cost", "state", "error"];
+export const EVENT_TYPES = [
+  "message",
+  "progress",
+  "checkpoint",
+  "artifact",
+  "cost",
+  "state",
+  "error",
+  "preview",
+];
 
 /** @type {Record<Format, string>} */
 export const FORMAT_LABELS = { vertical: "9:16", square: "1:1", landscape: "16:9" };

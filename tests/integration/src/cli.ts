@@ -109,6 +109,10 @@ export function formatEvent(event: ChatEvent, root: string): string | null {
       return `$ Витрачено: $${event.totalUsd.toFixed(2)}${event.stage ? ` (${event.stage}: $${event.stageUsd.toFixed(3)})` : ""}`;
     case "error":
       return `! ${event.message}${event.retryable ? " (можна повторити: /retry)" : ""}`;
+    case "preview":
+      return event.url
+        ? `▶ Превʼю ${FORMAT_LABEL[event.format]}: ${localPath(root, event.url)}`
+        : `▶ Превʼю ${FORMAT_LABEL[event.format]} не вдалося`;
     case "artifact":
       return `📎 ${event.kind}${event.format ? ` ${FORMAT_LABEL[event.format]}` : ""}: ${localPath(root, event.url)}`;
     case "checkpoint": {

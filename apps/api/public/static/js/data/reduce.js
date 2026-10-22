@@ -21,6 +21,7 @@ import { AWAITING, BUSY, CHECKPOINT_STATUS } from "../contracts.js";
 /** @typedef {import("../contracts.js").FeedItem} FeedItem */
 /** @typedef {import("../contracts.js").ChatEvent} ChatEvent */
 /** @typedef {import("../contracts.js").Checkpoint} Checkpoint */
+/** @typedef {import("../contracts.js").CheckpointEntry} CheckpointEntry */
 /** @typedef {import("../contracts.js").ProjectStatus} ProjectStatus */
 /**
  * @template {import("../contracts.js").ChatEventType} T
@@ -180,6 +181,41 @@ function onArtifact(s, ev) {
 }
 
 /**
+ * Entry чекпоінта з події. Лише в storyboard — `preview`: `pending`, якщо бекенд рендерить
+ * превʼю (`payload.preview`), `null` — превʼю вимкнене; стара подія без поля — entry без нього.
+ * @param {EventOf<"checkpoint">} ev
+ * @returns {CheckpointEntry}
+ */
+function checkpointEntry(ev) {
+  /** @type {CheckpointEntry} */
+  const entry = { rev: ev.rev, at: ev.at, payload: ev.payload, state: "open" };
+  if (ev.payload.checkpoint !== "storyboard" || ev.payload.preview === undefined) return entry;
+  const p = ev.payload.preview;
+  return { ...entry, preview: p ? { format: p.format, state: "pending", url: null } : null };
+}
+
+/**
+ * Превʼю ЧП3 готове/впало: лише для поточної ревізії storyboard; у стрічку не потрапляє.
+ * Повтор тієї самої події повертає той самий стан.
+ * @param {UiState} s
+ * @param {EventOf<"preview">} ev
+ * @returns {UiState}
+ */
+function onPreview(s, ev) {
+  const entry = s.checkpoints.storyboard;
+  if (!entry || entry.rev !== ev.rev) return s;
+  const cur = entry.preview;
+  if (cur && cur.format === ev.format && cur.state === ev.state && cur.url === ev.url) return s;
+  return {
+    ...s,
+    checkpoints: {
+      ...s.checkpoints,
+      storyboard: { ...entry, preview: { format: ev.format, state: ev.state, url: ev.url } },
+    },
+  };
+}
+
+/**
  * Застосовує подію чату до стану UI.
  * @param {UiState} state
  * @param {ChatEvent} event
@@ -212,10 +248,7 @@ export function reduce(state, event, eventId) {
       if (hasFeedId(s.feed, id)) return s;
       return {
         ...s,
-        checkpoints: {
-          ...s.checkpoints,
-          [event.checkpoint]: { rev: event.rev, at: event.at, payload: event.payload, state: "open" },
-        },
+        checkpoints: { ...s.checkpoints, [event.checkpoint]: checkpointEntry(event) },
         feed: [
           ...closeProgress(s.feed),
           { kind: "checkpoint", id, at: event.at, checkpoint: event.checkpoint, rev: event.rev },
@@ -225,6 +258,8 @@ export function reduce(state, event, eventId) {
       return onState(s, event);
     case "artifact":
       return onArtifact(s, event);
+    case "preview":
+      return onPreview(s, event);
     case "cost":
       return { ...s, totalUsd: event.totalUsd, breakdown: event.breakdown ?? s.breakdown };
     case "error": {

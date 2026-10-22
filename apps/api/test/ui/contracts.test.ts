@@ -18,6 +18,7 @@ import {
   AWAITING,
   BUSY,
   CHECKPOINT_STATUS,
+  EVENT_TYPES,
   FORMATS,
   SEGMENTS,
   STATUS_LABELS,
@@ -232,6 +233,11 @@ describe("contracts.js / view.js", () => {
     expect(Object.keys(STATUS_LABELS).sort()).toEqual([...PROJECT_STATUSES].sort());
     expect(Object.values(CHECKPOINT_STATUS).sort()).toEqual([...AWAITING].sort());
     expect([...FORMATS]).toEqual(["vertical", "square", "landscape"]);
+  });
+
+  it("EVENT_TYPES = типи ChatEvent", () => {
+    const types = ChatEvent.options.map((o) => o.shape.type.value);
+    expect([...EVENT_TYPES].sort()).toEqual([...types].sort());
   });
 
   it("ваги сегментів дають ромби з C3", () => {

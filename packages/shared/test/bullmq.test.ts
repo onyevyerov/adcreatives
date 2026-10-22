@@ -2,7 +2,7 @@ import type { JobsOptions } from "bullmq";
 import { describe, expect, it } from "vitest";
 import { type BullQueueLike, createBullQueue, stageEventJobId } from "../src/bullmq.ts";
 import type { PipelineJob, QueueName, StageJob, StageName, StageParamsMap } from "../src/index.ts";
-import { makeJobId } from "../src/index.ts";
+import { makeJobId, SPECULATIVE_RENDER_PRIORITY } from "../src/index.ts";
 
 function stageJob<S extends StageName>(
   stage: S,
@@ -49,6 +49,25 @@ describe("BullQueue (producer)", () => {
       ["render", "render", "p1.render.r1.a1.landscape", 1],
     ]);
     expect(bull.added[0]?.data).toMatchObject({ projectId: "p1", stage: "crawl", attempt: 1 });
+  });
+
+  it("speculative render jobs get a lower priority; regular jobs stay unprioritized", async () => {
+    const bull = fakeBull();
+    const q = createBullQueue({ factory: bull.factory });
+    await q.enqueueStage(
+      stageJob("render", { format: "vertical", speculative: true }, { suffix: "spec-vertical" }),
+    );
+    await q.enqueueStage(stageJob("render", { format: "vertical" }, { suffix: "vertical" }));
+    await q.enqueueStage(stageJob("render", { format: "square", speculative: false }, { suffix: "square" }));
+    await q.enqueueStage(stageJob("audio", {}));
+    expect(bull.added.map((a) => [a.opts?.jobId, a.opts?.priority])).toEqual([
+      ["p1.render.r1.a1.spec-vertical", SPECULATIVE_RENDER_PRIORITY],
+      ["p1.render.r1.a1.vertical", undefined],
+      ["p1.render.r1.a1.square", undefined],
+      ["p1.audio.r1.a1", undefined],
+    ]);
+    expect(bull.added.map((a) => a.opts && "priority" in a.opts)).toEqual([true, false, false, false]);
+    expect(bull.added[0]?.opts).toMatchObject({ attempts: 1, jobId: "p1.render.r1.a1.spec-vertical" });
   });
 
   it("enqueuePipeline passes jobId and delay; commands and events both go to `pipeline`", async () => {

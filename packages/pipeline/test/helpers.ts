@@ -23,15 +23,20 @@ import {
   projectPaths,
   type QaReport,
   type ReviewIssue,
+  readTuning,
   recordCost,
   type StageDoneEvent,
   type StageJob,
   type StageName,
   type StageOutputsMap,
-  type Tuning,
 } from "@adc/shared";
 import { fixtureAssets, fixtureBrandKitFile, fixtureStoryboard } from "@adc/shared/fixtures";
-import { createChatLlmFactory, createInitialProject, createPipelineDriver } from "../src/driver.ts";
+import {
+  createChatLlmFactory,
+  createInitialProject,
+  createPipelineDriver,
+  type PipelineDriverDeps,
+} from "../src/driver.ts";
 import { intakeKey } from "../src/intake.ts";
 import { createMemoryLock } from "../src/lock.ts";
 
@@ -68,15 +73,15 @@ export interface HarnessOptions {
   /**
    * Перемикачі драйвера (`generationMode: "agent"` — сцени пише стадія author; `sfxMode`, `filmReview`,
    * `reviewMaxRounds` — звукорежисер і рецензент; `musicProvider`, `sfxProvider` — хто дає музику і SFX).
-   * Не задані поля машина бере з env.
+   * Не задано — `readTuning()` з env на кожен крок (як у драйвера); не задані поля машина бере з env.
    */
-  tuning?: () => Pick<Tuning, "speculativeRender"> &
-    Partial<
-      Pick<
-        Tuning,
-        "generationMode" | "sfxMode" | "musicProvider" | "sfxProvider" | "filmReview" | "reviewMaxRounds"
-      >
-    >;
+  tuning?: PipelineDriverDeps["tuning"];
+  /**
+   * Відео-превʼю ЧП3 (`Tuning.storyboardPreview`), коли його не задає `tuning`. Дефолт false, хоч у
+   * проді — on: інакше кожен вхід у ЧП3 ставить спекулятивний render-job і сценарні тести, що
+   * рахують job'и, залежали б від превʼю. Тести превʼю вмикають його явно.
+   */
+  storyboardPreview?: boolean;
   /** Зауваження, які фейковий `review` пише в `review.json` (n — номер виклику стадії). */
   reviewIssues?: (n: number) => ReviewIssue[];
   /**
@@ -89,6 +94,14 @@ export interface HarnessOptions {
 
 /** Власник проєкту в тестах білінгу. */
 export const TEST_OWNER = "u_test0001";
+
+/** Перемикачі драйвера Harness: `tuning` або env, а `storyboardPreview` — з опції (дефолт false). */
+function harnessTuning(opts: HarnessOptions): NonNullable<PipelineDriverDeps["tuning"]> {
+  const preview = opts.storyboardPreview ?? false;
+  const tuning = opts.tuning;
+  if (tuning) return () => ({ storyboardPreview: preview, ...tuning() });
+  return () => ({ ...readTuning(), storyboardPreview: preview });
+}
 
 /**
  * Обв'язка сценарних тестів: справжній драйвер, LocalStorage у тимчасовій теці,
@@ -139,7 +152,7 @@ export class Harness {
       }),
       now: this.now,
       echoUserMessages: opts.echoUserMessages ?? false,
-      ...(opts.tuning ? { tuning: opts.tuning } : {}),
+      tuning: harnessTuning(opts),
       ...(this.accounts ? { billing: { store: this.accounts, prices: this.prices } } : {}),
     });
   }

@@ -121,7 +121,7 @@ async function readRenderMeta(storage: Storage, key: string): Promise<RenderMeta
  * Стадія `render`: один job на формат → `rev/<n>/renders/<format>.mp4` (+ постер в основному форматі).
  * Якщо `renders/<format>.meta.json` має той самий хеш входів і mp4 (і постер) на місці — рендер
  * перевикористовується (`reused: true`, без витрат Remotion). Спекулятивний рендер (до «Затвердити»)
- * не пише прогрес у чат.
+ * не пише прогрес у чат, а для застарілої ревізії падає з `superseded` без рендеру.
  */
 export function createRenderStage(deps: RenderStageDeps): Stage<"render"> {
   return async (ctx: StageContext<"render">) => {
@@ -129,6 +129,17 @@ export function createRenderStage(deps: RenderStageDeps): Stage<"render"> {
     const { storage, projectId, rev } = ctx;
     const paths = projectPaths(projectId).rev(rev);
     const project = await readProject(storage, projectId);
+    const speculative = ctx.params.speculative === true;
+    // Превʼю старої ревізії (після «Правки» job уже стояв у черзі) не рендеримо: слот черги один,
+    // а результат машина однаково проігнорує.
+    if (speculative && project.rev !== rev) {
+      throw new StageError(
+        "спекулятивний рендер застарілої ревізії",
+        "superseded",
+        "Превʼю застаріло.",
+        false,
+      );
+    }
     const isPrimary = primaryFormat(project.formats) === format;
     const templateScenes = await readTemplateScenes(storage, projectId, rev);
 
@@ -154,7 +165,7 @@ export function createRenderStage(deps: RenderStageDeps): Stage<"render"> {
     const artifacts = isPrimary ? [outKey, paths.poster] : [outKey];
 
     const label = FORMAT_LABEL[format];
-    const quiet = ctx.params.speculative === true;
+    const quiet = speculative;
     // Прогрес у чат — не частіше ніж кожні 10% (крок 0 — стартове повідомлення).
     let lastStep = 0;
     let progressChain: Promise<unknown> = Promise.resolve();
@@ -199,8 +210,12 @@ export function createRenderStage(deps: RenderStageDeps): Stage<"render"> {
           }
         },
       });
-      // Витрати пишемо одразу після рендеру — збій постера їх не губить.
-      await ctx.cost.record({ provider: "remotion", renders: 1, detail: `render ${format}` });
+      // Витрати пишемо одразу після рендеру — збій постера їх не губить. Спекулятивний — як «preview».
+      await ctx.cost.record({
+        provider: "remotion",
+        renders: 1,
+        detail: `${speculative ? "preview" : "render"} ${format}`,
+      });
 
       if (isPrimary) {
         const { frame } = posterFrame(inputProps.storyboard);

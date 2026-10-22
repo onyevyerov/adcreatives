@@ -3,6 +3,7 @@ import RedisMock from "ioredis-mock";
 import { describe, expect, it } from "vitest";
 import { appendEvent, createEmitter, eventsKey } from "../src/events/emit.ts";
 import { compareStreamIds, lastEventId, readEvents } from "../src/events/stream.ts";
+import { ChatEvent, StoryboardCheckpointPayload } from "../src/schemas/events.ts";
 
 // ioredis-mock ділить дані між інстансами — кожен тест чистить базу.
 const newRedis = async () => {
@@ -43,5 +44,54 @@ describe("events stream", () => {
     expect(compareStreamIds("10-0", "9-5")).toBeGreaterThan(0);
     expect(compareStreamIds("5-2", "5-10")).toBeLessThan(0);
     expect(compareStreamIds("5-2", "5-2")).toBe(0);
+  });
+});
+
+describe("відео-превʼю ЧП3 (схеми)", () => {
+  const at = "2026-10-22T10:00:00.000Z";
+
+  it("PreviewEvent: ready з url і failed з null — через ChatEvent", () => {
+    const ready = {
+      type: "preview",
+      at,
+      rev: 2,
+      format: "vertical",
+      state: "ready",
+      url: "/files/p1/rev/2/renders/vertical.mp4",
+    };
+    const failed = { type: "preview", at, rev: 2, format: "vertical", state: "failed", url: null };
+    expect(ChatEvent.parse(ready)).toEqual(ready);
+    expect(ChatEvent.parse(failed)).toEqual(failed);
+    expect(ChatEvent.safeParse({ ...ready, state: "pending" }).success).toBe(false);
+  });
+
+  it("StoryboardCheckpointPayload: стара подія без timeline/preview і нова з ними — валідні", () => {
+    const old = {
+      checkpoint: "storyboard",
+      primaryFormat: "vertical",
+      stills: [],
+      sheets: [],
+      warnings: [],
+      templateScenes: [],
+      music: null,
+      changedScenes: null,
+    };
+    expect(StoryboardCheckpointPayload.safeParse(old).success).toBe(true);
+    const next = {
+      ...old,
+      timeline: [
+        { sceneId: "s1", fromMs: 0, durationMs: 4000 },
+        { sceneId: "s2", fromMs: 3500, durationMs: 5000 },
+      ],
+      preview: { format: "vertical" },
+    };
+    expect(StoryboardCheckpointPayload.parse(next)).toEqual(next);
+    expect(StoryboardCheckpointPayload.safeParse({ ...old, timeline: [], preview: null }).success).toBe(true);
+    expect(
+      StoryboardCheckpointPayload.safeParse({
+        ...old,
+        timeline: [{ sceneId: "s1", fromMs: 0, durationMs: 0 }],
+      }).success,
+    ).toBe(false);
   });
 });
