@@ -216,9 +216,10 @@ describe("пайплайн від URL до mp4", () => {
     expect(
       [...costs, ...shared].some((e) => e.provider === "elevenlabs" && e.detail?.startsWith("sfx")),
     ).toBe(true);
-    // Рендер — лише спекулятивний: звичайні job перевикористали mp4 і витрат Remotion не писали.
+    // Рендер — лише спекулятивний (облік `preview <format>`): звичайні job перевикористали mp4 і
+    // витрат Remotion не писали.
     const renders = costs.filter((e) => e.provider === "remotion");
-    expect(renders.map((e) => e.detail).sort()).toEqual(["render square", "render vertical"]);
+    expect(renders.map((e) => e.detail).sort()).toEqual(["preview square", "preview vertical"]);
     expect(costs.every((e) => e.source === "test" && e.projectId === projectId)).toBe(true);
     expect(costs.every((e) => e.phase === "first_delivery")).toBe(true);
 
