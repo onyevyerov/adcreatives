@@ -92,7 +92,7 @@
   height: 52px;
   padding: 0 0 8px;
   border: 0;
-  border-bottom: 1.5px solid var(--ink);
+  border-bottom: 1.5px solid var(--edge-strong);
   border-radius: 0;
   background: transparent;
   color: var(--ink);
@@ -109,10 +109,10 @@
   flex: none;
 }
 
-/* Спінер на --ink: трек --on-ink 30%, дуга --on-ink. */
+/* Спінер на --fill-strong: трек --on-fill-strong 30%, дуга --on-fill-strong. */
 .st-submit__spinner {
-  border-color: color-mix(in srgb, var(--on-ink) 30%, transparent);
-  border-top-color: var(--on-ink);
+  border-color: color-mix(in srgb, var(--on-fill-strong) 30%, transparent);
+  border-top-color: var(--on-fill-strong);
 }
 
 /* ── N3-A: рядок-статус після виходу ── */
@@ -233,7 +233,7 @@
 
 .st-manual__text:hover,
 .st-manual__text:focus {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .st-manual__text::placeholder {

@@ -1,9 +1,6 @@
 /* .cb- · B6 · чекпоінт 1, бренд-кіт (S2, S6, C6, C7, X2). */
 
 .cb {
-  --cb-tile-line: rgba(21, 20, 18, 0.14); /* рамка тайлів формату і лого (C6, X2) */
-  --cb-add-line: rgba(21, 20, 18, 0.25); /* пунктир «Додати фото» (C7) */
-
   display: flex;
   flex-direction: column;
   max-width: 1000px;
@@ -94,7 +91,7 @@
   height: 140px;
   padding: 12px;
   border-radius: var(--r-12);
-  box-shadow: inset 0 0 0 1px var(--line-soft);
+  box-shadow: inset 0 0 0 1px var(--media-ring);
   color: var(--ink-2);
 }
 
@@ -181,19 +178,19 @@
   width: 200px;
   height: 96px;
   padding: 16px;
-  border: 1.5px solid var(--cb-tile-line);
+  border: 1.5px solid var(--line-tile);
   border-radius: var(--r-14);
-  background: var(--card);
+  background: var(--logo-plate);
   color: var(--ink);
   transition: border-color var(--t-hover);
 }
 
 button.cb-logo:hover:not(:disabled) {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .cb-logo.is-on {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .cb-logo:disabled {
@@ -224,14 +221,14 @@ button.cb-logo:hover:not(:disabled) {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--media-bg);
+  color: var(--on-media);
   font: 500 11px / 20px var(--f-mono);
   text-align: center;
 }
 
 .cb-logo--text {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .cb-logo__text {
@@ -356,7 +353,7 @@ button.cb-logo:hover:not(:disabled) {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border: 1.5px dashed var(--cb-add-line);
+  border: 1.5px dashed var(--line-dashed);
   background: transparent;
   color: var(--ink-2);
   font: 500 13px / 1 var(--f-ui);
@@ -366,7 +363,7 @@ button.cb-logo:hover:not(:disabled) {
 }
 
 .cb-photo--add:hover:not(:disabled) {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
   color: var(--ink);
 }
 
@@ -440,7 +437,7 @@ button.cb-logo:hover:not(:disabled) {
   width: 124px;
   height: 132px;
   padding: 14px 10px;
-  border: 1.5px solid var(--cb-tile-line);
+  border: 1.5px solid var(--line-tile);
   border-radius: var(--r-14);
   background: transparent;
   color: var(--ink);
@@ -450,11 +447,11 @@ button.cb-logo:hover:not(:disabled) {
 }
 
 .cb-fmt:hover:not(:disabled) {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .cb-fmt.is-on {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
   background: var(--paper);
 }
 

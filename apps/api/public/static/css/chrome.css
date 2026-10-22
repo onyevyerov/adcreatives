@@ -159,7 +159,7 @@
   bottom: 0;
   left: 0;
   width: 0;
-  background: repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 8px);
+  background: repeating-linear-gradient(90deg, var(--progress) 0 1px, transparent 1px 8px);
   transition: width var(--t-playhead) var(--ease);
 }
 

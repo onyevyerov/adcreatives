@@ -40,12 +40,12 @@
 
 .cab-prof__input:hover,
 .cab-prof__input:focus {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .cab-prof__input:focus-visible {
   outline: none;
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .cab-prof__input[aria-invalid="true"] {
@@ -152,8 +152,8 @@
   gap: 12px;
 }
 
-/* Спінер на primary — світлий (Референс: доріжка --on-ink 30%, верх --on-ink). */
+/* Спінер на primary — світлий (Референс: доріжка --on-fill-strong 30%, верх --on-fill-strong). */
 .cab-prof__submit .spinner {
-  border-color: color-mix(in srgb, var(--on-ink) 30%, transparent);
-  border-top-color: var(--on-ink);
+  border-color: color-mix(in srgb, var(--on-fill-strong) 30%, transparent);
+  border-top-color: var(--on-fill-strong);
 }

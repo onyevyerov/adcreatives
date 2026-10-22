@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@200;300;400;500&amp;family=Onest:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>
+html,body{margin:0;background:#E9E6DF;color:#151412;-webkit-font-smoothing:antialiased;}
+*{box-sizing:border-box;}
+a{color:inherit;text-decoration:underline;text-underline-offset:3px;}
+a:hover{color:#D4402A;}
+button,input,textarea{font:inherit;color:inherit;}
+input::placeholder,textarea::placeholder{color:var(--muted);opacity:1;}
+:focus{outline:none;}
+:focus-visible{outline:2px solid var(--focus-ring,#151412);outline-offset:2px;}
+::selection{background:var(--fill-strong,#151412);color:var(--on-fill-strong,#F5F3EE);}
+::view-transition-old(root),::view-transition-new(root){animation-duration:.2s;animation-timing-function:cubic-bezier(.2,.8,.2,1);}
+@keyframes adcFade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes adcPulse{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes adcSpin{to{transform:rotate(360deg)}}
+@keyframes adcRing{0%{box-shadow:0 0 0 0 var(--accent-ring)}100%{box-shadow:0 0 0 9px var(--accent-ring-0)}}
+@media (prefers-reduced-motion: reduce){@keyframes adcFade{from{opacity:0}to{opacity:1}}@keyframes adcPulse{to{opacity:1}}@keyframes adcSpin{to{transform:none}}@keyframes adcRing{to{box-shadow:none}}}
+</style>
+</helmet>
+
+<div style="display:flex; flex-direction:column; gap:112px; width:6160px; padding:72px 80px 140px; font-family:'Onest',sans-serif;">
+
+  <header style="width:1600px; display:flex; justify-content:space-between; align-items:flex-end; gap:48px; padding-bottom:40px; border-bottom:1.5px solid #151412;">
+    <div style="display:flex; flex-direction:column; gap:20px;">
+      <div style="display:flex; align-items:center; gap:10px;"><span style="width:9px; height:9px; border-radius:50%; background:#D4402A;"></span><span style="font:500 15px/1 'Unbounded',sans-serif; letter-spacing:-0.02em;">AdCreative</span><span style="font:400 12.5px/1 'JetBrains Mono',monospace; color:#6E6A63;">/ Dark Reference · напрям 1a «Графіт»</span></div>
+      <h1 style="margin:0; font:300 88px/0.95 'Unbounded',sans-serif; letter-spacing:-0.05em;">Темна тема і перемикач<span style="color:#D4402A;">.</span></h1>
+      <p style="margin:0; max-width:900px; font:400 18px/1.55 'Onest',sans-serif; color:#3A3833; text-wrap:pretty;">Еталон для ТЗ <span style="font:500 15px 'JetBrains Mono',monospace;">docs/design/dark-theme-spec.md</span>. Змінюється лише колір і трекінг дисплейних кеглів; розкладка, тексти, шрифти й радіуси — як у <span style="font:500 15px 'JetBrains Mono',monospace;">AdCreative Reference.dc.html</span>. Усі кадри зібрано на тих самих CSS-правилах, переписаних на нові токени. Id кадру = id фікстури; темна тема відкривається як <span style="font:500 15px 'JetBrains Mono',monospace;">/?fixture=&lt;id&gt;&amp;theme=dark</span>.</p>
+    </div>
+    <nav style="display:grid; grid-template-columns:auto auto; gap:8px 28px; font:400 12.5px/1.5 'JetBrains Mono',monospace; color:#3A3833;">
+      <span style="color:#6E6A63;">T</span><a href="#T">Токени: світла ↔ темна, ролі, статус</a>
+      <span style="color:#6E6A63;">T·P</span><a href="#TP">Пари контрасту</a>
+      <span style="color:#6E6A63;">C, K</span><a href="#C">Компоненти в обох темах</a>
+      <span style="color:#6E6A63;">SW</span><a href="#SW">Перемикач: розміщення, стани, 390, поведінка</a>
+      <span style="color:#6E6A63;">D</span><a href="#D">Дані клієнта на темному</a>
+      <span style="color:#6E6A63;">S</span><a href="#S">Екрани (живі, перемикач працює)</a>
+    </nav>
+  </header>
+
+  <section id="T" style="width:1600px; display:flex; flex-direction:column; gap:28px;">
+    <div style="display:flex; align-items:baseline; gap:24px;"><span style="font:500 13px/1 'JetBrains Mono',monospace; color:#D4402A;">T</span><h2 style="margin:0; font:300 48px/1 'Unbounded',sans-serif; letter-spacing:-0.045em;">Токени</h2><span style="font:400 12.5px/1.5 'JetBrains Mono',monospace; color:#6E6A63;">tokens.css · :root (світла, значення без змін) і :root[data-theme="dark"]</span></div>
+    <div style="background:#FCFBF8; border-radius:20px; padding:12px 36px 28px;">
+      <sc-for list="{{ tokenGroups }}" as="g" hint-placeholder-count="8">
+        <div style="display:flex; flex-direction:column;">
+          <div style="padding:26px 0 10px; color:#6E6A63; font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ g.title }}</div>
+          <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="5">
+            <div style="display:grid; grid-template-columns:190px 250px 250px minmax(0,1fr) 150px; gap:0 20px; align-items:center; padding:9px 0; border-top:1px solid rgba(21,20,18,.08);">
+              <span style="font:500 12.5px/1.3 'JetBrains Mono',monospace;">{{ r.name }}</span>
+              <span style="display:flex; align-items:center; gap:12px; min-width:0;"><span style="flex:none; display:flex; align-items:center; justify-content:center; width:44px; height:28px; border-radius:6px; background:#F5F3EE; box-shadow:inset 0 0 0 1px rgba(21,20,18,.1);"><span style="width:28px; height:16px; border-radius:4px; background:{{ r.lightChip }};"></span></span><span style="min-width:0; font:400 11.5px/1.3 'JetBrains Mono',monospace; color:#3A3833; overflow-wrap:anywhere;">{{ r.light }}</span></span>
+              <span style="display:flex; align-items:center; gap:12px; min-width:0;"><span style="flex:none; display:flex; align-items:center; justify-content:center; width:44px; height:28px; border-radius:6px; background:#1C1A18; box-shadow:inset 0 0 0 1px rgba(235,231,226,.12);"><span style="width:28px; height:16px; border-radius:4px; background:{{ r.darkChip }};"></span></span><span style="min-width:0; font:400 11.5px/1.3 'JetBrains Mono',monospace; color:#3A3833; overflow-wrap:anywhere;">{{ r.dark }}</span></span>
+              <span style="font:400 13px/1.45 'Onest',sans-serif; color:#3A3833;">{{ r.role }}</span>
+              <span style="justify-self:start; padding:3px 8px; border-radius:5px; background:{{ r.badgeBg }}; color:{{ r.badgeFg }}; font:500 10.5px/1.3 'JetBrains Mono',monospace;">{{ r.status }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-for>
+      <p style="margin:24px 0 0; max-width:1100px; font:400 13px/1.55 'Onest',sans-serif; color:#3A3833;">Шкала поверхонь у темній (L oklch): чат <b style="font-weight:500;">{{ lSurf.chat }}</b> → сторінка <b style="font-weight:500;">{{ lSurf.paper }}</b> → сцена <b style="font-weight:500;">{{ lSurf.stage }}</b> → картка <b style="font-weight:500;">{{ lSurf.card }}</b>; кадр <b style="font-weight:500;">{{ lSurf.media }}</b> нижче за все. Той самий порядок, що в світлій (0.952 → 0.964 → 0.976 → 0.988), кроки ×1.4–1.7, бо в темряві різниця світлоти читається гірше. Тон h 75, хрома ≤ 0.009 — родич #F5F3EE, не «синій графіт».</p>
+    </div>
+  </section>
+
+  <section id="TP" style="width:1600px; display:flex; flex-direction:column; gap:28px;">
+    <div style="display:flex; align-items:baseline; gap:24px;"><span style="font:500 13px/1 'JetBrains Mono',monospace; color:#D4402A;">T·P</span><h2 style="margin:0; font:300 48px/1 'Unbounded',sans-serif; letter-spacing:-0.045em;">Пари контрасту</h2><span style="font:400 12.5px/1.5 'JetBrains Mono',monospace; color:#6E6A63;">WCAG 2.x · текст ≥ 4.5 · великий текст і межі, що ідентифікують контрол, ≥ 3 · рахується наживо з токенів</span></div>
+    <div style="background:#FCFBF8; border-radius:20px; padding:20px 36px 28px; display:grid; grid-template-columns:minmax(0,1fr) 190px 64px 110px 110px minmax(0,0.9fr); gap:0 20px; font:400 13px/1.4 'Onest',sans-serif;">
+      <span style="padding:10px 0; color:#6E6A63; font:400 11.5px 'JetBrains Mono',monospace; border-bottom:1px solid rgba(21,20,18,.1);">пара</span><span style="padding:10px 0; color:#6E6A63; font:400 11.5px 'JetBrains Mono',monospace; border-bottom:1px solid rgba(21,20,18,.1);">токени</span><span style="padding:10px 0; color:#6E6A63; font:400 11.5px 'JetBrains Mono',monospace; border-bottom:1px solid rgba(21,20,18,.1);">поріг</span><span style="padding:10px 0; color:#6E6A63; font:400 11.5px 'JetBrains Mono',monospace; border-bottom:1px solid rgba(21,20,18,.1);">світла</span><span style="padding:10px 0; color:#6E6A63; font:400 11.5px 'JetBrains Mono',monospace; border-bottom:1px solid rgba(21,20,18,.1);">темна</span><span style="padding:10px 0; color:#6E6A63; font:400 11.5px 'JetBrains Mono',monospace; border-bottom:1px solid rgba(21,20,18,.1);">примітка</span>
+      <sc-for list="{{ pairRows }}" as="p" hint-placeholder-count="24">
+        <span style="padding:9px 0; border-bottom:1px solid rgba(21,20,18,.06);">{{ p.label }}</span><span style="padding:9px 0; border-bottom:1px solid rgba(21,20,18,.06); font:400 11.5px/1.4 'JetBrains Mono',monospace; color:#3A3833;">{{ p.tokens }}</span><span style="padding:9px 0; border-bottom:1px solid rgba(21,20,18,.06); font:400 12px/1.4 'JetBrains Mono',monospace; color:#6E6A63;">{{ p.need }}</span><span style="padding:9px 0; border-bottom:1px solid rgba(21,20,18,.06); font:500 12.5px/1.4 'JetBrains Mono',monospace; color:{{ p.lColor }};">{{ p.l }}</span><span style="padding:9px 0; border-bottom:1px solid rgba(21,20,18,.06); font:500 12.5px/1.4 'JetBrains Mono',monospace; color:{{ p.dColor }};">{{ p.d }}</span><span style="padding:9px 0; border-bottom:1px solid rgba(21,20,18,.06); font:400 12px/1.4 'Onest',sans-serif; color:#6E6A63;">{{ p.note }}</span>
+      </sc-for>
+    </div>
+  </section>
+
+  <section id="C" style="display:flex; flex-direction:column; gap:28px;">
+    <div style="width:1600px; display:flex; align-items:baseline; gap:24px;"><span style="font:500 13px/1 'JetBrains Mono',monospace; color:#D4402A;">C, K</span><h2 style="margin:0; font:300 48px/1 'Unbounded',sans-serif; letter-spacing:-0.045em;">Компоненти в обох темах</h2><span style="font:400 12.5px/1.5 'JetBrains Mono',monospace; color:#6E6A63;">наведення працює на живих елементах; статичні копії станів — поруч</span></div>
+    <div style="display:flex; gap:40px; align-items:flex-start;">
+      <div style="display:flex; flex-direction:column; gap:12px;"><span style="font:500 12px/1 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase; color:#151412;">Світла</span><div style="{{ vLight }}"><div style="width:1260px; overflow:hidden; border-radius:14px; box-shadow:0 0 0 1px rgba(21,20,18,.12);"><dc-import name="DkKit" hint-size="1260px,1400px"></dc-import></div></div></div>
+      <div style="display:flex; flex-direction:column; gap:12px;"><span style="font:500 12px/1 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase; color:#151412;">Темна</span><div style="{{ vDark }}"><div style="width:1260px; overflow:hidden; border-radius:14px; box-shadow:0 0 0 1px rgba(21,20,18,.12);"><dc-import name="DkKit" hint-size="1260px,1400px"></dc-import></div></div></div>
+    </div>
+  </section>
+
+  <section id="SW" style="display:flex; flex-direction:column; gap:40px;">
+    <div style="width:1600px; display:flex; flex-direction:column; gap:18px;">
+      <div style="display:flex; align-items:baseline; gap:24px;"><span style="font:500 13px/1 'JetBrains Mono',monospace; color:#D4402A;">SW</span><h2 style="margin:0; font:300 48px/1 'Unbounded',sans-serif; letter-spacing:-0.045em;">Перемикач теми</h2></div>
+      <p style="margin:0; max-width:1100px; font:400 16px/1.55 'Onest',sans-serif; color:#3A3833;">Три режими: <b style="font-weight:500;">Світла · Темна · Як у системі</b>; за замовчуванням для всіх — «Як у системі». Гліф режиму повторює мову ромбів: контур = світла, заповнений = темна, половина = як у системі. Вибір — у <span style="font:500 14px 'JetBrains Mono',monospace;">localStorage adc.theme</span>; застосовується до першого кадру, синхронізується між вкладками, не перезавантажує сторінку й не рве SSE.</p>
+    </div>
+
+    <div id="SW1" style="display:flex; flex-direction:column; gap:18px;">
+      <span style="font:500 12px/1 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase;">SW1 · Розміщення — три варіанти</span>
+      <div style="{{ vDark }}">
+        <div style="display:flex; gap:28px; align-items:stretch;">
+          <div style="width:600px; display:flex; flex-direction:column; gap:18px; padding:28px; border-radius:20px; background:var(--paper); color:var(--ink);">
+            <span style="color:var(--muted); font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">A · Коло в кожному топбарі</span>
+            <div style="display:flex; align-items:center; justify-content:flex-end; gap:20px; height:56px; padding:0 8px; border-bottom:1px solid var(--line);">
+              <span style="position:relative; display:inline-flex; align-items:stretch; height:32px; border:1px solid var(--line-strong); border-radius:999px; white-space:nowrap;"><span style="display:inline-flex; align-items:center; gap:6px; padding:0 12px 0 14px; color:var(--muted); font:400 12.5px/1 'JetBrains Mono',monospace;"><b style="color:var(--ink); font-weight:500;">12</b>кредитів</span><span style="width:1px; background:var(--line-strong);"></span><span style="display:inline-flex; align-items:center; justify-content:center; min-width:32px; font:400 15px/1 'Onest',sans-serif;">+</span></span>
+              <span style="display:inline-flex; align-items:center; height:32px; padding:0 14px; border:1px solid var(--line-strong); border-radius:999px; font:500 13px/1 'Onest',sans-serif; white-space:nowrap;">Новий проєкт</span>
+              <dc-import name="DkTheme" kind="guest" pref="system" hint-size="32px,32px"></dc-import>
+              <span style="display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border:1px solid var(--line-strong); border-radius:50%; font:500 11.5px/1 'Onest',sans-serif;">ОК</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px; width:390px; padding:0 24px; height:76px; justify-content:center; border:1px dashed var(--line-strong); border-radius:10px; overflow:visible;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:0;">
+                <span style="display:inline-flex; align-items:center; gap:10px; font:500 15px/1 'Unbounded',sans-serif; letter-spacing:-0.02em; white-space:nowrap;"><span style="flex:none; width:9px; height:9px; border-radius:50%; background:var(--accent);"></span>AdCreative</span>
+                <span style="display:flex; align-items:center; gap:20px; flex:none;"><span style="display:inline-flex; align-items:stretch; height:32px; border:1px solid var(--line-strong); border-radius:999px; white-space:nowrap;"><span style="display:inline-flex; align-items:center; gap:6px; padding:0 12px 0 14px; color:var(--muted); font:400 12.5px/1 'JetBrains Mono',monospace;"><b style="color:var(--ink); font-weight:500;">12</b>кредитів</span><span style="width:1px; background:var(--line-strong);"></span><span style="display:inline-flex; align-items:center; justify-content:center; min-width:32px; font:400 15px/1 'Onest',sans-serif;">+</span></span><span style="width:32px; height:32px; border:1px solid var(--danger); border-radius:50%;"></span><span style="display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border:1px solid var(--line-strong); border-radius:50%; font:500 11.5px/1 'Onest',sans-serif;">ОК</span></span>
+              </div>
+            </div>
+            <ul style="margin:0; padding:0 0 0 18px; display:flex; flex-direction:column; gap:8px; font:400 13.5px/1.5 'Onest',sans-serif; color:var(--ink-2);">
+              <li>+ Видно одразу, один клік до меню.</li>
+              <li>− На 390 ряд старту користувача не вміщується: 115 + 140 + 20 + 32 + 20 + 32 = 359 px &gt; 342 (червоне коло виходить за поле). Зменшити відступи заборонено.</li>
+              <li>− Налаштування «раз і назавжди» займає постійне місце у 56-px топбарі поруч зі статусом, балансом і «Новий проєкт».</li>
+            </ul>
+          </div>
+
+          <div style="width:640px; display:flex; flex-direction:column; gap:18px; padding:28px; border-radius:20px; background:var(--paper); color:var(--ink); box-shadow:inset 0 0 0 1.5px var(--accent);">
+            <span style="display:flex; align-items:center; gap:10px;"><span style="color:var(--muted); font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">B · Група «Тема» в меню акаунта + коло для гостя</span><span style="padding:3px 7px; border-radius:4px; background:var(--accent); color:var(--on-accent); font:600 10px/1 'JetBrains Mono',monospace;">ОБРАНО</span></span>
+            <div style="display:flex; gap:24px; align-items:flex-start;">
+              <div style="position:relative; flex:none; width:300px; height:500px; display:flex; justify-content:flex-end; padding:8px 8px 0 0;"><dc-import name="DkTheme" kind="account" pref="dark" sim="open" hint-size="32px,32px"></dc-import></div>
+              <div style="flex:1 1 auto; display:flex; flex-direction:column; gap:14px; padding-top:8px;">
+                <span style="color:var(--muted); font:400 11px/1.4 'JetBrains Mono',monospace;">користувач — 5 оболонок, одне місце</span>
+                <span style="color:var(--muted); font:400 11px/1.4 'JetBrains Mono',monospace; margin-top:150px;">гість — лише старт</span>
+                <div style="display:flex; align-items:center; justify-content:flex-end; gap:20px;"><dc-import name="DkTheme" kind="guest" pref="dark" hint-size="32px,32px"></dc-import><span style="display:inline-flex; align-items:center; height:32px; padding:0 16px; border:1px solid var(--line-strong); border-radius:999px; font:500 13px/1 'Onest',sans-serif;">Увійти</span></div>
+              </div>
+            </div>
+            <ul style="margin:0; padding:0 0 0 18px; display:flex; flex-direction:column; gap:8px; font:400 13.5px/1.5 'Onest',sans-serif; color:var(--ink-2);">
+              <li>+ account-controls.js монтується в усіх оболонках користувача (старт, воркспейс, кабінет, адмінка, checkout) — один код, одне місце, порядок Tab = видимий.</li>
+              <li>+ Ряд 32 px не змінюється; на 390 вміщується. Меню вже має повну клавіатурну модель (стрілки, Home/End, Esc, Tab).</li>
+              <li>+ Гостю меню акаунта недоступне — він отримує коло перед «Увійти» на старті; інші оболонки (кабінет, адмінка, checkout) вимагають входу.</li>
+              <li>− Користувачу два кліки замість одного — прийнятно для налаштування, яке змінюють рідко.</li>
+            </ul>
+          </div>
+
+          <div style="width:560px; display:flex; flex-direction:column; gap:18px; padding:28px; border-radius:20px; background:var(--paper); color:var(--ink);">
+            <span style="color:var(--muted); font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">C · Сегмент у профілі кабінету</span>
+            <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:28px; padding:28px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line);">
+              <span style="padding-top:12px; color:var(--muted); font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Тема</span>
+              <div role="group" style="display:inline-flex; align-self:flex-start; justify-self:start; padding:3px; border:1px solid var(--line-strong); border-radius:999px;"><span style="display:inline-flex; align-items:center; height:34px; padding:0 16px; border-radius:999px; font:500 13.5px/1 'Onest',sans-serif;">Світла</span><span style="display:inline-flex; align-items:center; height:34px; padding:0 16px; border-radius:999px; background:var(--fill-strong); color:var(--on-fill-strong); font:500 13.5px/1 'Onest',sans-serif;">Темна</span><span style="display:inline-flex; align-items:center; height:34px; padding:0 16px; border-radius:999px; font:500 13.5px/1 'Onest',sans-serif; white-space:nowrap;">Як у системі</span></div>
+            </div>
+            <ul style="margin:0; padding:0 0 0 18px; display:flex; flex-direction:column; gap:8px; font:400 13.5px/1.5 'Onest',sans-serif; color:var(--ink-2);">
+              <li>+ Готові примітиви .spec-row і .seg.</li>
+              <li>− Лише для користувача, 3+ кліки і перехід зі сцени в кабінет посеред генерації.</li>
+              <li>− Гість і модалка входу — без доступу. Відхилено.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="SW2" style="display:flex; flex-direction:column; gap:18px;">
+      <span style="font:500 12px/1 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase;">SW2 · Стани · 1440 · обидві теми</span>
+      <sc-for list="{{ swThemes }}" as="th" hint-placeholder-count="2">
+        <div style="{{ th.vars }}">
+          <div style="display:flex; gap:28px; align-items:flex-start; padding:28px; border-radius:20px; background:var(--paper); color:var(--ink);">
+            <div style="flex:none; width:120px; display:flex; flex-direction:column; gap:6px; padding-top:6px;"><span style="font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ th.name }}</span><span style="color:var(--muted); font:400 11px/1.4 'JetBrains Mono',monospace;">data-theme="{{ th.id }}"</span></div>
+            <div style="display:grid; grid-template-columns:repeat(6, 104px); gap:16px; align-items:start;">
+              <div style="display:flex; flex-direction:column; gap:10px; align-items:center;"><dc-import name="DkTheme" kind="guest" pref="light" hint-size="32px,32px"></dc-import><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace; text-align:center;">default · світла</span></div>
+              <div style="display:flex; flex-direction:column; gap:10px; align-items:center;"><dc-import name="DkTheme" kind="guest" pref="dark" hint-size="32px,32px"></dc-import><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace; text-align:center;">default · темна</span></div>
+              <div style="display:flex; flex-direction:column; gap:10px; align-items:center;"><dc-import name="DkTheme" kind="guest" pref="system" hint-size="32px,32px"></dc-import><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace; text-align:center;">default · система</span></div>
+              <div style="display:flex; flex-direction:column; gap:10px; align-items:center;"><dc-import name="DkTheme" kind="guest" pref="system" sim="hover" hint-size="32px,32px"></dc-import><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace; text-align:center;">:hover · --edge-strong</span></div>
+              <div style="display:flex; flex-direction:column; gap:10px; align-items:center;"><dc-import name="DkTheme" kind="guest" pref="system" sim="focus" hint-size="32px,32px"></dc-import><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace; text-align:center;">:focus-visible · 2px --focus-ring</span></div>
+              <div style="display:flex; flex-direction:column; gap:10px; align-items:center;"><span style="display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border:1px solid var(--fill-strong); border-radius:50%; background:var(--fill-strong); color:var(--on-fill-strong);"><span style="position:relative; display:block; width:12px; height:12px; overflow:hidden; border:1.5px solid currentColor; border-radius:50%;"><span style="position:absolute; top:0; bottom:0; left:0; width:50%; background:currentColor;"></span></span></span><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace; text-align:center;">:active / відкрито · --fill-strong</span></div>
+            </div>
+            <div style="position:relative; flex:none; width:260px; height:250px; display:flex; justify-content:flex-end; padding:0 8px 0 0;"><dc-import name="DkTheme" kind="guest" pref="system" sim="open" hint-size="32px,32px"></dc-import></div>
+            <div style="position:relative; flex:none; width:300px; height:500px; display:flex; justify-content:flex-end; padding:0 8px 0 0;"><dc-import name="DkTheme" kind="account" pref="{{ th.id }}" sim="open" hint-size="32px,32px"></dc-import></div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div id="SW3" style="display:flex; flex-direction:column; gap:18px;">
+      <span style="font:500 12px/1 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase;">SW3 · 390 · старт · гість (коло 44 = висота «Увійти» на 390) і користувач (пункти меню 44)</span>
+      <div style="display:flex; gap:28px; align-items:flex-start;">
+        <sc-for list="{{ swThemes }}" as="th" hint-placeholder-count="2">
+          <div style="{{ th.vars }}">
+            <div style="display:flex; gap:20px;">
+              <div style="width:390px; height:400px; overflow:hidden; border-radius:14px; background:var(--paper); color:var(--ink); box-shadow:0 0 0 1px rgba(21,20,18,.12);">
+                <div style="display:flex; align-items:center; justify-content:space-between; height:76px; padding:0 24px;"><span style="display:inline-flex; align-items:center; gap:10px; font:500 15px/1 'Unbounded',sans-serif; letter-spacing:-0.02em;"><span style="flex:none; width:9px; height:9px; border-radius:50%; background:var(--accent);"></span>AdCreative</span><span style="display:flex; align-items:center; gap:20px;"><dc-import name="DkTheme" kind="guest" pref="{{ th.id }}" compact="{{ true }}" sim="open" hint-size="44px,44px"></dc-import><span style="display:inline-flex; align-items:center; height:44px; padding:0 16px; border:1px solid var(--line-strong); border-radius:999px; font:500 13px/1 'Onest',sans-serif;">Увійти</span></span></div>
+                <div style="padding:24px 24px 0; color:var(--ink); font:300 48px/0.98 'Unbounded',sans-serif; letter-spacing:calc(-0.05em + var(--trk-display));">Сайт стає роликом<span style="color:var(--accent);">.</span></div>
+              </div>
+              <div style="width:390px; height:600px; overflow:hidden; border-radius:14px; background:var(--paper); color:var(--ink); box-shadow:0 0 0 1px rgba(21,20,18,.12);">
+                <div style="display:flex; align-items:center; justify-content:space-between; height:76px; padding:0 24px;"><span style="display:inline-flex; align-items:center; gap:10px; font:500 15px/1 'Unbounded',sans-serif; letter-spacing:-0.02em;"><span style="flex:none; width:9px; height:9px; border-radius:50%; background:var(--accent);"></span>AdCreative</span><span style="display:flex; align-items:center; gap:20px;"><span style="display:inline-flex; align-items:stretch; height:32px; border:1px solid var(--line-strong); border-radius:999px; white-space:nowrap;"><span style="display:inline-flex; align-items:center; gap:6px; padding:0 12px 0 14px; color:var(--muted); font:400 12.5px/1 'JetBrains Mono',monospace;"><b style="color:var(--ink); font-weight:500;">12</b>кредитів</span><span style="width:1px; background:var(--line-strong);"></span><span style="display:inline-flex; align-items:center; justify-content:center; min-width:32px; font:400 15px/1 'Onest',sans-serif;">+</span></span><dc-import name="DkTheme" kind="account" pref="{{ th.id }}" compact="{{ true }}" sim="open" hint-size="32px,32px"></dc-import></span></div>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div id="SW4" style="width:1600px; display:flex; flex-direction:column; gap:18px;">
+      <span style="font:500 12px/1 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase;">SW4 · Поведінка</span>
+      <div style="background:#FCFBF8; border-radius:20px; padding:12px 36px 24px; display:grid; grid-template-columns:200px minmax(0,1.3fr) minmax(0,1fr); gap:0 28px; font:400 13.5px/1.5 'Onest',sans-serif;">
+        <sc-for list="{{ behavior }}" as="b" hint-placeholder-count="10">
+          <span style="padding:14px 0; border-top:1px solid rgba(21,20,18,.08); font:500 12px/1.5 'JetBrains Mono',monospace;">{{ b.k }}</span><span style="padding:14px 0; border-top:1px solid rgba(21,20,18,.08); color:#151412;">{{ b.v }}</span><span style="padding:14px 0; border-top:1px solid rgba(21,20,18,.08); color:#6E6A63;">{{ b.why }}</span>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <section id="D" style="display:flex; flex-direction:column; gap:28px;">
+    <div style="width:1600px; display:flex; align-items:baseline; gap:24px;"><span style="font:500 13px/1 'JetBrains Mono',monospace; color:#D4402A;">D</span><h2 style="margin:0; font:300 48px/1 'Unbounded',sans-serif; letter-spacing:-0.045em;">Дані клієнта на темному</h2><span style="font:400 12.5px/1.5 'JetBrains Mono',monospace; color:#6E6A63;">дані не перефарбовуються; змінюється лише підкладка, кільце й тінь навколо них</span></div>
+    <div style="display:flex; gap:40px; align-items:flex-start;">
+      <sc-for list="{{ swThemes }}" as="th" hint-placeholder-count="2">
+        <div style="{{ th.vars }}">
+          <div style="width:1220px; display:flex; flex-direction:column; gap:0; padding:8px 36px 36px; border-radius:20px; background:var(--stage); color:var(--ink);">
+            <div style="padding:20px 0 0; font:500 11px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">{{ th.name }}</div>
+            <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:28px; padding:28px 0; border-bottom:1px solid var(--line);">
+              <span style="padding-top:2px; color:var(--muted); font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Лого</span>
+              <div style="display:flex; flex-direction:column; gap:12px;">
+                <div style="display:flex; flex-wrap:wrap; gap:10px;">
+                  <div style="display:flex; flex-direction:column; gap:8px;"><div style="position:relative; display:flex; align-items:center; justify-content:center; width:200px; height:96px; padding:16px; border:1.5px solid var(--edge-strong); border-radius:14px; background:var(--logo-plate);"><img src="media/logo-a02.svg" alt="" style="width:100%; height:100%; object-fit:contain;"><span aria-hidden="true" style="position:absolute; top:8px; right:8px; width:20px; height:20px; border-radius:50%; background:var(--media-bg); color:var(--on-media); font:500 11px/20px 'JetBrains Mono',monospace; text-align:center;">✓</span></div><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace;">непрозорий (logo-a02) · обраний</span></div>
+                  <div style="display:flex; flex-direction:column; gap:8px;"><div style="position:relative; display:flex; align-items:center; justify-content:center; width:200px; height:96px; padding:16px; border:1.5px solid var(--line-tile); border-radius:14px; background:var(--logo-plate);"><img src="media/logo-dark-transparent.svg" alt="" style="width:100%; height:100%; object-fit:contain;"></div><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace;">темний #111 · прозоре тло</span></div>
+                  <div style="display:flex; flex-direction:column; gap:8px;"><div style="position:relative; display:flex; align-items:center; justify-content:center; width:200px; height:96px; padding:16px; border:1.5px solid var(--line-tile); border-radius:14px; background:var(--logo-plate);"><img src="media/logo-light-transparent.svg" alt="" style="width:100%; height:100%; object-fit:contain;"></div><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace;">білий #FFF · прозоре тло</span></div>
+                  <div style="display:flex; flex-direction:column; gap:8px;"><div style="position:relative; display:flex; align-items:center; justify-content:center; width:200px; height:96px; padding:16px; border:1.5px solid var(--line-tile); border-radius:14px; background:var(--logo-plate);"><img src="media/logo-neon-transparent.svg" alt="" style="width:100%; height:100%; object-fit:contain;"></div><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace;">неон #39FF14 · прозоре тло</span></div>
+                </div>
+                <span style="max-width:820px; color:var(--ink-2); font:400 13px/1.5 'Onest',sans-serif;">Плита --logo-plate: у світлій = --card (без змін), у темній L 0.86 (#D4D0CB). Лого з сайту зроблене для світлого тла хедера — плита повертає йому рідне тло. Чорний лого: 12.3:1. Білий лого на прозорому тлі нечитабельний в обох темах (у світлій 1.03:1, у темній 1.53:1) — так само, як зараз; адаптивна плита потребує аналізу пікселів → поза скоупом.</span>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:28px; padding:28px 0; border-bottom:1px solid var(--line);">
+              <span style="padding-top:2px; color:var(--muted); font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Палітра</span>
+              <div style="display:flex; flex-direction:column; gap:12px;">
+                <div style="display:grid; grid-template-columns:repeat(6, minmax(96px,1fr)); gap:8px;">
+                  <sc-for list="{{ swatches }}" as="sw" hint-placeholder-count="6">
+                    <div style="display:flex; flex-direction:column; justify-content:flex-end; gap:4px; height:140px; padding:12px; border-radius:12px; background:{{ sw.hex }}; box-shadow:inset 0 0 0 1px var(--media-ring); color:{{ sw.text }};"><span style="font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; opacity:.8;">{{ sw.name }}</span><span style="font:500 13px/1.2 'JetBrains Mono',monospace;">{{ sw.hex }}</span></div>
+                  </sc-for>
+                </div>
+                <span style="max-width:820px; color:var(--ink-2); font:400 13px/1.5 'Onest',sans-serif;">Кільце --media-ring (α 0.14 від --ink у темній) тримає край свотча, що збігається з фоном: #1C1A18 на картці — 1.12:1 без кільця. Текст на свотчі обирає cp-brand.js за брендом (textOnDark / textOnLight) — це дані, тема його не чіпає. Неон лишається неоном.</span>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:28px; padding:28px 0; border-bottom:1px solid var(--line);">
+              <span style="padding-top:2px; color:var(--muted); font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Стіли й фото</span>
+              <div style="display:flex; gap:8px; align-items:flex-end;">
+                <img src="media/still-s1-a.svg" alt="" style="display:block; width:129px; height:230px; border-radius:6px; outline:1px solid var(--media-ring); outline-offset:-1px; background:var(--placeholder-a); object-fit:cover;">
+                <img src="media/still-s3-b.svg" alt="" style="display:block; width:129px; height:230px; border-radius:6px; outline:1px solid var(--media-ring); outline-offset:-1px; background:var(--placeholder-a); object-fit:cover;">
+                <div style="width:129px; height:230px; border-radius:6px; background:repeating-linear-gradient(135deg, var(--placeholder-a) 0 2px, var(--placeholder-b) 2px 12px);"></div>
+                <img src="media/photo-a01.svg" alt="" style="display:block; width:260px; height:173px; margin-left:20px; border-radius:12px; outline:1px solid var(--media-ring); outline-offset:-1px; object-fit:cover;">
+                <span style="max-width:300px; margin-left:20px; color:var(--ink-2); font:400 13px/1.5 'Onest',sans-serif;">Темний стіл s3-b (#1E1410) на сцені — 1.09:1: край тримає лише кільце. Смугастий плейсхолдер — два близькі тони --placeholder-a/b.</span>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns:120px minmax(0,1fr); gap:28px; padding:28px 0 0;">
+              <span style="padding-top:2px; color:var(--muted); font:500 10.5px/1.2 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase;">Відео</span>
+              <div style="display:flex; flex-wrap:wrap; gap:28px; align-items:flex-end;">
+                <div style="display:flex; flex-direction:column; gap:8px;"><div style="width:180px; aspect-ratio:9 / 16; overflow:hidden; border-radius:14px; box-shadow:var(--shadow-player); background:var(--media-bg);"><video src="media/sample-9x16.mp4" poster="media/sample-9x16.jpg" controls="" playsinline="" muted="" preload="none" style="display:block; width:100%; height:100%; object-fit:contain;"></video></div><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace;">9:16</span></div>
+                <div style="display:flex; flex-direction:column; gap:8px;"><div style="width:260px; aspect-ratio:1 / 1; overflow:hidden; border-radius:14px; box-shadow:var(--shadow-player); background:var(--media-bg);"><video src="media/sample-1x1.mp4" controls="" playsinline="" muted="" preload="metadata" style="display:block; width:100%; height:100%; object-fit:contain;"></video></div><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace;">1:1</span></div>
+                <div style="display:flex; flex-direction:column; gap:8px;"><div style="width:420px; aspect-ratio:16 / 9; overflow:hidden; border-radius:14px; box-shadow:var(--shadow-player); background:var(--media-bg);"><video src="media/sample.mp4" poster="media/poster.svg" controls="" playsinline="" muted="" preload="none" style="display:block; width:100%; height:100%; object-fit:contain;"></video></div><span style="color:var(--muted); font:400 10.5px/1.3 'JetBrains Mono',monospace;">16:9 · contain → поля --media-bg</span></div>
+                <span style="flex:1 1 100%; max-width:820px; color:var(--ink-2); font:400 13px/1.5 'Onest',sans-serif;">Плеєр: тінь (у темній — від --media-bg, α 0.72) + кільце 1 px α 0.10. Підкладка --media-bg L 0.145 — найтемніше на екрані. Нативні контроли стають темними через color-scheme.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section id="S" style="display:flex; flex-direction:column; gap:28px;">
+    <div style="width:1600px; display:flex; align-items:baseline; justify-content:space-between; gap:24px;">
+      <div style="display:flex; align-items:baseline; gap:24px;"><span style="font:500 13px/1 'JetBrains Mono',monospace; color:#D4402A;">S</span><h2 style="margin:0; font:300 48px/1 'Unbounded',sans-serif; letter-spacing:-0.045em;">Екрани · 1440×900</h2></div>
+      <span style="font:400 12.5px/1.5 'JetBrains Mono',monospace; color:#6E6A63;">перемикач у кадрі працює: режим «{{ sPrefLabel }}» → тема {{ sThemeLabel }} · зміна — кросфейд 200 мс (View Transitions)</span>
+    </div>
+    <div style="{{ sVars }}">
+      <div style="display:flex; gap:40px; align-items:flex-start; padding:40px; border-radius:24px; background:{{ sCanvas }};">
+        <div style="display:flex; flex-direction:column; gap:12px;"><span style="display:flex; justify-content:space-between; font:500 12px/1 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-2);"><span>S1 · Старт · гість</span><span style="color:var(--muted);">n3-guest</span></span><div style="width:1440px; height:900px; overflow:hidden; border-radius:14px; box-shadow:0 0 0 1px var(--line);"><dc-import name="DkStart" guest="{{ true }}" pref="{{ sPref }}" system-dark="{{ sysDark }}" on-pick="{{ pick }}" autoplay="{{ true }}" style="display:block; width:100%; height:100%;" hint-size="1440px,900px"></dc-import></div></div>
+        <div style="display:flex; flex-direction:column; gap:12px;"><span style="display:flex; justify-content:space-between; font:500 12px/1 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-2);"><span>S1 · Старт · користувач</span><span style="color:var(--muted);">n3-user</span></span><div style="width:1440px; height:900px; overflow:hidden; border-radius:14px; box-shadow:0 0 0 1px var(--line);"><dc-import name="DkStart" pref="{{ sPref }}" system-dark="{{ sysDark }}" on-pick="{{ pick }}" autoplay="{{ false }}" style="display:block; width:100%; height:100%;" hint-size="1440px,900px"></dc-import></div></div>
+        <div style="display:flex; flex-direction:column; gap:12px;"><span style="display:flex; justify-content:space-between; font:500 12px/1 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-2);"><span>S4 · Розкадровка · меню відкрите</span><span style="color:var(--muted);">n4-menu (сцена awaitingStoryboard)</span></span><div style="width:1440px; height:900px; overflow:hidden; border-radius:14px; box-shadow:0 0 0 1px var(--line);"><dc-import name="DkWorkspace" view="board" menu-open="{{ true }}" pref="{{ sPref }}" system-dark="{{ sysDark }}" on-pick="{{ pick }}" style="display:block; width:100%; height:100%;" hint-size="1440px,900px"></dc-import></div></div>
+        <div style="display:flex; flex-direction:column; gap:12px;"><span style="display:flex; justify-content:space-between; font:500 12px/1 'JetBrains Mono',monospace; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-2);"><span>S5 · Готово</span><span style="color:var(--muted);">delivered</span></span><div style="width:1440px; height:900px; overflow:hidden; border-radius:14px; box-shadow:0 0 0 1px var(--line);"><dc-import name="DkWorkspace" view="done" pref="{{ sPref }}" system-dark="{{ sysDark }}" on-pick="{{ pick }}" style="display:block; width:100%; height:100%;" hint-size="1440px,900px"></dc-import></div></div>
+      </div>
+    </div>
+    <p style="margin:0; width:1600px; font:400 13.5px/1.55 'Onest',sans-serif; color:#3A3833;">Решта кадрів (S2–S3, S6, X1–X6, K, N1–N15, F) не перемальовуються: змінюється лише колір, а колір повністю визначає таблиця T + міграція з ТЗ. Приймання — фікстурою <span style="font:500 12.5px 'JetBrains Mono',monospace;">&amp;theme=dark</span> проти світлого кадру з <span style="font:500 12.5px 'JetBrains Mono',monospace;">AdCreative Reference.dc.html</span> / <span style="font:500 12.5px 'JetBrains Mono',monospace;">AdCreative Accounts Reference.dc.html</span> за чек-листом ТЗ (розділ «Приймання»).</p>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { sPref: 'dark', sysDark: true };
+  componentDidMount() {
+    if (typeof matchMedia !== 'function') return;
+    this.mq = matchMedia('(prefers-color-scheme: dark)');
+    this.onMq = () => this.setState({ sysDark: this.mq.matches });
+    this.onMq();
+    this.mq.addEventListener('change', this.onMq);
+  }
+  componentWillUnmount() { if (this.mq) this.mq.removeEventListener('change', this.onMq); }
+
+  /*TOKENS*/
+  static TOKENS = [
+    ["Поверхні", "--paper", "#f5f3ee", "#1c1a18", "фон сторінки: старт, топбар, таймлайн, кабінет, адмінка, checkout", "є"],
+    ["Поверхні", "--chat", "#f1efe9", "#181613", "панель діалогу — утоплена, найнижча поверхня UI", "є"],
+    ["Поверхні", "--stage", "#f8f7f3", "#201e1b", "сцена — піднята", "є"],
+    ["Поверхні", "--card", "#fcfbf8", "#272421", "картки, композер, меню, модалка, панель рішень", "є"],
+    ["Поверхні", "--track-2", "#e7e3da", "#34312e", "сцени на треку сценарію", "є"],
+    ["Поверхні", "--track-3", "#d4cec2", "#484440", "сцени на треку сценарію (пройдено)", "є"],
+    ["Текст", "--ink", "#151412", "#ebe7e2", "лише текст і гліфи (роль звужено; заливки й рамки — нові токени)", "звужено"],
+    ["Текст", "--ink-2", "#3a3833", "#c4c0bb", "вторинний текст, лід-абзаци", "є"],
+    ["Текст", "--muted", "#6e6a63", "#9a9691", "підписи, eyebrow, мета", "є"],
+    ["Ролі колишнього --ink", "--fill-strong", "#151412", "#e1ddd8", "інверсна заливка: primary, бульбашка клієнта, обраний chip/seg/тайл, круглі кнопки, «+» пілюлі, відкрите коло, ::selection", "нове"],
+    ["Ролі колишнього --ink", "--on-fill-strong", "#f5f3ee", "#1c1a18", "текст і гліф на --fill-strong і на hover-акценті", "нове ← --on-ink"],
+    ["Ролі колишнього --ink", "--on-ink", "var(--on-fill-strong)", "var(--on-fill-strong)", "аліас на час міграції; видаляється в Кроці 2", "аліас"],
+    ["Ролі колишнього --ink", "--edge-strong", "#151412", "#b4b0ac", "активна і hover-рамка, рамка меню, лінія полів URL/входу, підсумкові лінії таблиць", "нове"],
+    ["Ролі колишнього --ink", "--focus-ring", "#151412", "#ebe7e2", "outline :focus-visible", "нове"],
+    ["Ролі колишнього --ink", "--progress", "#151412", "#e1ddd8", "пройдено/готово: тіки, ромб done, смуги, скраббер, хвиля, крапка «готово»", "нове"],
+    ["Акцент і стани", "--accent", "#d4402a", "#ef5e41", "REC: плейхед, ромб очікування, busy, hover primary, крапка в заголовках, hover посилань. Тон h 33 той самий, L 0.585 → 0.665", "є"],
+    ["Акцент і стани", "--on-accent", "#ffffff", "#1c1a18", "чип плейхеда (600 · 10.5px)", "є"],
+    ["Акцент і стани", "--danger", "#b8331f", "#ed756e", "текст і лінія помилки", "є"],
+    ["Акцент і стани", "--ok", "#2f8f5b", "#4ab074", "крапка «на зв’язку»", "є"],
+    ["Акцент і стани", "--accent-ring", "rgba(212, 64, 42, 0.5)", "rgba(239, 94, 65, 0.45)", "adc-ring, початок", "є"],
+    ["Акцент і стани", "--accent-ring-0", "rgba(212, 64, 42, 0)", "rgba(239, 94, 65, 0)", "adc-ring, кінець", "є"],
+    ["Акцент і стани", "--accent-mark", "rgba(212, 64, 42, 0.28)", "rgba(239, 94, 65, 0.32)", "підсвітка непідтвердженого твердження", "є"],
+    ["Акцент і стани", "--danger-line", "rgba(184, 51, 31, 0.35)", "rgba(237, 117, 110, 0.4)", "рамка картки помилки", "є"],
+    ["Акцент і стани", "--danger-field", "rgba(184, 51, 31, 0.55)", "rgba(237, 117, 110, 0.6)", "рамка поля-картки з помилкою", "є"],
+    ["Лінії", "--line", "rgba(21, 20, 18, 0.1)", "rgba(235, 231, 226, 0.1)", "розділювачі, рамки панелей", "є"],
+    ["Лінії", "--line-strong", "rgba(21, 20, 18, 0.16)", "rgba(235, 231, 226, 0.16)", "рамки ghost-кнопок, чипів, полів", "є"],
+    ["Лінії", "--line-soft", "rgba(21, 20, 18, 0.12)", "rgba(235, 231, 226, 0.12)", "рамки карток у чаті, трек .bar", "є"],
+    ["Лінії", "--line-tile", "rgba(21, 20, 18, 0.14)", "rgba(235, 231, 226, 0.14)", "рамка тайлів лого/фото", "нове ← --cb-tile-line"],
+    ["Лінії", "--line-dashed", "rgba(21, 20, 18, 0.25)", "rgba(235, 231, 226, 0.26)", "пунктир «Додати фото», тег у чеку", "нове ← --cb-add-line"],
+    ["Лінії", "--tick", "rgba(21, 20, 18, 0.2)", "rgba(235, 231, 226, 0.22)", "непройдені тіки таймлайну", "є"],
+    ["Лінії", "--diamond-idle", "rgba(21, 20, 18, 0.45)", "rgba(235, 231, 226, 0.45)", "рамка майбутнього ромба", "є"],
+    ["Лінії", "--diamond-stale", "rgba(21, 20, 18, 0.4)", "rgba(235, 231, 226, 0.38)", "рамка ромба, заміненого ревізією", "нове ← components.css:356"],
+    ["Лінії", "--disabled-fill", "rgba(21, 20, 18, 0.28)", "rgba(235, 231, 226, 0.2)", "«надіслати» без тексту", "є"],
+    ["Лінії", "--spinner-track", "rgba(21, 20, 18, 0.15)", "rgba(235, 231, 226, 0.16)", "трек спінера", "є"],
+    ["Медіа", "--media-bg", "#151412", "#0b0a08", "підкладка кадру (letterbox .dn-frame), бейдж ✓ на плиті лого", "нове"],
+    ["Медіа", "--on-media", "#f5f3ee", "#ebe7e2", "гліф на --media-bg", "нове"],
+    ["Медіа", "--media-ring", "rgba(21, 20, 18, 0.12)", "rgba(235, 231, 226, 0.14)", "кільце стілів, аркушів, свотчів (замість --line-soft у медіа)", "нове"],
+    ["Медіа", "--logo-plate", "#fcfbf8", "#d4d0cb", "плита під лого бренду", "нове"],
+    ["Медіа", "--placeholder-a", "#e9e5dc", "#292724", "смугастий плейсхолдер медіа", "є"],
+    ["Медіа", "--placeholder-b", "#f1eee7", "#23211e", "смугастий плейсхолдер медіа", "є"],
+    ["Оверлеї і тінь", "--scrim", "rgba(21, 20, 18, 0.32)", "rgba(11, 10, 8, 0.62)", "підкладка модалки входу", "є"],
+    ["Оверлеї і тінь", "--veil", "rgba(245, 243, 238, 0.78)", "rgba(28, 26, 24, 0.78)", "резерв для оверлеїв", "є"],
+    ["Оверлеї і тінь", "--shadow-player", "0 30px 60px -30px rgba(21, 20, 18, 0.45), 0 0 0 1px rgba(21, 20, 18, 0.06)", "0 30px 60px -30px rgba(11, 10, 8, 0.72), 0 0 0 1px rgba(235, 231, 226, 0.1)", "лише плеєр", "є"],
+    ["Типографіка", "--trk-display", "0em", "0.006em", "поправка трекінгу дисплейних кеглів ≥ 28px (Unbounded 200/300)", "нове"]
+  ];
+  /*END*/
+
+  static hexRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+  static parse(c) { if (c[0] === '#') return [...Component.hexRgb(c), 1]; const p = c.match(/\(([^)]+)\)/)[1].split(',').map((s) => parseFloat(s)); return [p[0], p[1], p[2], p[3] ?? 1]; }
+  static lin(v) { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }
+  static lum(c) { const l = Component.lin; return 0.2126 * l(c[0]) + 0.7152 * l(c[1]) + 0.0722 * l(c[2]); }
+  static ratio(fg, bg) { const B = Component.parse(bg), F = Component.parse(fg), a = F[3]; const m = [0, 1, 2].map((i) => F[i] * a + B[i] * (1 - a)); const x = Component.lum(m), y = Component.lum(B); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+  static okL(hex) { const [r, g, b] = Component.hexRgb(hex).map(Component.lin); const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b); return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s).toFixed(3); }
+  static vars(i) {
+    const o = {};
+    Component.TOKENS.forEach((t) => { o[t[1]] = t[i]; });
+    o.colorScheme = i === 2 ? 'light' : 'dark';
+    return o;
+  }
+  pick = (p) => {
+    const apply = () => new Promise((r) => this.setState({ sPref: p }, r));
+    const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (document.startViewTransition && !reduce) document.startViewTransition(apply); else apply();
+  };
+  renderVals() {
+    const T = Component.TOKENS, L = Component.vars(2), D = Component.vars(3);
+    const val = (set, k) => (set[k] && set[k].startsWith('var(') ? set['--on-fill-strong'] : set[k]);
+    const isColor = (v) => /^#|^rgba/.test(v);
+    const badge = (s) => (s.startsWith('нове') ? ['#D4402A', '#FFFFFF'] : s === 'аліас' ? ['#E7E3DA', '#151412'] : s === 'звужено' ? ['#151412', '#F5F3EE'] : ['rgba(21,20,18,.06)', '#3A3833']);
+    const groups = [];
+    T.forEach((t) => {
+      let g = groups.find((x) => x.title === t[0]);
+      if (!g) { g = { key: t[0], title: t[0], rows: [] }; groups.push(g); }
+      const [bb, bf] = badge(t[5]);
+      g.rows.push({ key: t[1], name: t[1], light: t[2], dark: t[3], role: t[4], status: t[5], badgeBg: bb, badgeFg: bf,
+        lightChip: isColor(val(L, t[1])) ? val(L, t[1]) : 'transparent', darkChip: isColor(val(D, t[1])) ? val(D, t[1]) : 'transparent' });
+    });
+    const P = [
+      ['Текст / сторінка', '--ink', '--paper', 4.5], ['Текст / діалог', '--ink', '--chat', 4.5], ['Текст / сцена', '--ink', '--stage', 4.5], ['Текст / картка', '--ink', '--card', 4.5],
+      ['Вторинний / сторінка', '--ink-2', '--paper', 4.5], ['Вторинний / картка', '--ink-2', '--card', 4.5],
+      ['Підпис / сторінка', '--muted', '--paper', 4.5], ['Підпис / діалог', '--muted', '--chat', 4.5], ['Підпис / сцена', '--muted', '--stage', 4.5], ['Підпис / картка', '--muted', '--card', 4.5],
+      ['Primary', '--on-fill-strong', '--fill-strong', 4.5], ['Primary :hover', '--on-fill-strong', '--accent', 4.5], ['Чип плейхеда', '--on-accent', '--accent', 4.5],
+      ['Акцент-текст / картка', '--accent', '--card', 4.5], ['Акцент-текст / сцена', '--accent', '--stage', 4.5],
+      ['Помилка / картка', '--danger', '--card', 4.5], ['Помилка / сцена', '--danger', '--stage', 4.5], ['Бейдж ✓ на плиті лого', '--on-media', '--media-bg', 4.5],
+      ['Плейхед / таймлайн', '--accent', '--paper', 3], ['Активна рамка / картка', '--edge-strong', '--card', 3], ['Лінія поля / сторінка', '--edge-strong', '--paper', 3],
+      ['Фокус / сцена', '--focus-ring', '--stage', 3], ['Ромб idle / сторінка', '--diamond-idle', '--paper', 3], ['«На зв’язку» / діалог', '--ok', '--chat', 3],
+      ['Рамка ghost / сторінка', '--line-strong', '--paper', 0], ['Плита лого / картка', '--logo-plate', '--card', 0], ['Кадр / сцена', '--media-bg', '--stage', 0],
+    ];
+    const notes = { 'Primary :hover': 'світла: існуюче, не змінюємо', 'Ромб idle / сторінка': 'світла: існуюче, не змінюємо', 'Рамка ghost / сторінка': 'декор: кнопку ідентифікує підпис (WCAG 1.4.11)', 'Плита лого / картка': 'інфо: світла плита в темній', 'Кадр / сцена': 'інфо: кадр нижче за UI' };
+    const mark = (x, need) => (need === 0 ? ['·', '#6E6A63'] : x >= need ? ['✓', '#151412'] : ['✗', '#B8331F']);
+    const pairRows = P.map(([label, f, b, need]) => {
+      const l = Component.ratio(L[f], L[b]), d = Component.ratio(D[f], D[b]);
+      const [lm, lc] = mark(l, need), [dm, dc] = mark(d, need);
+      return { key: label, label, tokens: f + ' / ' + b, need: need ? '≥ ' + need : 'інфо', l: l.toFixed(2) + ' ' + lm, d: d.toFixed(2) + ' ' + dm, lColor: lm === '✗' ? '#B8331F' : lc, dColor: dm === '✗' ? '#B8331F' : dc, note: notes[label] || '' };
+    });
+    const swThemes = [{ key: 'l', id: 'light', name: 'Світла', vars: L }, { key: 'd', id: 'dark', name: 'Темна', vars: D }];
+    const behavior = [
+      { key: 1, k: 'Режими', v: 'Світла · Темна · Як у системі (prefers-color-scheme).', why: 'Двох режимів мало: користувач із темною ОС мусив би вручну вмикати темну. «Системна» без явного вибору не дає повернутись до авто.' },
+      { key: 2, k: 'За замовчуванням', v: '«Як у системі» — для гостя і нового користувача.', why: 'Поваги до налаштування ОС достатньо; більшість ОС світлі — характер продукту за замовчуванням не змінюється.' },
+      { key: 3, k: 'Збереження', v: 'localStorage adc.theme = "light" | "dark" | "system"; відсутнє/невідоме → system. Без TTL. Поля на сервері немає — поза скоупом.', why: 'У дусі adc.pendingStart. Вибір — властивість браузера, не акаунта; гість теж може обрати.' },
+      { key: 4, k: 'Пріоритет', v: '?theme= (лише разом із ?fixture=, не зберігається) > adc.theme light/dark > система.', why: 'Фікстури відкриваються в потрібній темі, не забруднюючи вибір користувача.' },
+      { key: 5, k: 'Без спалаху', v: 'static/js/theme-boot.js — класичний синхронний скрипт у <head> до стилів; ставить data-theme і theme-color до першого кадру.', why: 'Зовнішній файл: без inline-скриптів, eval, innerHTML і on* — сумісно з обмеженням кодової бази.' },
+      { key: 6, k: 'Вкладки', v: 'Подія storage для adc.theme → застосувати без анімації. Режим system слухає matchMedia change.', why: 'Друга вкладка у фоні — анімація там не потрібна.' },
+      { key: 7, k: 'Зміна теми', v: 'Лише атрибут data-theme на <html>: без перезавантаження, без перемонтування, SSE не чіпаємо. Кросфейд 200 мс через View Transitions; на час зміни transition: none для всіх елементів.', why: 'Сотні елементів із transition .2s інакше перефарбовуються несинхронно — «мигання». Один кросфейд кадру.' },
+      { key: 8, k: 'Reduced motion', v: 'prefers-reduced-motion: reduce або немає startViewTransition → миттєво.', why: 'Кросфейд — декоративний.' },
+      { key: 9, k: 'ARIA', v: 'Тригер: button aria-haspopup="menu" aria-expanded. Меню role="menu"; група role="group" aria-label="Тема"; пункти role="menuitemradio" aria-checked. Підпис кола гостя: «Тема: темна» / «Тема: як у системі, зараз темна».', why: 'Три стани — не switch (бінарний). Радіогрупа в рядку заняла б місце в топбарі; menuitemradio — стандартний патерн вибору в меню.' },
+      { key: 10, k: 'Клавіатура', v: 'Enter/Space/↓ відкривають (гість — фокус на обраному пункті, користувач — на першому, як зараз); ↑↓ Home End; Enter/Space обирають і меню лишається відкритим; Esc закриває й повертає фокус на тригер; Tab закриває.', why: 'Меню лишається відкритим після вибору, щоб одразу порівняти теми; модель ідентична меню акаунта.' },
+      { key: 11, k: 'Ціль на 390', v: 'Коло гостя 44×44 при ≤ 560px (як «Увійти» на 390); пункти теми 44px при ≤ 560px.', why: 'Мінімальна ціль дотику 44px.' },
+    ];
+    const textOn = (hex) => (Component.ratio('#FFFFFF', hex) >= Component.ratio('#151412', hex) ? '#FFFFFF' : '#151412');
+    const swatches = [['основний', '#111111'], ['фон', '#FFFFFF'], ['акцент', '#39FF14'], ['як тло UI', '#1C1A18'], ['бренд', '#6B3E26'], ['світлий', '#FFF8F0']].map(([name, hex]) => ({ key: hex, name, hex, text: textOn(hex) }));
+    const sTheme = this.state.sPref === 'system' ? (this.state.sysDark ? 'dark' : 'light') : this.state.sPref;
+    const sl = (t) => Component.okL(D[t]);
+    return {
+      tokenGroups: groups, pairRows, swThemes, behavior, swatches,
+      lSurf: { chat: sl('--chat'), paper: sl('--paper'), stage: sl('--stage'), card: sl('--card'), media: sl('--media-bg') },
+      vLight: L, vDark: D,
+      sVars: sTheme === 'dark' ? D : L,
+      sCanvas: sTheme === 'dark' ? '#100F0E' : '#E2DED6',
+      sPref: this.state.sPref, sysDark: this.state.sysDark, pick: this.pick,
+      sPrefLabel: { light: 'Світла', dark: 'Темна', system: 'Як у системі' }[this.state.sPref],
+      sThemeLabel: sTheme === 'dark' ? 'темна' : 'світла',
+    };
+  }
+}
+</script>
+</body>
+</html>

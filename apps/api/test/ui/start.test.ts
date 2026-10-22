@@ -319,6 +319,21 @@ describe("N3-A · шапка", () => {
     expect(actions.openAuth).toHaveBeenCalledWith("login", "header");
   });
 
+  it("гість — коло теми перед «Увійти» (порядок Tab = видимий); користувачу — лише меню акаунта", () => {
+    const { el, setAccount } = setup(guest());
+    const head = el.querySelector(".st-account") as HTMLElement;
+    const trigger = head.querySelector(".tm-trigger");
+    const login = head.querySelector(".st-login");
+    expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(
+      trigger && login && trigger.compareDocumentPosition(login) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    setAccount({ me: ME, meStatus: "ready" });
+    expect(head.querySelector(".tm-trigger")).toBeNull();
+    setAccount({ me: null, meStatus: "anon" });
+    expect(head.querySelectorAll(".tm-trigger").length).toBe(1);
+  });
+
   it("me вантажиться — порожньо; користувач — контроли акаунта з place start", () => {
     const { el, setAccount } = setup(fixture("start"));
     const head = el.querySelector(".st-account");

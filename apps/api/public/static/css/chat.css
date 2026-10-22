@@ -99,8 +99,8 @@
   max-width: 86%;
   padding: 10px 14px;
   border-radius: var(--r-16) var(--r-16) var(--r-4) var(--r-16);
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
   font: 400 14.5px / 1.5 var(--f-ui);
   overflow-wrap: anywhere;
 }
@@ -139,7 +139,7 @@
 }
 
 .ch-card--active {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .ch-card__head {
@@ -226,7 +226,7 @@
 }
 
 .ch-composer--editing {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .ch-composer__input {
@@ -252,7 +252,7 @@
 }
 
 .ch-composer:focus-within {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .ch-composer__bar {
@@ -298,7 +298,7 @@
   flex-direction: column;
   gap: 10px;
   padding: 14px 16px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--edge-strong);
   border-radius: var(--r-14);
   background: var(--card);
 }

@@ -58,7 +58,7 @@
 
 .cab-proj__card:hover,
 .cab-proj__card.is-open {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .cab-proj__body {
@@ -89,7 +89,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--ink);
+  background: var(--progress);
 }
 
 .cab-proj__status--busy .cab-proj__dot {
@@ -229,7 +229,7 @@
 
 .cab-proj__part--total {
   padding-top: 6px;
-  border-top: 1px solid var(--ink);
+  border-top: 1px solid var(--edge-strong);
   color: var(--ink);
   font-weight: 500;
 }

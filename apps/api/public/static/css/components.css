@@ -29,13 +29,13 @@
 .btn--primary {
   padding: 0 18px 0 20px;
   border: 0;
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
 }
 
 .btn--primary:hover:not(:disabled) {
   background: var(--accent);
-  color: var(--on-ink);
+  color: var(--on-fill-strong);
 }
 
 .btn--ghost {
@@ -43,13 +43,13 @@
 }
 
 .btn--ghost:hover:not(:disabled) {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
   color: var(--ink);
 }
 
 /* restart_confirm у чаті: ghost з рамкою --ink. */
 .btn--ghost-ink {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 /* Кнопка в чаті — 34px. */
@@ -81,7 +81,7 @@
 }
 
 .btn--tag:hover:not(:disabled) {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
   color: var(--ink);
 }
 
@@ -102,8 +102,8 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
   font: 500 16px / 1 var(--f-ui);
   transition: background-color var(--t-hover);
 }
@@ -196,27 +196,27 @@
 
 .display-xl {
   font: 300 clamp(48px, 6.6vw, 108px) / 0.98 var(--f-display);
-  letter-spacing: -0.05em;
+  letter-spacing: calc(-0.05em + var(--trk-display));
 }
 
 .display-l {
   font: 300 clamp(40px, 5vw, 76px) / 1.02 var(--f-display);
-  letter-spacing: -0.05em;
+  letter-spacing: calc(-0.05em + var(--trk-display));
 }
 
 .display-brand {
   font: 300 clamp(56px, 7vw, 96px) / 0.95 var(--f-display);
-  letter-spacing: -0.055em;
+  letter-spacing: calc(-0.055em + var(--trk-display));
 }
 
 .display-m {
   font: 300 clamp(32px, 3.8vw, 52px) / 1.08 var(--f-display);
-  letter-spacing: -0.045em;
+  letter-spacing: calc(-0.045em + var(--trk-display));
 }
 
 .display-s {
   font: 300 28px / 1.1 var(--f-display);
-  letter-spacing: -0.04em;
+  letter-spacing: calc(-0.04em + var(--trk-display));
 }
 
 /* Крапка --accent у заголовках («Сайт стає.», «Ролик готовий.»). */
@@ -226,7 +226,7 @@
 
 .numeral {
   font: 200 clamp(96px, 13vw, 200px) / 0.9 var(--f-display);
-  letter-spacing: -0.06em;
+  letter-spacing: calc(-0.06em + var(--trk-display));
   font-variant-numeric: tabular-nums;
 }
 
@@ -285,7 +285,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--ink);
+  background: var(--progress);
 }
 
 .dot--sm {
@@ -347,13 +347,13 @@
 
 /* Затверджено / пройдено. */
 .diamond--done {
-  border-color: var(--ink);
-  background: var(--ink);
+  border-color: var(--progress);
+  background: var(--progress);
 }
 
 /* Замінено новою ревізією. */
 .diamond--stale {
-  border-color: rgba(21, 20, 18, 0.4);
+  border-color: var(--diamond-stale);
   background: transparent;
 }
 
@@ -377,14 +377,14 @@
 }
 
 .chip:hover {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .chip[aria-pressed="true"],
 .chip.is-on {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--on-ink);
+  border-color: var(--fill-strong);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
 }
 
 /* Сегментований перемикач (мова, формат на «Готово»). */
@@ -412,8 +412,8 @@
 
 .seg__opt[aria-pressed="true"],
 .seg__opt.is-on {
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
 }
 
 /* ───────────── Розкладка результатів (T3, C7) ───────────── */
@@ -455,7 +455,7 @@
   bottom: 0;
   left: 0;
   width: calc(var(--bar-value, 0) * 100%);
-  background: var(--ink);
+  background: var(--progress);
   transition: width var(--t-playhead) var(--ease);
 }
 

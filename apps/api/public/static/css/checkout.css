@@ -63,7 +63,7 @@
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border: 1px dashed rgba(21, 20, 18, 0.25);
+  border: 1px dashed var(--line-dashed);
   border-radius: var(--r-pill);
   font: 500 10.5px / 1.2 var(--f-mono);
   letter-spacing: 0.08em;
@@ -110,7 +110,7 @@
 
 .co-num {
   font: 200 168px / 0.9 var(--f-display);
-  letter-spacing: -0.06em;
+  letter-spacing: calc(-0.06em + var(--trk-display));
   font-variant-numeric: tabular-nums;
 }
 
@@ -122,7 +122,7 @@
 .co-title {
   margin: 0;
   font: 300 56px / 1.04 var(--f-display);
-  letter-spacing: -0.05em;
+  letter-spacing: calc(-0.05em + var(--trk-display));
 }
 
 .co-lead {
@@ -149,8 +149,8 @@
 
 /* Спінер на --ink: світлий, як текст кнопки. */
 .co-btn__spinner {
-  border-color: rgba(245, 243, 238, 0.3);
-  border-top-color: var(--on-ink);
+  border-color: color-mix(in srgb, var(--on-fill-strong) 30%, transparent);
+  border-top-color: var(--on-fill-strong);
 }
 
 .co-foot {

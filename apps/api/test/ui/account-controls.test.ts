@@ -377,6 +377,40 @@ describe("views/account-controls.js", () => {
       view.destroy();
     });
 
+    it("група «Тема» між списком і «Вийти»: стрілки проходять через неї, вибір не закриває меню", () => {
+      const { view } = mountWith(state(ME));
+      document.documentElement.setAttribute("data-theme", "light");
+      document.documentElement.setAttribute("data-theme-pref", "light");
+      trigger().click();
+      const m = menu() as HTMLElement;
+      const group = m.querySelector(".tm-group");
+      expect(group?.previousElementSibling?.classList.contains("ac-menu__list")).toBe(true);
+      expect(group?.nextElementSibling?.classList.contains("ac-menu__foot")).toBe(true);
+      const radios = [...m.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+      expect(radios.map((r) => r.querySelector(".tm-item__label")?.textContent)).toEqual([
+        "Світла",
+        "Темна",
+        "Як у системі",
+      ]);
+      items().at(-2)?.focus(); // «Профіль» — останній пункт списку
+      key(document.activeElement as Element, "ArrowDown");
+      expect(document.activeElement).toBe(radios[0]);
+      key(document.activeElement as Element, "End");
+      key(document.activeElement as Element, "ArrowUp");
+      expect(document.activeElement).toBe(radios[2]);
+      radios[1]?.click();
+      expect(menu()).not.toBeNull();
+      expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+      expect(radios[1]?.getAttribute("aria-checked")).toBe("true");
+      expect(radios[1]?.querySelector(".tm-item__check")?.textContent).toBe("✓");
+      expect(trigger().classList.contains("ac-trigger--open")).toBe(true);
+      key(document.activeElement as Element, "Escape");
+      expect(menu()).toBeNull();
+      for (const a of ["data-theme", "data-theme-pref", "data-theme-switching"])
+        document.documentElement.removeAttribute(a);
+      view.destroy();
+    });
+
     it("Space на «Статистика ↗» (посилання) відкриває його", () => {
       const { view } = mountWith(state(ADMIN_ME));
       trigger().click();

@@ -25,6 +25,7 @@ import {
 import { peekPending } from "../lib/pending.js";
 import { mount as mountAccount } from "./account-controls.js";
 import { shortageCard } from "./shortage.js";
+import { mountThemeButton } from "./theme-switch.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
 /** @typedef {import("../contracts.js").Ctx} Ctx */
@@ -144,11 +145,14 @@ export function mount(el, ctx) {
   let manualOpen = false;
   let raf = 0;
 
-  // ── Шапка: «Увійти» для гостя, контроли акаунта (B3) для користувача ──
+  // ── Шапка: коло теми (B5) і «Увійти» для гостя, контроли акаунта (B3) для користувача ──
   const loginBtn = h("button", { class: "btn btn--ghost st-login", type: "button", text: "Увійти" });
+  const themeHost = h("span", { class: "st-theme" });
   const accountEl = h("div", { class: "st-account" });
   /** @type {ViewHandle | null} */
   let account = null;
+  /** @type {ViewHandle | null} */
+  let theme = null;
   /** @type {UiState["account"]["meStatus"] | null} */
   let headKind = null;
 
@@ -369,9 +373,13 @@ export function mount(el, ctx) {
     const view = account;
     account = null;
     view?.destroy();
+    theme?.destroy();
+    theme = null;
     clear(accountEl);
-    if (status === "anon") accountEl.append(loginBtn);
-    else if (status === "ready") account = mountAccount(accountEl, ctx, { place: "start" });
+    if (status === "anon") {
+      theme = mountThemeButton(themeHost, ctx);
+      accountEl.append(themeHost, loginBtn);
+    } else if (status === "ready") account = mountAccount(accountEl, ctx, { place: "start" });
   }
 
   /** @param {UiState} state */
@@ -582,6 +590,8 @@ export function mount(el, ctx) {
       }
       account?.destroy();
       account = null;
+      theme?.destroy();
+      theme = null;
       root.remove();
     },
   };

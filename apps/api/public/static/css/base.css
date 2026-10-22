@@ -75,8 +75,8 @@ a:hover {
 }
 
 ::selection {
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
 }
 
 /* C1: фокус з клавіатури для всіх кнопок, полів і тайлів. */
@@ -85,8 +85,36 @@ a:hover {
 }
 
 :focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+/* Тема: на час перемикання transition вимкнено, інакше сотні елементів із transition .2s
+   перефарбовуються несинхронно. Поля виключено, щоб не зламати автозаповнення нижче. */
+:root[data-theme-switching] *:not(input):not(textarea),
+:root[data-theme-switching] *::before,
+:root[data-theme-switching] *::after {
+  /* biome-ignore lint/complexity/noImportantStyles: перемикання теми перекриває переходи всіх блоків */
+  transition: none !important;
+}
+
+/* Кросфейд зміни теми (View Transitions). Reduced-motion — без VT, див. lib/theme.js. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--t-hover);
+  animation-timing-function: var(--ease);
+}
+
+/* Автозаповнення в темній: прибрати світло-жовту/блакитну підкладку UA, лишити тло поля.
+   Лише темна — світла тема не змінюється. */
+:root[data-theme="dark"] input:-webkit-autofill,
+:root[data-theme="dark"] input:-webkit-autofill:hover,
+:root[data-theme="dark"] input:-webkit-autofill:focus,
+:root[data-theme="dark"] textarea:-webkit-autofill {
+  -webkit-text-fill-color: var(--ink);
+  transition:
+    background-color 600000s 0s,
+    color 600000s 0s;
 }
 
 /* Лише для скрінрідерів. */

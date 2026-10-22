@@ -25,11 +25,11 @@
 
 /* ── B5 · N5-A: сума в «Затвердити й рендерити» і рядок підсумку ── */
 
-/* «… | 2 кредити →»: роздільник 1px --on-ink .28, сума mono 12 --on-ink .82. */
+/* «… | 2 кредити →»: роздільник 1px --on-fill-strong .28, сума mono 12 --on-fill-strong .82. */
 .cd-approve__price {
   padding-left: 10px;
-  border-left: 1px solid color-mix(in srgb, var(--on-ink) 28%, transparent);
-  color: color-mix(in srgb, var(--on-ink) 82%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--on-fill-strong) 28%, transparent);
+  color: color-mix(in srgb, var(--on-fill-strong) 82%, transparent);
   font: 400 12px / 1 var(--f-mono);
 }
 
@@ -135,7 +135,7 @@
   width: var(--cd-still-w);
   height: var(--cd-still-h);
   border-radius: var(--r-6);
-  outline: 1px solid var(--line-soft);
+  outline: 1px solid var(--media-ring);
   outline-offset: -1px;
   background: var(--placeholder-a);
   object-fit: cover;
@@ -221,7 +221,7 @@
   height: auto;
   max-height: 240px;
   border-radius: var(--r-6);
-  outline: 1px solid var(--line-soft);
+  outline: 1px solid var(--media-ring);
   outline-offset: -1px;
   background: var(--placeholder-a);
   transition: outline-color var(--t-hover);
@@ -233,7 +233,7 @@
 }
 
 .cd-sheet__link:hover .cd-sheet__img {
-  outline-color: var(--ink);
+  outline-color: var(--edge-strong);
 }
 
 .cd-sheet__link:hover .cd-sheet__hint {
@@ -386,7 +386,7 @@
 }
 
 .cd-wave__bar.is-played {
-  background: var(--ink);
+  background: var(--progress);
 }
 
 .cd-time {

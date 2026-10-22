@@ -1,0 +1,151 @@
+/* .tm- · B5 · перемикач теми (SW). Коло гостя на старті + група «Тема» в меню акаунта. */
+.tm {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.tm-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color var(--t-hover);
+}
+
+.tm-trigger:hover {
+  border-color: var(--edge-strong);
+}
+
+.tm-trigger:active,
+.tm-trigger[aria-expanded="true"] {
+  border-color: var(--fill-strong);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
+}
+
+.tm-glyph {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  overflow: hidden;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.tm-glyph[data-mode="dark"] {
+  background: currentColor;
+}
+
+.tm-glyph[data-mode="system"]::after {
+  content: "";
+  position: absolute;
+  inset: 0 50% 0 0;
+  background: currentColor;
+}
+
+/* Меню гостя: 272 · padding 6 · рамка --edge-strong · радіус 14 · без тіні — як .ac-menu. */
+.tm-menu {
+  position: absolute;
+  z-index: 40;
+  top: 42px;
+  right: -8px;
+  display: flex;
+  flex-direction: column;
+  width: 272px;
+  padding: 6px;
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--r-14);
+  background: var(--card);
+  color: var(--ink);
+  animation: adc-fade 0.25s var(--ease) both;
+}
+
+.tm-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.ac-menu .tm-group {
+  padding-bottom: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.tm-label {
+  padding: 10px 12px 6px;
+  color: var(--muted);
+  font: 500 10.5px / 1.2 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ac-menu .tm-label {
+  padding-top: 12px;
+}
+
+.tm-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-10);
+  background: transparent;
+  color: var(--ink);
+  font: 500 13.5px / 1 var(--f-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tm-item:hover {
+  background: var(--paper);
+}
+
+.tm-item__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.tm-item__meta {
+  flex: none;
+  color: var(--muted);
+  font: 400 11.5px / 1 var(--f-mono);
+  white-space: nowrap;
+}
+
+.tm-item__check {
+  flex: none;
+  width: 12px;
+  color: var(--ink);
+  font: 500 11.5px / 1 var(--f-mono);
+  text-align: right;
+}
+
+/* 390: ціль 44 — коло дорівнює висоті «Увійти» на 390 (start.css), пункти теми 44.
+   Інші пункти меню акаунта лишаються 40 — їхні розміри не змінюємо. */
+@media (max-width: 560px) {
+  .tm-trigger {
+    width: 44px;
+    height: 44px;
+  }
+
+  .tm-menu {
+    top: 54px;
+  }
+
+  .tm-item {
+    height: 44px;
+  }
+}
