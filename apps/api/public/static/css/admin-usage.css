@@ -1,1 +1,568 @@
-/* Вкладка «Використання» адмінки (views/admin-usage.js). Класи — з префіксом adu-. */
+/* .adu- · Вкладка «Використання» адмінки (views/admin-usage.js). Значення — tokens.css, примітиви —
+ * components.css (.seg, .btn, .card, .label-s, .spinner, .dot); вигляд — як у сусідніх вкладках
+ * (admin.css). Широкі таблиці скроляться всередині своєї картки (.adu-scroll): на 1280 сторінка
+ * горизонтально не скролиться.
+ */
+
+.adu {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+}
+
+.adu-content {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  min-width: 0;
+  transition: opacity var(--t-hover);
+}
+
+.adu--busy .adu-content {
+  opacity: 0.6;
+}
+
+.adu-num {
+  text-align: right;
+}
+
+.adu-neg {
+  color: var(--danger);
+}
+
+/* ───────────── Фільтр ───────────── */
+
+.adu-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.adu-filter .seg {
+  align-self: center;
+}
+
+.adu-seg__opt {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.adu-dates {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.adu-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.adu-date__input {
+  box-sizing: border-box;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--card);
+  color: var(--ink);
+  font: 400 12.5px / 1 var(--f-mono);
+  transition: border-color var(--t-hover);
+}
+
+.adu-date__input:hover,
+.adu-date__input:focus {
+  border-color: var(--ink);
+}
+
+.adu-date__input[aria-invalid="true"] {
+  border-color: var(--danger-field);
+}
+
+.adu-filter__end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.adu-utc {
+  color: var(--muted);
+  font: 400 11.5px / 1 var(--f-mono);
+}
+
+.adu-range-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--danger);
+  font: 400 13px / 1.4 var(--f-ui);
+}
+
+/* ───────────── Стани ───────────── */
+
+.adu-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-14);
+  background: var(--card);
+  font: 400 13.5px / 1.4 var(--f-ui);
+}
+
+.adu-state--loading {
+  padding: 20px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 400 12.5px / 1.4 var(--f-mono);
+}
+
+.adu-state--error {
+  justify-content: space-between;
+  border-color: var(--danger-line);
+  color: var(--danger);
+}
+
+.adu-state--empty {
+  color: var(--muted);
+}
+
+.adu-retry {
+  cursor: pointer;
+}
+
+/* ───────────── Картки ───────────── */
+
+.adu-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.adu-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.adu-card__num {
+  font: 300 30px / 1.05 var(--f-display);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.adu-card__sub {
+  color: var(--ink-2);
+  font: 400 12px / 1.4 var(--f-mono);
+}
+
+.adu-card__sub.adu-neg {
+  color: var(--danger);
+}
+
+.adu-card__hint {
+  color: var(--muted);
+  font: 400 11px / 1.4 var(--f-mono);
+}
+
+/* ───────────── Секції й таблиці ───────────── */
+
+.adu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.adu-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.adu-h2 {
+  margin: 0;
+  font: 500 17px / 1.2 var(--f-ui);
+  letter-spacing: -0.01em;
+}
+
+.adu-search {
+  flex: 1;
+  max-width: 420px;
+}
+
+.adu-search__input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-14);
+  background: var(--card);
+  color: var(--ink);
+  font: 400 13px / 1 var(--f-mono);
+  transition: border-color var(--t-hover);
+}
+
+.adu-search__input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.adu-search__input:hover,
+.adu-search__input:focus {
+  border-color: var(--ink);
+}
+
+.adu-csv {
+  margin-left: auto;
+  border-color: var(--line-strong);
+}
+
+/* Картка таблиці: свій горизонтальний скрол. */
+.adu-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-14);
+  background: var(--card);
+}
+
+.adu-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.adu-table th,
+.adu-table td {
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.adu-table th.adu-num,
+.adu-table td.adu-num {
+  text-align: right;
+}
+
+/* Лінія під заголовками — --ink, між рядками — --line (у collapse верхня перемагає). */
+.adu-th {
+  border-bottom: 1px solid var(--ink);
+  color: var(--muted);
+  font: 500 10.5px / 1.2 var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.adu-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  transition: color var(--t-hover);
+}
+
+.adu-sort:hover,
+.adu-sort.is-on {
+  color: var(--ink);
+}
+
+.adu-sort__arrow {
+  min-width: 0.8em;
+}
+
+/* Заголовки можуть переноситись, значення — ні. */
+.adu-table td {
+  border-top: 1px solid var(--line);
+  white-space: nowrap;
+  color: var(--ink);
+  font: 400 12.5px / 1.3 var(--f-mono);
+}
+
+.adu-td--none {
+  color: var(--muted);
+}
+
+/* Рядки, що розгортаються */
+
+.adu-row--user,
+.adu-row--project {
+  cursor: pointer;
+  transition: background-color var(--t-hover);
+}
+
+.adu-row--user:hover,
+.adu-row--project:hover,
+.adu-row.is-open {
+  background: var(--stage);
+}
+
+.adu-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.adu-table--users .adu-expand {
+  max-width: 300px;
+}
+
+.adu-chev {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform var(--t-hover);
+}
+
+.adu-row.is-open .adu-chev {
+  transform: rotate(45deg);
+}
+
+.adu-email,
+.adu-host,
+.adu-owner__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adu-row.is-open .adu-email,
+.adu-row.is-open .adu-host {
+  font-weight: 500;
+}
+
+.adu-host--none,
+.adu-owner--none {
+  color: var(--muted);
+}
+
+.adu-table td.adu-name {
+  font: 400 13px / 1.3 var(--f-ui);
+}
+
+.adu-table td.adu-owner {
+  color: var(--ink-2);
+}
+
+.adu-owner__text {
+  display: inline-block;
+  max-width: 200px;
+  vertical-align: bottom;
+}
+
+.adu-table td.adu-owner--none,
+.adu-table td.adu-date {
+  color: var(--muted);
+}
+
+.adu-table td.adu-usd {
+  font-weight: 500;
+}
+
+.adu-table td.adu-system {
+  color: var(--ink-2);
+  font: 400 13px / 1.3 var(--f-ui);
+}
+
+/* Статус проєкту — як у «Усіх проєктах» (admin.css). */
+.adu-table td.adu-status {
+  min-width: 120px;
+  white-space: normal;
+  color: var(--ink-2);
+  font: 400 12.5px / 1.3 var(--f-ui);
+}
+
+.adu-status__dot {
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+
+.adu-status--busy .adu-status__dot,
+.adu-status--awaiting .adu-status__dot {
+  background: var(--accent);
+}
+
+.adu-table td.adu-status--failed {
+  color: var(--danger);
+}
+
+.adu-status--failed .adu-status__dot {
+  background: var(--danger);
+}
+
+.adu-table td.adu-status--none {
+  color: var(--muted);
+}
+
+/* Розгорнутий користувач: його проєкти */
+
+.adu-table td.adu-sub__cell {
+  padding: 4px 14px 16px 34px;
+  background: var(--stage);
+  white-space: normal;
+}
+
+.adu-sub__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.adu-sub__title {
+  padding-top: 6px;
+}
+
+/* Розгорнутий проєкт: міні-таблиці */
+
+.adu-table td.adu-detail__cell {
+  padding: 4px 14px 18px 34px;
+  background: var(--stage);
+  white-space: normal;
+}
+
+.adu-detail__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.adu-detail__meta {
+  margin: 0;
+  color: var(--muted);
+  font: 400 11.5px / 1.5 var(--f-mono);
+  overflow-wrap: anywhere;
+}
+
+.adu-detail__grid {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 16px 28px;
+  align-items: start;
+}
+
+.adu-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-10);
+  background: var(--card);
+}
+
+.adu-table--mini {
+  width: auto;
+}
+
+.adu-table--mini th,
+.adu-table--mini td {
+  padding: 6px 10px;
+}
+
+.adu-table--mini th:first-child,
+.adu-table--mini td:first-child {
+  padding-left: 0;
+}
+
+.adu-table--mini td {
+  font-size: 12px;
+}
+
+/* Таблиця проєктів: примітка, пагінація */
+
+.adu-ptable {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  transition: opacity var(--t-hover);
+}
+
+.adu-ptable.is-busy {
+  opacity: 0.6;
+}
+
+.adu-sub .adu-scroll {
+  background: var(--card);
+}
+
+.adu-note {
+  margin: 0;
+  color: var(--muted);
+  font: 400 13px / 1.5 var(--f-ui);
+}
+
+.adu-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.adu-pager__btn {
+  border-color: var(--line-strong);
+  cursor: pointer;
+}
+
+.adu-pager__btn:disabled {
+  cursor: default;
+}
+
+.adu-pager__range {
+  color: var(--ink-2);
+  font: 400 12px / 1 var(--f-mono);
+}
+
+/* Розбивки: моделі — на всю ширину, етапи — вужча картка під ними. */
+
+.adu-breakdowns {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  min-width: 0;
+}
+
+.adu-stages .adu-scroll {
+  max-width: 640px;
+}
+
+/* Стани рядків — у кінці: перекривають кольори й фон комірок вище. */
+
+.adu-row--system td {
+  background: var(--paper);
+}
+
+.adu-row.is-idle td {
+  color: var(--muted);
+}

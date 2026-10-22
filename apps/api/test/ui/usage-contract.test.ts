@@ -113,7 +113,7 @@ describe("views/admin.js — вкладка «Використання»", () =>
     return { host, store, view };
   }
 
-  it("є вкладка без лічильника; на ній — порожня секція", () => {
+  it("є вкладка без лічильника; при першому показі монтується вигляд вкладки", () => {
     const { host, store, view } = mountAdmin("users");
     const tab = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
       (t) => t.dataset.tab === "usage",
@@ -123,7 +123,7 @@ describe("views/admin.js — вкладка «Використання»", () =>
     expect(section?.hidden).toBe(true);
     store.setState((st) => ({ admin: { ...st.admin, tab: "usage" } }));
     expect(section?.hidden).toBe(false);
-    expect(section?.children.length).toBe(0);
+    expect(section?.querySelector(".adu")).not.toBeNull();
     expect(host.querySelector<HTMLElement>(".adm-users")?.hidden).toBe(true);
     view.destroy();
     expect(host.children.length).toBe(0);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createUsageEngine } from "../src/usage/engine.ts";
 import { setup } from "./helpers.ts";
 
-/** Крок 0 вкладки «Використання»: доступ і форми заглушки двигуна (`docs/usage-api.md`). */
+/** Крок 0 вкладки «Використання»: доступ і форми відповідей двигуна на порожньому сховищі (`docs/usage-api.md`). */
 
 const AGGREGATE_KEYS = ["audioSeconds", "calls", "renders", "tokens", "usd"];
 const TOKENS = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 };
@@ -20,7 +20,7 @@ describe("/api/admin/usage — доступ", () => {
   });
 });
 
-describe("createUsageEngine — заглушка Кроку 0", () => {
+describe("createUsageEngine — форми на порожньому сховищі", () => {
   const engine = async () => {
     const env = await setup({}, { user: null });
     return createUsageEngine({ storage: env.storage, accounts: env.accounts, creditsPerUsd: 1 });
@@ -84,7 +84,26 @@ describe("createUsageEngine — заглушка Кроку 0", () => {
     expect(Object.keys(res?.totals ?? {}).sort()).toEqual(AGGREGATE_KEYS);
   });
 
-  it("csv: масив рядків", async () => {
-    expect(await (await engine()).csv({ ...window, owner: null, search: null })).toEqual([]);
+  it("csv: без owner — лише рядок спільних витрат", async () => {
+    expect(await (await engine()).csv({ ...window, owner: null, search: null })).toEqual([
+      {
+        ownerEmail: null,
+        projectId: null,
+        host: "(спільні витрати)",
+        status: null,
+        createdAt: null,
+        firstDeliveredAt: null,
+        calls: 0,
+        tokensInput: 0,
+        tokensOutput: 0,
+        tokensCacheWrite: 0,
+        tokensCacheRead: 0,
+        audioSeconds: 0,
+        renders: 0,
+        usd: 0,
+        firstDeliveryUsd: 0,
+        revisionUsd: 0,
+      },
+    ]);
   });
 });
