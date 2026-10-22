@@ -14,7 +14,10 @@
 
 /* ── Шапка 76px: вордмарк + «Демо · v0» ── */
 
+/* Над плеєром: меню акаунта (.ac-menu) відкривається поверх .st-frame (вона position: relative). */
 .st-head {
+  position: relative;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: space-between;
