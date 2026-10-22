@@ -24,6 +24,8 @@ export const Tuning = z.object({
   codegenConcurrency: z.number().int().min(1).max(32).default(5),
   fixCheckEffort: Effort.nullable().default(null),
   speculativeRender: z.boolean().default(false),
+  /** Відео-превʼю ЧП3: на вході в розкадровку рендерити основний формат у фоні. */
+  storyboardPreview: z.boolean().default(true),
   qaMaxRounds: z.number().int().min(0).max(3).default(2),
   generationMode: z.enum(["pipeline", "agent"]).default("pipeline"),
   /** Сумарні токени (input + output + cache) стадії `author`. */
@@ -54,6 +56,7 @@ export const TUNING_ENV: Record<keyof Tuning, string> = {
   codegenConcurrency: "ADC_CODEGEN_CONCURRENCY",
   fixCheckEffort: "ADC_FIX_CHECK_EFFORT",
   speculativeRender: "ADC_SPECULATIVE_RENDER",
+  storyboardPreview: "ADC_STORYBOARD_PREVIEW",
   qaMaxRounds: "ADC_QA_MAX_ROUNDS",
   generationMode: "ADC_GENERATION_MODE",
   authorTokenBudget: "ADC_AUTHOR_TOKEN_BUDGET",
@@ -76,7 +79,7 @@ const NUMBER_FIELDS = new Set<keyof Tuning>([
   "authorMaxMinutes",
   "reviewMaxRounds",
 ]);
-const BOOLEAN_FIELDS = new Set<keyof Tuning>(["speculativeRender", "filmReview"]);
+const BOOLEAN_FIELDS = new Set<keyof Tuning>(["speculativeRender", "storyboardPreview", "filmReview"]);
 const BOOLEAN_VALUES: Record<string, boolean> = {
   "1": true,
   true: true,

@@ -92,6 +92,10 @@ import { createMockAnthropic } from "@adc/shared/llm";     // мок Anthropic �
 `ADC_CODEGEN_MODE=sequential ADC_CODEGEN_ANCHOR_EFFORT=xhigh ADC_CODEGEN_REST_EFFORT=high`.
 Повний список — `TUNING_ENV` у `packages/shared/src/tuning.ts`.
 
+| Змінна | Дефолт | Що робить |
+|---|---|---|
+| `ADC_STORYBOARD_PREVIEW` | `on` | `off` — на ЧП3 без відео-превʼю (лише стіли) |
+
 **Агентний режим генерації** (`ADC_GENERATION_MODE=agent`, дефолт `pipeline`). Замість codegen сцени пише
 стадія `author` (`packages/author`, промпт `prompts/author.md`): один агент пише кожну сцену інструментом
 (`write_scene`: AST-guard + типи + журнал версій), сам рендерить і дивиться стрічки (`render_strip`,

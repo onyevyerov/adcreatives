@@ -61,6 +61,16 @@ export const ScriptCheckpointPayload = z.object({
   durationSeconds: z.number(),
 });
 
+/** Таймінг сцени у фільмі (з урахуванням переходів — `computeTimeline`). */
+export const SceneTiming = z.object({
+  sceneId: z.string(),
+  /** Початок сцени у фільмі, мс: `framesToMs(timelineScene.from, fps)`. */
+  fromMs: z.number().int().nonnegative(),
+  /** Тривалість сцени, мс: `framesToMs(timelineScene.durationInFrames, fps)` (переходи всередині). */
+  durationMs: z.number().int().positive(),
+});
+export type SceneTiming = z.infer<typeof SceneTiming>;
+
 export const StoryboardCheckpointPayload = z.object({
   checkpoint: z.literal("storyboard"),
   primaryFormat: Format,
@@ -82,6 +92,10 @@ export const StoryboardCheckpointPayload = z.object({
     })
     .nullable()
     .optional(),
+  /** Таймінг усіх сцен фільму. Відсутнє — старі події; [] — таймінг не порахувався. */
+  timeline: z.array(SceneTiming).optional(),
+  /** Відео-превʼю: формат, що рендериться (основний). null — превʼю вимкнене; відсутнє — старі події. */
+  preview: z.object({ format: Format }).nullable().optional(),
 });
 
 export const CheckpointPayload = z.discriminatedUnion("checkpoint", [
@@ -137,6 +151,17 @@ export const ErrorEvent = z.object({
   retryable: z.boolean(),
 });
 
+/** Відео-превʼю ЧП3 готове або не вдалося. */
+export const PreviewEvent = z.object({
+  type: z.literal("preview"),
+  at: IsoDate,
+  rev: z.number().int(),
+  format: Format,
+  state: z.enum(["ready", "failed"]),
+  /** URL mp4 (/files/…); null, якщо state = "failed". */
+  url: z.string().nullable(),
+});
+
 export const ChatEvent = z.discriminatedUnion("type", [
   MessageEvent,
   ProgressEvent,
@@ -145,6 +170,7 @@ export const ChatEvent = z.discriminatedUnion("type", [
   CostEventMsg,
   StateEvent,
   ErrorEvent,
+  PreviewEvent,
 ]);
 export type ChatEvent = z.infer<typeof ChatEvent>;
 export type ChatEventType = ChatEvent["type"];

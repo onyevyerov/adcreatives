@@ -85,6 +85,11 @@ export interface StepContext {
    */
   speculativeRender?: boolean;
   /**
+   * `Tuning.storyboardPreview`: на вході в `awaiting_storyboard` рендерити основний формат як
+   * відео-превʼю ЧП3. Не задано — false (драйвер ставить з env).
+   */
+  storyboardPreview?: boolean;
+  /**
    * `Tuning.qaMaxRounds`: скільки кіл QA → fix до чекпоінта 3 (0 — без фіксів після QA).
    * Не задано — `readTuning().qaMaxRounds` з env (`ADC_QA_MAX_ROUNDS`, дефолт 2); у ревізії, яку
    * писав агент (`author`), — не більше `AGENT_QA_MAX_ROUNDS`.
@@ -130,7 +135,16 @@ export const AGENT_QA_MAX_ROUNDS = 1;
 
 export type Effect =
   /** Зібрати картку чекпоінта з артефактів і надіслати в чат. */
-  | { type: "checkpoint"; checkpoint: Checkpoint; rev: number; changedScenes: string[] | null }
+  | {
+      type: "checkpoint";
+      checkpoint: Checkpoint;
+      rev: number;
+      changedScenes: string[] | null;
+      /** Формат відео-превʼю (лише для storyboard); null / не задано — превʼю немає. */
+      preview?: Format | null;
+    }
+  /** Відео-превʼю ЧП3 дорендерилось (ok) або впало. */
+  | { type: "preview"; rev: number; format: Format; ok: boolean }
   /** Відповісти на питання клієнта через chat-reply. */
   | { type: "reply"; question: string }
   /** Подія `cost` після стадії. */

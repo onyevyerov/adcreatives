@@ -13,6 +13,7 @@ describe("readTuning", () => {
       codegenConcurrency: 5,
       fixCheckEffort: null,
       speculativeRender: false,
+      storyboardPreview: true,
       qaMaxRounds: 2,
       generationMode: "pipeline",
       authorTokenBudget: 3_000_000,
@@ -45,6 +46,13 @@ describe("readTuning", () => {
     ).toMatchObject({ sfxMode: "storyboard", filmReview: false, reviewMaxRounds: 2 });
     expect(() => readTuning({ ADC_REVIEW_MAX_ROUNDS: "3" })).toThrow();
     expect(() => readTuning({ ADC_FILM_REVIEW: "maybe" })).toThrow();
+  });
+
+  it("відео-превʼю ЧП3 — дефолт on, вимикається через env", () => {
+    expect(readTuning({}).storyboardPreview).toBe(true);
+    expect(readTuning({ ADC_STORYBOARD_PREVIEW: "off" }).storyboardPreview).toBe(false);
+    expect(readTuning({ ADC_STORYBOARD_PREVIEW: "0" }).storyboardPreview).toBe(false);
+    expect(() => readTuning({ ADC_STORYBOARD_PREVIEW: "maybe" })).toThrow(TuningError);
   });
 
   it("відкат до послідовної генерації — через env", () => {

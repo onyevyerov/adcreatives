@@ -365,6 +365,8 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
       case "delivery":
         await emitAll(project.id, await buildDelivery(storage, project, effect.rev, effect.formats));
         return;
+      case "preview":
+        return; // реалізація — блок B3 (ТЗ 2026-10-22 «відео-превʼю ЧП3»)
       case "reply": {
         let text: string;
         try {
