@@ -201,7 +201,8 @@ storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx
 - **Адмін** (`ADMIN_EMAILS`): `/stats` і `/api/stats*`, `GET /api/admin/users[/:id[/transactions]]`,
   ручне нарахування або коригування `POST /api/admin/users/<id>/credits {"credits": 20, "note": "…"}` (знак будь-який,
   але баланс не може стати від'ємним — інакше 402), dev-outbox `GET /api/admin/outbox`, а також усі проєкти
-  (`GET /api/projects?all=1`). Звичайний користувач отримує тут 403. Чужий проєкт і його файли — 404.
+  (`GET /api/projects?all=1`) і використання за період `GET /api/admin/usage/*` (`docs/usage-api.md`).
+  Звичайний користувач отримує тут 403. Чужий проєкт і його файли — 404.
 - Проєкти без `ownerId` (eval, CLI, інтеграційні тести, старі) білінгу не мають, і бачить їх лише адмін.
 
 Шлях «зареєструватись → активувати → поповнити → запустити ролик» через curl (API на `localhost:3000`,
@@ -367,7 +368,7 @@ pnpm --filter @adc/api dev      # http://localhost:3000 (інший порт: PO
 | `/?project=<id>` | робочий простір; чужий або неіснуючий — «Проєкт не знайдено», протухла сесія — форма входу в сцені |
 | `/?cabinet=balance\|history\|projects\|profile` | кабінет (гість — модалка входу поверх) |
 | `/?checkout=<topupId>` | тестова оплата: «Оплатити» / «Скасувати» (це `checkoutUrl` з `POST /api/billing/topups`) |
-| `/?admin=users\|outbox\|all[&user=<id>]` | адмінка (`ADMIN_EMAILS`); клієнт бачить 403 |
+| `/?admin=users\|outbox\|all\|usage[&user=<id>]` | адмінка (`ADMIN_EMAILS`); клієнт бачить 403; `usage` — витрати за період (`docs/usage-api.md`) |
 | `/?auth=activate&token=…`, `/?auth=reset&token=…` | посилання з листа: старт + модалка; токен одразу зникає з адреси |
 
 - **Відкладений старт.** Гість вводить адресу і тисне «Почати» → запис `adc.pendingStart` у localStorage (TTL 24 год,

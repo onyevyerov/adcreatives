@@ -526,8 +526,13 @@ describe("views/admin.js", () => {
     const { view } = mountWith(adminState(selectedOf(OLENA, 12)));
     expect(q(".adm-title")?.textContent).toBe("Адмінка");
     const tabs = all('[role="tab"]');
-    expect(tabs.map((t) => t.textContent)).toEqual(["Користувачі 4", "Outbox 2", "Усі проєкти 7"]);
-    expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
+    expect(tabs.map((t) => t.textContent)).toEqual([
+      "Користувачі 4",
+      "Outbox 2",
+      "Усі проєкти 7",
+      "Використання",
+    ]);
+    expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false"]);
     expect(q(".adm-stats")?.getAttribute("href")).toBe("/stats");
     expect(q(".adm-stats")?.textContent).toBe("Статистика ↗");
     view.destroy();
@@ -540,6 +545,9 @@ describe("views/admin.js", () => {
     expect(navigate).toHaveBeenLastCalledWith({ route: "admin", tab: "all" });
     const tab = all('[role="tab"]')[2] as HTMLElement;
     tab.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(navigate).toHaveBeenLastCalledWith({ route: "admin", tab: "usage" });
+    const last = all('[role="tab"]')[3] as HTMLElement;
+    last.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     expect(navigate).toHaveBeenLastCalledWith({ route: "admin", tab: "users" });
   });
 

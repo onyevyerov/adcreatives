@@ -13,6 +13,7 @@ import { filesHandler } from "./routes/files.ts";
 import { projectsRoutes } from "./routes/projects.ts";
 import { staticHandler } from "./routes/static.ts";
 import { statsRoutes } from "./routes/stats.ts";
+import { usageRoutes } from "./routes/usage.ts";
 import { type AppEnv, sessionMiddleware } from "./session.ts";
 
 /**
@@ -41,6 +42,7 @@ export function createApp(deps: ApiDeps): Hono<AppEnv> {
   app.route("/api/auth", authRoutes(deps));
   app.route("/api/account", accountRoutes(deps));
   app.route("/api/billing", billingRoutes(deps));
+  app.route("/api/admin/usage", usageRoutes(deps));
   app.route("/api/admin", adminRoutes(deps));
   app.route("/api/projects", projectsRoutes(deps));
   app.route("/", statsRoutes(deps));

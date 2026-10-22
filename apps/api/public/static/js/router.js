@@ -8,7 +8,7 @@
  * | `/?project=<id>`                            | project                        |
  * | `/?cabinet=balance\|history\|projects\|profile` | cabinet                    |
  * | `/?checkout=<topupId>`                      | checkout                       |
- * | `/?admin=users\|outbox\|all[&user=<id>]`    | admin                          |
+ * | `/?admin=users\|outbox\|all\|usage[&user=<id>]` | admin                      |
  * | `/?auth=activate\|reset&token=…`            | start + `auth` (модалка)       |
  *
  * `auth` повертається за будь-якого маршруту (ядро прибирає токен з адреси завжди).
@@ -23,7 +23,7 @@
 /** @type {readonly CabinetSection[]} */
 export const CABINET_SECTIONS = ["balance", "history", "projects", "profile"];
 /** @type {readonly AdminTab[]} */
-export const ADMIN_TABS = ["users", "outbox", "all"];
+export const ADMIN_TABS = ["users", "outbox", "all", "usage"];
 
 /** Параметри, що описують маршрут (решта — службові, зберігаються лише в mock-режимі). */
 const ROUTE_KEYS = ["project", "cabinet", "checkout", "admin", "user", "auth", "token", "jump"];

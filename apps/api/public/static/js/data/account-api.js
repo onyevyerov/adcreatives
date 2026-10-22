@@ -13,6 +13,12 @@ import { api } from "./api.js";
 /** @typedef {import("../contracts.js").TopUp} TopUp */
 /** @typedef {import("../contracts.js").OutboxMail} OutboxMail */
 /** @typedef {import("../contracts.js").ProjectRow} ProjectRow */
+/** @typedef {import("../contracts.js").UsageQuery} UsageQuery */
+/** @typedef {import("../contracts.js").UsageProjectsQuery} UsageProjectsQuery */
+/** @typedef {import("../contracts.js").UsageSummary} UsageSummary */
+/** @typedef {import("../contracts.js").UsageUserRow} UsageUserRow */
+/** @typedef {import("../contracts.js").UsageProjectsPage} UsageProjectsPage */
+/** @typedef {import("../contracts.js").UsageRange} UsageRange */
 /** @typedef {{ user: PublicUser, balance: number }} SignedIn */
 /** @typedef {{ message: string }} Accepted */
 /** @typedef {{ entries: LedgerEntry[], nextBefore: string | null }} LedgerPage */
@@ -122,6 +128,20 @@ export const adminTransactions = (id, o = {}) =>
 
 /** @param {{ limit?: number }} [o] @returns {Promise<{ mails: OutboxMail[] }>} */
 export const adminOutbox = (o = {}) => api(`/api/admin/outbox${qs({ limit: o.limit })}`);
+
+// ───────────── /api/admin/usage (`docs/usage-api.md`) ─────────────
+
+/** @param {UsageQuery} q @returns {Promise<UsageSummary>} */
+export const adminUsageSummary = (q) => api(`/api/admin/usage/summary${qs(q)}`);
+
+/** @param {UsageQuery & { sort?: string, order?: string }} q @returns {Promise<{ users: UsageUserRow[] } & UsageRange>} */
+export const adminUsageUsers = (q) => api(`/api/admin/usage/users${qs(q)}`);
+
+/** @param {UsageProjectsQuery} q @returns {Promise<UsageProjectsPage>} */
+export const adminUsageProjects = (q) => api(`/api/admin/usage/projects${qs(q)}`);
+
+/** Посилання, не fetch: браузер сам завантажує файл. @param {UsageProjectsQuery} q */
+export const adminUsageCsvHref = (q) => `/api/admin/usage/projects.csv${qs(q)}`;
 
 // ───────────── /api/projects ─────────────
 
