@@ -87,7 +87,7 @@ html.au-lock {
 .au-title {
   margin: 0;
   font: 300 44px / 1.04 var(--f-display);
-  letter-spacing: -0.05em;
+  letter-spacing: calc(-0.05em + var(--trk-display));
   text-wrap: balance;
 }
 
@@ -191,7 +191,7 @@ html.au-lock {
   height: 52px;
   padding: 0 0 8px;
   border: 0;
-  border-bottom: 1.5px solid var(--ink);
+  border-bottom: 1.5px solid var(--edge-strong);
   border-radius: 0;
   background: transparent;
   color: var(--ink);
@@ -312,7 +312,7 @@ html.au-lock {
 
 .au-balance__num {
   font: 200 112px / 0.9 var(--f-display);
-  letter-spacing: -0.06em;
+  letter-spacing: calc(-0.06em + var(--trk-display));
   font-variant-numeric: tabular-nums;
 }
 
@@ -332,7 +332,7 @@ html.au-lock {
   flex-direction: column;
   gap: 12px;
   padding: 18px 20px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--edge-strong);
   border-radius: var(--r-14);
   background: var(--card);
 }
@@ -381,8 +381,8 @@ html.au-lock {
   flex: none;
   width: 12px;
   height: 12px;
-  border: 1.5px solid rgba(245, 243, 238, 0.3);
-  border-top-color: var(--on-ink);
+  border: 1.5px solid color-mix(in srgb, var(--on-fill-strong) 30%, transparent);
+  border-top-color: var(--on-fill-strong);
   border-radius: 50%;
   animation: adc-spin 0.8s linear infinite;
 }

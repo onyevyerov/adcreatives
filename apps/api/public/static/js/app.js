@@ -12,6 +12,7 @@
  */
 import { createAccountActions, stateForUrl } from "./data/account.js";
 import { clear } from "./dom.js";
+import { initTheme } from "./lib/theme.js";
 import { createStore } from "./store.js";
 import { viewFor } from "./view.js";
 import * as admin from "./views/admin.js";
@@ -129,6 +130,7 @@ function byId(doc, id) {
  * @returns {Promise<{ store: Store, actions: Actions, destroy(): void }>}
  */
 export async function boot(opts = {}) {
+  initTheme();
   const doc = opts.doc ?? document;
   const params = opts.params ?? new URLSearchParams(doc.location?.search ?? "");
   const fixture = params.get("fixture");

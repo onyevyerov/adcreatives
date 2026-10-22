@@ -14,6 +14,7 @@
 
 import { h, text } from "../dom.js";
 import { creditWord, formatNumber, isLow, signed } from "../lib/credits.js";
+import { themeMenuGroup } from "./theme-switch.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
 /** @typedef {import("../contracts.js").Ctx} Ctx */
@@ -137,7 +138,7 @@ export function mount(el, ctx, o) {
   const root = h("div", { class: `ac ac--${place}` }, loading, pill, slot, role, trigger);
   el.append(root);
 
-  /** @type {{ el: HTMLElement, items: HTMLElement[] } | null} */
+  /** @type {{ el: HTMLElement, items: HTMLElement[], destroy(): void } | null} */
   let menu = null;
   /** @type {PublicUser | null} */
   let user = null;
@@ -161,6 +162,7 @@ export function mount(el, ctx, o) {
   function close(returnFocus) {
     if (!menu) return;
     document.removeEventListener("pointerdown", onOutside, true);
+    menu.destroy();
     menu.el.remove();
     menu = null;
     trigger.setAttribute("aria-expanded", "false");
@@ -244,6 +246,9 @@ export function mount(el, ctx, o) {
       items.push(node);
       return node;
     });
+    // Група «Тема» (B5): між списком і «Вийти»; її пункти — у фокус-циклі меню.
+    const theme = themeMenuGroup();
+    items.push(...theme.items);
     const logout = h("button", {
       type: "button",
       class: "ac-menu__item ac-menu__item--logout",
@@ -264,9 +269,10 @@ export function mount(el, ctx, o) {
         u.isAdmin && h("span", { class: "ac-menu__role", text: "роль · адміністратор" }),
       ),
       h("div", { class: "ac-menu__list" }, rows),
+      theme.el,
       h("div", { class: "ac-menu__foot" }, logout),
     );
-    return { el: menuEl, items };
+    return { el: menuEl, items, destroy: theme.destroy };
   }
 
   // ───── Рендер ─────
@@ -326,6 +332,7 @@ export function mount(el, ctx, o) {
         // Ім'я, роль чи «Мої проєкти · N» змінились при відкритому меню — перебудувати на місці.
         const i = menu.items.indexOf(/** @type {HTMLElement} */ (document.activeElement));
         const next = buildMenu(user, projectCount);
+        menu.destroy();
         menu.el.replaceWith(next.el);
         menu = next;
         if (i >= 0) focusItem(Math.min(i, next.items.length - 1));

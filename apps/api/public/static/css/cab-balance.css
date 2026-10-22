@@ -20,7 +20,7 @@
   align-items: baseline;
   gap: 10px;
   padding: 14px 16px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--edge-strong);
   border-radius: var(--r-14);
   background: var(--card);
   font: 400 13.5px / 1.5 var(--f-ui);
@@ -57,7 +57,7 @@
 
 .cab-bal__num {
   font: 200 148px / 0.9 var(--f-display);
-  letter-spacing: -0.06em;
+  letter-spacing: calc(-0.06em + var(--trk-display));
   font-variant-numeric: tabular-nums;
 }
 
@@ -125,8 +125,8 @@
 }
 
 .cab-bal__continue:hover:not(:disabled) {
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
 }
 
 /* ───── Форма поповнення ───── */
@@ -163,11 +163,11 @@
 }
 
 .cab-tu__tile:hover {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .cab-tu__tile[aria-checked="true"] {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
   background: var(--paper);
 }
 
@@ -196,8 +196,8 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
   font: 500 11px / 20px var(--f-mono);
   text-align: center;
 }
@@ -210,7 +210,7 @@
 
 .cab-tu__num {
   font: 300 40px / 1 var(--f-display);
-  letter-spacing: -0.05em;
+  letter-spacing: calc(-0.05em + var(--trk-display));
   font-variant-numeric: tabular-nums;
 }
 
@@ -262,7 +262,7 @@
   background: transparent;
   color: var(--ink);
   font: 300 32px / 1 var(--f-display);
-  letter-spacing: -0.04em;
+  letter-spacing: calc(-0.04em + var(--trk-display));
   font-variant-numeric: tabular-nums;
 }
 
@@ -272,7 +272,7 @@
 }
 
 .cab-tu__tile--custom[aria-checked="true"] .cab-tu__input {
-  border-bottom-color: var(--ink);
+  border-bottom-color: var(--edge-strong);
 }
 
 .cab-tu__tile--custom.is-error .cab-tu__input {
@@ -294,8 +294,8 @@
 
 /* Спінер на primary — світлий. */
 .cab-tu__spinner {
-  border-color: rgba(245, 243, 238, 0.3);
-  border-top-color: var(--on-ink);
+  border-color: color-mix(in srgb, var(--on-fill-strong) 30%, transparent);
+  border-top-color: var(--on-fill-strong);
 }
 
 .cab-tu__note {

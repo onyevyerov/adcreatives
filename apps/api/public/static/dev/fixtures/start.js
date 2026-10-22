@@ -5,6 +5,9 @@
  *
  * Адреса, яку в кадрі вже введено, — це відкладений старт (`account.pending`): view підставляє
  * його у форму, як після повернення з входу чи оплати.
+ *
+ * `n3-guest-theme` (B5, кадр SW2) — гість з відкритим меню теми: меню — локальний стан view, тож
+ * цей модуль у браузері після монтування натискає коло теми (лише в режимі `?fixture=`).
  */
 import { LOGOUT_FLASH } from "../../js/data/account.js";
 import { initialState } from "../../js/initial.js";
@@ -15,6 +18,9 @@ import { accountFixture, at, ME, meOf, OLENA, PRICES } from "./_base.js";
 /** @typedef {import("./_base.js").StatePatch} StatePatch */
 
 const HOST = "zerno.example.com";
+
+/** Стани з відкритим меню теми гостя. */
+export const THEME_MENU_OPEN = ["n3-guest-theme"];
 
 /** @type {PendingStart} */
 const PENDING = { url: HOST, manualText: null, hadPhotos: false, at: at("19.10 11:20") };
@@ -37,6 +43,7 @@ function guest(account = {}, ui = {}) {
 /** @type {Record<string, UiState>} */
 export default {
   "n3-guest": guest(),
+  "n3-guest-theme": guest(),
   "n3-guest-url": guest({ pending: PENDING }),
   "n3-user": accountFixture({ account: { pending: PENDING } }),
   "n3-low": accountFixture({ account: { me: meOf(OLENA, 4), pending: PENDING } }),
@@ -57,3 +64,20 @@ export default {
   "n3-empty": guest({}, { startError: "Вставте адресу сайту або коротко опишіть бізнес." }),
   "n15-logout": guest({ flash: LOGOUT_FLASH }),
 };
+
+// Режим `?fixture=n3-guest-theme`: відкрити меню теми, щойно app.js змонтує шапку старту.
+if (typeof location !== "undefined" && typeof document !== "undefined") {
+  const name = new URLSearchParams(location.search).get("fixture");
+  if (name && THEME_MENU_OPEN.includes(name)) {
+    let tries = 60;
+    const tick = () => {
+      const trigger = document.querySelector("#start .tm-trigger");
+      if (trigger instanceof HTMLButtonElement) {
+        trigger.click();
+        // Програмний фокус на обраному пункті малює кільце, якого в кадрі немає.
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      } else if (--tries > 0) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+}

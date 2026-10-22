@@ -43,5 +43,5 @@
 .ss-forbidden__title {
   margin-top: 18px;
   font: 300 64px / 1.02 var(--f-display);
-  letter-spacing: -0.05em;
+  letter-spacing: calc(-0.05em + var(--trk-display));
 }

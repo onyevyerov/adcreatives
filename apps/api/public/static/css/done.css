@@ -65,7 +65,7 @@
 }
 
 .dn-frame:not(.stripes) {
-  background: var(--ink);
+  background: var(--media-bg);
 }
 
 .dn-video {
@@ -156,7 +156,7 @@
   bottom: 0;
   left: 0;
   width: calc(var(--fill, 0) * 100%);
-  background: var(--ink);
+  background: var(--progress);
 }
 
 .dn-scrub__seg.is-current .dn-scrub__bar {
@@ -301,7 +301,7 @@
 .dn-cost--total .dn-cost__usd {
   padding-top: 12px;
   padding-bottom: 0;
-  border-top: 1px solid var(--ink);
+  border-top: 1px solid var(--edge-strong);
   color: var(--ink);
   font-weight: 500;
   font-size: 13px;

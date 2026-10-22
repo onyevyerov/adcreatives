@@ -76,8 +76,8 @@
 }
 
 .ac-pill__plus:hover {
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
 }
 
 /* Низький баланс (< prices.video × 0.5): «+ Поповнити» текстом, без кольору. */
@@ -128,13 +128,13 @@
 }
 
 .ac-trigger:hover {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .ac-trigger--open {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--on-ink);
+  border-color: var(--fill-strong);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
 }
 
 /* ───────────── Меню · 272 · padding 6 · рамка --ink · радіус 14 · без тіні ───────────── */
@@ -147,7 +147,7 @@
   flex-direction: column;
   width: 272px;
   padding: 6px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--edge-strong);
   border-radius: var(--r-14);
   background: var(--card);
   color: var(--ink);

@@ -95,7 +95,7 @@
 }
 
 .adm-thead {
-  border-bottom: 1px solid var(--ink);
+  border-bottom: 1px solid var(--edge-strong);
 }
 
 .adm-empty {
@@ -144,7 +144,7 @@
 
 .adm-search__input:hover,
 .adm-search__input:focus {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .adm-count {
@@ -277,7 +277,7 @@
 }
 
 .adm-mails {
-  border-top: 1px solid var(--ink);
+  border-top: 1px solid var(--edge-strong);
 }
 
 .adm-mail {
@@ -349,7 +349,7 @@
 }
 
 .adm-tag--on {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 /* ───────────── Усі проєкти ───────────── */
@@ -467,7 +467,7 @@
 .adm-panel__name {
   margin: 0;
   font: 300 28px / 1.1 var(--f-display);
-  letter-spacing: -0.04em;
+  letter-spacing: calc(-0.04em + var(--trk-display));
 }
 
 .adm-panel__email {
@@ -491,7 +491,7 @@
 
 .adm-balance__num {
   font: 200 72px / 0.9 var(--f-display);
-  letter-spacing: -0.06em;
+  letter-spacing: calc(-0.06em + var(--trk-display));
   font-variant-numeric: tabular-nums;
 }
 
@@ -564,7 +564,7 @@
 
 .adm-field__input:hover,
 .adm-field__input:focus {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .adm-field__input.is-invalid {
@@ -591,7 +591,7 @@
   flex-direction: column;
   gap: 12px;
   padding: 14px 16px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--edge-strong);
   border-radius: var(--r-14);
   background: var(--card);
   animation: adc-fade 0.35s var(--ease) both;
@@ -629,10 +629,10 @@
   align-self: flex-start;
 }
 
-/* Спінер на --ink: трек --on-ink 30%, дуга --on-ink. */
+/* Спінер на --fill-strong: трек --on-fill-strong 30%, дуга --on-fill-strong. */
 .adm-submit__spinner {
-  border-color: color-mix(in srgb, var(--on-ink) 30%, transparent);
-  border-top-color: var(--on-ink);
+  border-color: color-mix(in srgb, var(--on-fill-strong) 30%, transparent);
+  border-top-color: var(--on-fill-strong);
 }
 
 .adm-adjust__rule {

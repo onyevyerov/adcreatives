@@ -73,8 +73,8 @@
 }
 
 .cs-block--ink {
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
 }
 
 .cs-block--t2 {

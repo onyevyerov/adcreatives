@@ -69,7 +69,7 @@
 }
 
 .cab-nav__item[aria-current="page"] {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
   background: var(--card);
 }
 
