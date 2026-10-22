@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDevActions } from "../../public/static/dev/dev-actions.js";
 import { storyboardPayload, storyboardPayloadRev2 } from "../../public/static/dev/fixture-events.js";
 import { fixtureStates } from "../../public/static/dev/fixture-states.js";
-import type { StoryboardCheckpointPayload, UiState } from "../../public/static/js/contracts.js";
+import type { ChatEvent, StoryboardCheckpointPayload, UiState } from "../../public/static/js/contracts.js";
+import { reduce } from "../../public/static/js/data/reduce.js";
 import { createStore } from "../../public/static/js/store.js";
 import {
   boardFormats,
@@ -17,8 +18,11 @@ import {
   leadText,
   MUSIC_PENDING,
   mount,
+  PREVIEW_FAILED,
+  PREVIEW_PENDING,
   playedRatio,
   QA_OK,
+  sceneAt,
   sceneLabel,
   sortWarnings,
   templateNote,
@@ -549,5 +553,295 @@ describe("cp-board · ціни (N5-A)", () => {
     expect(
       boardPriceLine({ need: 4, extra: ["square", "landscape"], paid: [], balance: 1, short: true }),
     ).toBe(`4${NB}кредити за 1:1, 16:9 · у вас 1`);
+  });
+});
+
+// ───────────── B4 · відео-превʼю ЧП3 ─────────────
+
+describe("cp-board · відео-превʼю", () => {
+  const READY_URL = "/static/media/sample-9x16.mp4";
+
+  function previewFixture(name: string) {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("мережа в тесті"))),
+    );
+    return setup(fixture(name));
+  }
+
+  /** Керований `currentTime` екземпляра медіа (з сеттером — перемотування з коду). */
+  function clock(media: HTMLMediaElement) {
+    let t = 0;
+    Object.defineProperty(media, "currentTime", {
+      configurable: true,
+      get: () => t,
+      set: (v: number) => {
+        t = v;
+      },
+    });
+    return {
+      get now() {
+        return t;
+      },
+      at(sec: number, type = "timeupdate") {
+        t = sec;
+        media.dispatchEvent(new Event(type));
+      },
+    };
+  }
+
+  /** Подія `preview` через редьюсер — як зі стріму. */
+  function applyPreview(store: ReturnType<typeof setup>["store"], event: Record<string, unknown>) {
+    const ev = { type: "preview", at: "2026-10-06T10:05:00.000Z", ...event } as ChatEvent;
+    store.setState(reduce(store.getState(), ev, "9000-0"));
+  }
+
+  function timelineOf(state: UiState) {
+    const p = state.checkpoints.storyboard?.payload as StoryboardCheckpointPayload;
+    return p.timeline ?? [];
+  }
+
+  const playing = ($$: (sel: string) => HTMLElement[]) =>
+    $$(".cd-scene.cd-scene--playing").map((li) => li.dataset.scene);
+
+  it("pending: рядок «Превʼю» між вступом і стілами — смугаста заглушка у форматі й текст", () => {
+    const { $, $$ } = previewFixture("n5-cp3-preview-pending");
+    const row = $(".cd-preview") as HTMLElement;
+    expect(row.classList.contains("spec-row")).toBe(true);
+    expect(row.querySelector(".spec-row__label")?.textContent).toBe("Превʼю");
+    expect(row.previousElementSibling?.classList.contains("cd-intro")).toBe(true);
+    expect(row.nextElementSibling?.classList.contains("cd-stills")).toBe(true);
+    const frame = row.querySelector(".cd-preview__frame") as HTMLElement;
+    expect(frame.classList.contains("stripes")).toBe(true);
+    expect(frame.dataset.format).toBe("vertical");
+    expect(row.querySelector(".cd-preview-note")?.textContent).toBe(PREVIEW_PENDING);
+    expect(PREVIEW_PENDING).toBe("Відео-превʼю рендериться — зазвичай 1–2 хв. Затвердити можна, не чекаючи.");
+    expect($("video")).toBeNull();
+    expect($$(".cd-scene__play")).toHaveLength(0);
+  });
+
+  it("ready: <video controls playsinline preload=metadata> з URL превʼю і кнопки «▶ Сцена»", () => {
+    const { $, $$ } = previewFixture("n5-cp3-preview-ready");
+    const video = $<HTMLVideoElement>(".cd-preview video.cd-video") as HTMLVideoElement;
+    expect(video.getAttribute("src")).toBe(READY_URL);
+    expect(video.hasAttribute("controls")).toBe(true);
+    expect(video.hasAttribute("playsinline")).toBe(true);
+    expect(video.getAttribute("preload")).toBe("metadata");
+    expect(video.dataset.format).toBe("vertical");
+    expect($(".cd-preview__frame")).toBeNull();
+
+    const buttons = $$(".cd-scene__play");
+    expect(buttons.map((b) => b.closest(".cd-scene")?.getAttribute("data-scene"))).toEqual([
+      "s1",
+      "s2",
+      "s3",
+    ]);
+    expect(buttons.map((b) => b.textContent)).toEqual(["▶ Сцена", "▶ Сцена", "▶ Сцена"]);
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Програти сцену 1",
+      "Програти сцену 2",
+      "Програти сцену 3",
+    ]);
+    expect(buttons.every((b) => b.getAttribute("type") === "button")).toBe(true);
+  });
+
+  it("failed: текст замість плеєра, без кнопок сцен", () => {
+    const { $, $$ } = previewFixture("n5-cp3-preview-failed");
+    expect($(".cd-preview .cd-preview-note")?.textContent).toBe(PREVIEW_FAILED);
+    expect(PREVIEW_FAILED).toBe(
+      "Превʼю не вдалося зібрати. Розкадровку можна затвердити — фінальне відео зрендериться як завжди.",
+    );
+    expect($("video")).toBeNull();
+    expect($$(".cd-scene__play")).toHaveLength(0);
+  });
+
+  it("небезпечний URL не потрапляє в src — як failed", () => {
+    const base = fixture("n5-cp3-preview-ready");
+    const entry = base.checkpoints.storyboard;
+    if (!entry?.preview) throw new Error("немає превʼю у фікстурі");
+    const { $, $$ } = setup({
+      ...base,
+      checkpoints: {
+        ...base.checkpoints,
+        storyboard: { ...entry, preview: { ...entry.preview, url: "javascript:alert(1)" } },
+      },
+    });
+    expect($("video")).toBeNull();
+    expect($$(".cd-scene__play")).toHaveLength(0);
+    expect($(".cd-preview .cd-preview-note")?.textContent).toBe(PREVIEW_FAILED);
+  });
+
+  it("стара подія (без preview/timeline) — ні рядка, ні кнопок; ready без timeline — без кнопок", () => {
+    const { $, $$ } = setup(fixture("awaitingStoryboard"));
+    expect($(".cd-preview")).toBeNull();
+    expect($$(".cd-scene__play")).toHaveLength(0);
+    document.body.textContent = "";
+
+    const base = fixture("n5-cp3-preview-ready");
+    const payload = base.checkpoints.storyboard?.payload as StoryboardCheckpointPayload;
+    const noTimeline = setup(withPayload(base, { ...payload, timeline: [] }));
+    expect(noTimeline.$("video")).not.toBeNull();
+    expect(noTimeline.$$(".cd-scene__play")).toHaveLength(0);
+  });
+
+  it("«▶ Сцена»: перемотка на початок, play, пауза на кінці сцени (допуск ~1 кадр)", () => {
+    const { play, pause } = mockMedia();
+    const { $, $$ } = previewFixture("n5-cp3-preview-ready");
+    const video = $<HTMLVideoElement>("video") as HTMLVideoElement;
+    const t = clock(video);
+    const s2 = timelineOf(fixture("n5-cp3-preview-ready"))[1];
+    if (!s2) throw new Error("немає сцени 2 у таймінгу");
+
+    ($$(".cd-scene__play")[1] as HTMLButtonElement).click();
+    expect(t.now).toBeCloseTo(s2.fromMs / 1000);
+    expect(play).toHaveBeenCalledTimes(1);
+
+    const end = (s2.fromMs + s2.durationMs) / 1000;
+    t.at(end - 0.2);
+    expect(pause).not.toHaveBeenCalled();
+    t.at(end - 0.01);
+    expect(pause).toHaveBeenCalledTimes(1);
+
+    // Далі відтворення вільне: без сцени — без зупинки.
+    video.dispatchEvent(new Event("play"));
+    t.at(end + 0.5);
+    expect(pause).toHaveBeenCalledTimes(1);
+  });
+
+  it("кінець сцени перевіряється щокадру (requestAnimationFrame), не чекаючи timeupdate", () => {
+    const { pause } = mockMedia();
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    const flush = () => {
+      for (const cb of frames.splice(0)) cb(0);
+    };
+    const { $, $$ } = previewFixture("n5-cp3-preview-ready");
+    const video = $<HTMLVideoElement>("video") as HTMLVideoElement;
+    Object.defineProperty(video, "paused", { configurable: true, get: () => false });
+    const t = clock(video);
+    const s1 = timelineOf(fixture("n5-cp3-preview-ready"))[0];
+    if (!s1) throw new Error("немає сцени 1 у таймінгу");
+
+    ($$(".cd-scene__play")[0] as HTMLButtonElement).click();
+    flush();
+    expect(pause).not.toHaveBeenCalled();
+    expect(frames.length).toBeGreaterThan(0);
+    t.at((s1.fromMs + s1.durationMs) / 1000 - 0.01, "progress");
+    flush();
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(frames).toHaveLength(0);
+  });
+
+  it("перемотка поза сцену скасовує зупинку на її кінці", () => {
+    const { pause } = mockMedia();
+    const { $, $$ } = previewFixture("n5-cp3-preview-ready");
+    const video = $<HTMLVideoElement>("video") as HTMLVideoElement;
+    const t = clock(video);
+    const s1 = timelineOf(fixture("n5-cp3-preview-ready"))[0];
+    if (!s1) throw new Error("немає сцени 1 у таймінгу");
+
+    ($$(".cd-scene__play")[0] as HTMLButtonElement).click();
+    t.at(4, "seeked");
+    t.at(4.2);
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it("підсвітка cd-scene--playing за currentTime; при перекритті — пізніша сцена; пауза знімає", () => {
+    mockMedia();
+    const { $, $$ } = previewFixture("n5-cp3-preview-ready");
+    const video = $<HTMLVideoElement>("video") as HTMLVideoElement;
+    const t = clock(video);
+    expect(playing($$)).toEqual([]);
+
+    video.dispatchEvent(new Event("play"));
+    t.at(0.5);
+    expect(playing($$)).toEqual(["s1"]);
+    t.at(1.7); // s1 (0–1.8) і s2 (1.6–3.4) перекриваються
+    expect(playing($$)).toEqual(["s2"]);
+    t.at(4.2);
+    expect(playing($$)).toEqual(["s3"]);
+    video.dispatchEvent(new Event("pause"));
+    expect(playing($$)).toEqual([]);
+    t.at(0.5);
+    expect(playing($$)).toEqual([]);
+  });
+
+  it("sceneAt: кінець сцени не входить, перекриття — пізніша", () => {
+    const tl = [
+      { sceneId: "s1", fromMs: 0, durationMs: 5000 },
+      { sceneId: "s2", fromMs: 4500, durationMs: 5500 },
+    ];
+    expect(sceneAt(tl, 0)).toBe("s1");
+    expect(sceneAt(tl, 4600)).toBe("s2");
+    expect(sceneAt(tl, 9999)).toBe("s2");
+    expect(sceneAt(tl, 10000)).toBeNull();
+    expect(sceneAt([], 10)).toBeNull();
+  });
+
+  it("взаємовиключення: play відео → пауза музики; play музики → пауза відео", () => {
+    const { play, pause } = mockMedia();
+    const { $ } = previewFixture("n5-cp3-preview-ready");
+    const video = $<HTMLVideoElement>("video") as HTMLVideoElement;
+    const audio = $<HTMLAudioElement>("audio") as HTMLAudioElement;
+    const musicBtn = $<HTMLButtonElement>(".cd-play") as HTMLButtonElement;
+
+    musicBtn.click();
+    expect(play.mock.contexts.at(-1)).toBe(audio);
+    video.dispatchEvent(new Event("play"));
+    expect(pause.mock.contexts).toEqual([audio]);
+    expect(musicBtn.getAttribute("aria-pressed")).toBe("false");
+
+    musicBtn.click();
+    expect(pause.mock.contexts).toEqual([audio, video]);
+  });
+
+  it("подія preview оновлює лише рядок і кнопки: стіли й <audio> не перестворюються, музика не обривається", () => {
+    const { pause } = mockMedia();
+    const { $, $$, store } = previewFixture("n5-cp3-preview-pending");
+    const audio = $("audio") as HTMLAudioElement;
+    const img = $("img.cd-still");
+    ($(".cd-play") as HTMLButtonElement).click();
+    const rev = store.getState().checkpoints.storyboard?.rev;
+
+    applyPreview(store, { rev, format: "vertical", state: "ready", url: READY_URL });
+    expect($("audio")).toBe(audio);
+    expect($("img.cd-still")).toBe(img);
+    expect(pause).not.toHaveBeenCalled();
+    const video = $("video");
+    expect(video?.getAttribute("src")).toBe(READY_URL);
+    expect($(".cd-preview__frame")).toBeNull();
+    expect($$(".cd-scene__play")).toHaveLength(3);
+
+    // Повтор події і зміни поза превʼю — той самий <video>.
+    applyPreview(store, { rev, format: "vertical", state: "ready", url: READY_URL });
+    store.setState({ status: "rendering" });
+    expect($("video")).toBe(video);
+    expect($$(".cd-scene__play")).toHaveLength(3);
+  });
+
+  it("pending → failed без перебудови; подія чужої ревізії нічого не міняє", () => {
+    const { $, store } = previewFixture("n5-cp3-preview-pending");
+    const img = $("img.cd-still");
+    const rev = store.getState().checkpoints.storyboard?.rev ?? 0;
+    applyPreview(store, { rev: rev - 1, format: "vertical", state: "ready", url: READY_URL });
+    expect($(".cd-preview__frame")).not.toBeNull();
+    applyPreview(store, { rev, format: "vertical", state: "failed", url: null });
+    expect($(".cd-preview .cd-preview-note")?.textContent).toBe(PREVIEW_FAILED);
+    expect($("img.cd-still")).toBe(img);
+  });
+
+  it("destroy ставить відео на паузу й знімає слухачі", () => {
+    const { pause } = mockMedia();
+    const { $, $$, view } = previewFixture("n5-cp3-preview-ready");
+    const video = $<HTMLVideoElement>("video") as HTMLVideoElement;
+    const t = clock(video);
+    const scenes = $$(".cd-scene");
+    view.destroy();
+    expect(pause.mock.contexts).toContain(video);
+    video.dispatchEvent(new Event("play"));
+    t.at(0.5);
+    expect(scenes.some((li) => li.classList.contains("cd-scene--playing"))).toBe(false);
   });
 });
