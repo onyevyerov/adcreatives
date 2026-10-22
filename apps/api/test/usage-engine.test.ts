@@ -273,11 +273,14 @@ const PQ: Omit<ProjectsQuery, keyof UsageWindow> = {
   pageSize: 25,
 };
 
+/** Кожен тест сіє користувачів (хеш пароля) і проєкти: під паралельним навантаженням 5 с замало. */
+const SLOW = { timeout: 20_000 };
+
 const round = (x: number) => Math.round(x * 1e6) / 1e6;
 const close = (a: number, b: number, groups = 1) =>
   expect(Math.abs(a - b)).toBeLessThanOrEqual(1e-6 * groups);
 
-describe("usage engine — summary", () => {
+describe("usage engine — summary", SLOW, () => {
   it("вікно (межі включно, дні UTC), source=chat, система, кредити й маржа", async () => {
     const { engine } = await seed();
     const s = await engine.summary(W);
@@ -393,7 +396,7 @@ describe("usage engine — summary", () => {
   });
 });
 
-describe("usage engine — users", () => {
+describe("usage engine — users", SLOW, () => {
   it("усі користувачі (без подій — нулі), агрегати, кредити й маржа; Система не входить", async () => {
     const { engine, alice, bob, carol } = await seed();
     const res = await engine.users({ ...W, sort: "usd", order: "desc" });
@@ -500,7 +503,7 @@ describe("usage engine — users", () => {
   });
 });
 
-describe("usage engine — projects", () => {
+describe("usage engine — projects", SLOW, () => {
   it("склад вибірки, мета (intake-only, manual, битий файл, неіснуючий власник), поля рядка", async () => {
     const { engine, alice, bob } = await seed();
     const res = await engine.projects({ ...W, ...PQ });
@@ -634,7 +637,7 @@ describe("usage engine — projects", () => {
   });
 });
 
-describe("usage engine — csv", () => {
+describe("usage engine — csv", SLOW, () => {
   it("без owner: вибірка за usd ↓ і останній рядок спільних витрат", async () => {
     const { engine } = await seed();
     const rows = (await engine.csv({ ...W, owner: null, search: null })) ?? [];
@@ -684,10 +687,19 @@ describe("usage engine — csv", () => {
     );
   });
 
-  it("рядок спільних витрат — завжди без owner (нульовий і з search); з owner — немає; невідомий owner → null", async () => {
+  it("рядок спільних витрат — без owner і без search (навіть нульовий); з search чи owner — немає; невідомий owner → null", async () => {
     const { engine, alice } = await seed();
     const searched = (await engine.csv({ ...W, owner: null, search: "alpha" })) ?? [];
-    expect(searched.map((r) => r.projectId)).toEqual(["pA1", null]);
+    expect(searched.map((r) => r.projectId)).toEqual(["pA1"]);
+    // Експорт пошуку сходиться з видимою таблицею (ті самі проєкти, та сама сума).
+    const page = await engine.projects({ ...W, ...PQ, owner: null, search: "alpha" });
+    close(
+      searched.reduce((acc, r) => acc + r.usd, 0),
+      page?.totals.usd ?? Number.NaN,
+      searched.length,
+    );
+    const blank = (await engine.csv({ ...W, owner: null, search: "  " })) ?? [];
+    expect(blank.at(-1)).toMatchObject({ projectId: null, host: SHARED_CSV_HOST });
     const empty = (await engine.csv({ ...W, source: "eval", owner: null, search: null })) ?? [];
     expect(empty.at(-1)).toMatchObject({ projectId: null, host: SHARED_CSV_HOST, calls: 0, usd: 0 });
     const own = (await engine.csv({ ...W, owner: alice.id, search: null })) ?? [];
@@ -698,7 +710,7 @@ describe("usage engine — csv", () => {
   });
 });
 
-describe("usage engine — знімок", () => {
+describe("usage engine — знімок", SLOW, () => {
   it("другий виклик у межах TTL не читає сховище; після TTL — читає знову", async () => {
     const { env, clock, engine } = await seed();
     const spy = vi.spyOn(env.storage, "listDirs");

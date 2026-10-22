@@ -25,6 +25,16 @@ export const CSV_COLUMNS = [
   ["revision_usd", "revisionUsd"],
 ] as const satisfies readonly (readonly [string, keyof UsageCsvRow])[];
 
+/** Текстові колонки, значення яких приходить ззовні: у них гаситься формула (CSV injection). */
+const TEXT_KEYS: ReadonlySet<keyof UsageCsvRow> = new Set(["ownerEmail", "host", "status"]);
+/** Початок клітинки, який Excel / Sheets читають як формулу. */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/** Рядок, що починається з `= + - @ \t \r`, отримує префікс `'` (таблиця покаже його як текст); інше — як є. */
+export function csvText(value: string | number | null): string | number | null {
+  return typeof value === "string" && FORMULA_START.test(value) ? `'${value}` : value;
+}
+
 /** Поле CSV: `null` → порожнє; лапки, якщо є кома, лапки, `\r` або `\n`; лапки подвоюються. */
 export function csvField(value: string | number | null): string {
   if (value === null) return "";
@@ -32,9 +42,15 @@ export function csvField(value: string | number | null): string {
   return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 
-/** `projects.csv`: BOM, заголовок, рядки в наданому порядку, кожен рядок завершено `\r\n`. */
+/**
+ * `projects.csv`: BOM, заголовок, рядки в наданому порядку, кожен рядок завершено `\r\n`.
+ * У `owner_email`, `host`, `status` формули гасяться (`csvText`); числа не чіпаються.
+ */
 export function toCsv(rows: UsageCsvRow[]): string {
   const lines = [CSV_COLUMNS.map(([name]) => name).join(",")];
-  for (const row of rows) lines.push(CSV_COLUMNS.map(([, key]) => csvField(row[key])).join(","));
+  for (const row of rows)
+    lines.push(
+      CSV_COLUMNS.map(([, key]) => csvField(TEXT_KEYS.has(key) ? csvText(row[key]) : row[key])).join(","),
+    );
   return CSV_BOM + lines.join(CSV_EOL) + CSV_EOL;
 }

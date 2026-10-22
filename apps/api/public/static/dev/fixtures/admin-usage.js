@@ -345,9 +345,10 @@ const RANGE_30D = { from: "2026-09-23", to: "2026-10-22" };
 /**
  * Відповіді трьох ендпоінтів на одну вибірку: `summary`, `users` (usd ↓, email ↑) і `all`
  * (сторінка 1 «Усіх проєктів», usd ↓).
- * @param {{ projects: UsageProjectRow[], shared: UsageModelRow[], source?: UsageSource, range?: UsageRange }} o
+ * `credits` — списання по користувачах (дефолт `CREDITS`).
+ * @param {{ projects: UsageProjectRow[], shared: UsageModelRow[], source?: UsageSource, range?: UsageRange, credits?: Record<string, number> }} o
  */
-function dataset({ projects, shared, source = "chat", range = RANGE_30D }) {
+function dataset({ projects, shared, source = "chat", range = RANGE_30D, credits = CREDITS }) {
   const credited = source === "chat" || source === "all";
   const owned = projects.filter((p) => p.ownerId);
   const ownerless = projects.filter((p) => !p.ownerId);
@@ -356,7 +357,7 @@ function dataset({ projects, shared, source = "chat", range = RANGE_30D }) {
   const users = ACCOUNTS.map((u) => {
     const mine = owned.filter((p) => p.ownerId === u.id);
     const agg = sum(mine);
-    const charged = credited ? (CREDITS[u.id] ?? 0) : null;
+    const charged = credited ? (credits[u.id] ?? 0) : null;
     return {
       ...agg,
       id: u.id,
@@ -433,7 +434,13 @@ const CHAT = dataset({ projects: [ZERNO, FLOR, SHYNA, KAV, AN1, PEKARNIA, BROKEN
 const RANGE_CUSTOM = { from: "2026-10-14", to: "2026-10-19" };
 const CUSTOM = dataset({ projects: [ZERNO, FLOR, SHYNA, KAV, AN1], shared: SHARED, range: RANGE_CUSTOM });
 const EVAL = dataset({ projects: [EV1, EV2], shared: [], source: "eval" });
-const EMPTY = dataset({ projects: [], shared: [], range: { from: "2026-10-16", to: "2026-10-22" } });
+/** Порожній період: ні подій, ні списань (інакше вкладка показала б списані кредити). */
+const EMPTY = dataset({
+  projects: [],
+  shared: [],
+  range: { from: "2026-10-16", to: "2026-10-22" },
+  credits: {},
+});
 
 /**
  * Адмінка під адміном на вкладці «Використання»; `usage` зливається поверх `initialUsage()`.

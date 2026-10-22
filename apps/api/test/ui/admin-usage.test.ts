@@ -11,6 +11,8 @@ import type {
   UsageProjectsPage,
   UsageState,
 } from "../../public/static/js/contracts.js";
+import { initialUsageTable } from "../../public/static/js/initial.js";
+import { USAGE_SEARCH_DEBOUNCE_MS } from "../../public/static/js/lib/usage.js";
 import type { Store } from "../../public/static/js/store.js";
 import { createStore } from "../../public/static/js/store.js";
 import { mount as mountAdmin } from "../../public/static/js/views/admin.js";
@@ -402,27 +404,113 @@ describe("views/admin-usage.js — дії", () => {
     expect(visible(q(".adu-dates"))).toBe(false);
   });
 
-  it("«Свій» показує дати; зміна поля → usageRange, порожнє → null", () => {
-    const { store, calls } = mountWith(fx("adu-loaded"));
-    patchUsage(store, { preset: "custom" });
-    expect(visible(q(".adu-dates"))).toBe(true);
-    const [from, to] = all(".adu-date__input") as [HTMLInputElement, HTMLInputElement];
-    // `range` попереднього пресета — стартові значення полів
-    expect(from.value).toBe("2026-09-23");
-    to.value = "";
-    to.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(lastCall(calls)).toEqual({ name: "usageRange", args: [{ from: "2026-09-23", to: null }] });
-    from.value = "2026-10-01";
-    to.value = "2026-10-15";
-    from.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(lastCall(calls)).toEqual({
-      name: "usageRange",
-      args: [{ from: "2026-10-01", to: "2026-10-15" }],
+  it("«Свій» показує дати; зміна поля → usageRange (після debounce), порожнє → null", () => {
+    vi.useFakeTimers();
+    try {
+      const { store, calls } = mountWith(fx("adu-loaded"));
+      patchUsage(store, { preset: "custom" });
+      expect(visible(q(".adu-dates"))).toBe(true);
+      const [from, to] = all(".adu-date__input") as [HTMLInputElement, HTMLInputElement];
+      // `range` попереднього пресета — стартові значення полів
+      expect(from.value).toBe("2026-09-23");
+      to.value = "";
+      to.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(calls.filter((c) => c.name === "usageRange")).toHaveLength(0);
+      vi.advanceTimersByTime(USAGE_SEARCH_DEBOUNCE_MS);
+      expect(lastCall(calls)).toEqual({ name: "usageRange", args: [{ from: "2026-09-23", to: null }] });
+      from.value = "2026-10-01";
+      to.value = "2026-10-15";
+      from.dispatchEvent(new Event("change", { bubbles: true }));
+      vi.advanceTimersByTime(USAGE_SEARCH_DEBOUNCE_MS);
+      expect(lastCall(calls)).toEqual({
+        name: "usageRange",
+        args: [{ from: "2026-10-01", to: "2026-10-15" }],
+      });
+      // Помилка періоду без зміни `range` не перезаписує введене.
+      patchUsage(store, { rangeError: true });
+      expect(from.value).toBe("2026-10-01");
+      expect(visible(q(".adu-range-error"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("набір року по цифрі: один usageRange після паузи; рік < 2000 — ще не дата, дії немає", () => {
+    vi.useFakeTimers();
+    try {
+      const { store, calls } = mountWith(fx("adu-loaded"));
+      patchUsage(store, { preset: "custom" });
+      const [from, to] = all(".adu-date__input") as [HTMLInputElement, HTMLInputElement];
+      const ranges = () => calls.filter((c) => c.name === "usageRange");
+      const type = (el: HTMLInputElement, value: string) => {
+        el.value = value;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+      // Так Chromium шле `change`, поки вводиться рік «2026».
+      for (const v of ["0002-10-22", "0020-10-22", "0202-10-22", "2026-10-22"]) {
+        type(to, v);
+        vi.advanceTimersByTime(USAGE_SEARCH_DEBOUNCE_MS - 1);
+      }
+      expect(ranges()).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(ranges()).toEqual([{ name: "usageRange", args: [{ from: "2026-09-23", to: "2026-10-22" }] }]);
+
+      // Пауза посеред набору року: проміжне значення не шлеться (ні з цього поля, ні з іншого).
+      type(from, "0202-10-01");
+      vi.advanceTimersByTime(USAGE_SEARCH_DEBOUNCE_MS * 2);
+      type(to, "2026-10-23");
+      vi.advanceTimersByTime(USAGE_SEARCH_DEBOUNCE_MS * 2);
+      expect(ranges()).toHaveLength(1);
+      type(from, "1999-12-31");
+      vi.advanceTimersByTime(USAGE_SEARCH_DEBOUNCE_MS);
+      expect(ranges()).toHaveLength(1);
+      type(from, "2000-01-01");
+      vi.advanceTimersByTime(USAGE_SEARCH_DEBOUNCE_MS);
+      expect(lastCall(calls)).toEqual({
+        name: "usageRange",
+        args: [{ from: "2000-01-01", to: "2026-10-23" }],
+      });
+
+      // Знято з монтування до паузи — відкладеного виклику немає.
+      const second = mountWith(fx("adu-custom-range"));
+      const [from2] = all(".adu-date__input", host.lastElementChild as HTMLElement) as HTMLInputElement[];
+      type(from2 as HTMLInputElement, "2026-10-10");
+      second.view.destroy();
+      vi.advanceTimersByTime(USAGE_SEARCH_DEBOUNCE_MS);
+      expect(second.calls.filter((c) => c.name === "usageRange")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("CSV: поки стоїть rangeError — без href і aria-disabled; виправлено — посилання повертається", () => {
+    const { store } = mountWith(fx("adu-loaded"));
+    const csv = q<HTMLAnchorElement>(".adu-csv") as HTMLAnchorElement;
+    const href = "/api/admin/usage/projects.csv?from=2026-09-23&to=2026-10-22";
+    expect(csv.getAttribute("href")).toBe(href);
+    expect(csv.hasAttribute("aria-disabled")).toBe(false);
+    patchUsage(store, {
+      preset: "custom",
+      range: { from: "2026-10-19", to: "2026-10-14" },
+      rangeError: true,
     });
-    // Помилка періоду без зміни `range` не перезаписує введене.
-    patchUsage(store, { rangeError: true });
-    expect(from.value).toBe("2026-10-01");
-    expect(visible(q(".adu-range-error"))).toBe(true);
+    expect(csv.hasAttribute("href")).toBe(false);
+    expect(csv.getAttribute("aria-disabled")).toBe("true");
+    // Пошук під час помилки не повертає посилання.
+    patchUsage(store, { all: { ...store.getState().admin.usage.all, q: "zerno" } });
+    expect(csv.hasAttribute("href")).toBe(false);
+    patchUsage(store, { range: { from: "2026-10-14", to: "2026-10-19" }, rangeError: false });
+    expect(csv.getAttribute("href")).toBe(
+      "/api/admin/usage/projects.csv?from=2026-10-14&to=2026-10-19&search=zerno",
+    );
+    expect(csv.hasAttribute("aria-disabled")).toBe(false);
+  });
+
+  it("кадр adu-range-error: CSV одразу без href", () => {
+    mountWith(fx("adu-range-error"));
+    const csv = q<HTMLAnchorElement>(".adu-csv");
+    expect(csv?.hasAttribute("href")).toBe(false);
+    expect(csv?.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("сортування користувачів: лише валідні ключі, aria-sort, usageSortUsers(key)", () => {
@@ -470,6 +558,60 @@ describe("views/admin-usage.js — дії", () => {
     patchUsage(store, { expandedUserId: null });
     expect(q(".adu-sub")).toBeNull();
     expect(document.activeElement).toBe(btn);
+  });
+
+  it("розгорнутий A → розгортання B нижче: рядок B не рухається, фокус лишається на його кнопці", () => {
+    const { store } = mountWith(fx("adu-user-open"));
+    const body = usersTable().tBodies[0] as HTMLElement;
+    const users = store.getState().admin.usage.users;
+    const below = users[users.findIndex((x) => x.id === OLENA.id) + 1];
+    if (!below) throw new Error("немає користувача під Оленою");
+    const rowB = q<HTMLElement>(`.adu-row--user[data-id='${below.id}']`, body) as HTMLElement;
+    const btnB = rowB.querySelector<HTMLButtonElement>(".adu-expand") as HTMLButtonElement;
+    expect(rowB.previousElementSibling?.classList.contains("adu-sub")).toBe(true);
+    btnB.focus();
+    expect(document.activeElement).toBe(btnB);
+
+    patchUsage(store, { expandedUserId: below.id, userProjects: { ...initialUsageTable(), loading: true } });
+    expect(document.activeElement).toBe(btnB);
+    expect(rowB.isConnected).toBe(true);
+    const rows = [...body.children] as HTMLElement[];
+    const i = rows.indexOf(rowB);
+    expect(rows[i - 1]?.dataset.id).toBe(OLENA.id);
+    expect(rows[i + 1]?.classList.contains("adu-sub")).toBe(true);
+    expect(all(".adu-sub", body)).toHaveLength(1);
+    expect(q(".adu-sub__title")?.textContent).toBe(`Проєкти · ${below.email}`);
+    expect(rowB.querySelector(".adu-expand")?.getAttribute("aria-expanded")).toBe("true");
+
+    // І назад, вгору: A вище за B — фокус на кнопці A.
+    const btnA = q<HTMLButtonElement>(`.adu-row--user[data-id='${OLENA.id}'] .adu-expand`, body);
+    btnA?.focus();
+    patchUsage(store, { expandedUserId: OLENA.id });
+    expect(document.activeElement).toBe(btnA);
+    expect(rowB.previousElementSibling?.classList.contains("adu-sub")).toBe(true);
+  });
+
+  it("порожній період: ховається лише без подій І без списаних кредитів", () => {
+    const s = fx("adu-empty");
+    const summary = s.admin.usage.summary;
+    if (!summary) throw new Error("summary");
+    expect(summary.totals.calls).toBe(0);
+    expect(summary.totals.creditsCharged).toBe(0);
+    const { store } = mountWith(s);
+    expect(visible(q(".adu-state--empty"))).toBe(true);
+    expect(visible(q(".adu-content"))).toBe(false);
+
+    // Подій немає, але кредити списано (за роботу, витрати якої були раніше) — звичайний вигляд.
+    patchUsage(store, { summary: { ...summary, totals: { ...summary.totals, creditsCharged: 12 } } });
+    expect(visible(q(".adu-state--empty"))).toBe(false);
+    expect(visible(q(".adu-content"))).toBe(true);
+    expect(cardNum(5)).toBe("12");
+    expect(all(".adu-row--user", usersTable()).length).toBeGreaterThan(0);
+
+    // null (eval/test) і без подій — порожньо.
+    patchUsage(store, { summary: { ...summary, totals: { ...summary.totals, creditsCharged: null } } });
+    expect(visible(q(".adu-state--empty"))).toBe(true);
+    expect(visible(q(".adu-content"))).toBe(false);
   });
 
   it("таблиця проєктів користувача: сортування, рядок, сторінки → usageProjects('user', …)", () => {

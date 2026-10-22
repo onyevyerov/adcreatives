@@ -13,7 +13,7 @@ import { STATUS_LABELS } from "../contracts.js";
 import { adminUsageCsvHref } from "../data/account-api.js";
 import { clear, h, text } from "../dom.js";
 import { formatNumber } from "../lib/credits.js";
-import { USAGE_PRESETS, usageQuery } from "../lib/usage.js";
+import { USAGE_PRESETS, USAGE_SEARCH_DEBOUNCE_MS, usageQuery } from "../lib/usage.js";
 import { formatDate } from "./admin.js";
 import { stageLabel } from "./done.js";
 import { formatUsd, statusKind } from "./topbar.js";
@@ -98,6 +98,13 @@ export function pageText(page, pageSize, total) {
   const to = Math.min(page * pageSize, total);
   return `${formatNumber(from)}–${formatNumber(to)} з ${formatNumber(total)}`;
 }
+
+/**
+ * Значення поля дати готове до запиту: порожнє (межі немає) або з роком ≥ 2000. Менший рік —
+ * проміжний стан набору року (`0002-…`), не дата.
+ * @param {string | null} value
+ */
+export const dateReady = (value) => value === null || Number(value.slice(0, 4)) >= 2000;
 
 /**
  * Тримає дітей `parent` у порядку `els` мінімумом рухів: спершу прибирає зайвих, потім вставляє
@@ -262,7 +269,24 @@ export function mount(el, ctx) {
     presetBtns.map((p) => p.btn),
   );
 
-  const onDates = () => void actions.usageRange({ from: fromInput.value || null, to: toInput.value || null });
+  // `<input type=date>` шле `change` на кожну цифру року (`0002-…`, `0020-…`, `0202-…`, `2026-…`):
+  // дія — лише після паузи `USAGE_SEARCH_DEBOUNCE_MS`, а рік < 2000 вважається ще не введеним.
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let datesTimer = null;
+  const clearDatesTimer = () => {
+    if (datesTimer !== null) clearTimeout(datesTimer);
+    datesTimer = null;
+  };
+  const onDates = () => {
+    clearDatesTimer();
+    datesTimer = setTimeout(() => {
+      datesTimer = null;
+      const from = fromInput.value || null;
+      const to = toInput.value || null;
+      if (!dateReady(from) || !dateReady(to)) return;
+      void actions.usageRange({ from, to });
+    }, USAGE_SEARCH_DEBOUNCE_MS);
+  };
   const fromInput = h("input", { class: "adu-date__input", type: "date", onchange: onDates });
   const toInput = h("input", { class: "adu-date__input", type: "date", onchange: onDates });
   const dates = h(
@@ -666,6 +690,8 @@ export function mount(el, ctx) {
   }
   /** @type {Map<string, ReturnType<typeof userRow>>} */
   const userRows = new Map();
+  /** Чий рядок проєктів `userSub` показував востаннє. @type {string | null} */
+  let subUserId = null;
 
   const usersSection = h(
     "section",
@@ -778,8 +804,15 @@ export function mount(el, ctx) {
       }
     }
     if (document.activeElement !== search && search.value !== u.all.q) search.value = u.all.q;
-    const href = adminUsageCsvHref({ ...usageQuery(u), ...(u.all.q ? { search: u.all.q } : {}) });
-    if (csv.getAttribute("href") !== href) csv.setAttribute("href", href);
+    // Хибний період: без `href` (інакше браузер збереже JSON-помилку 400 як projects.csv).
+    if (u.rangeError) {
+      csv.removeAttribute("href");
+      csv.setAttribute("aria-disabled", "true");
+    } else {
+      const href = adminUsageCsvHref({ ...usageQuery(u), ...(u.all.q ? { search: u.all.q } : {}) });
+      if (csv.getAttribute("href") !== href) csv.setAttribute("href", href);
+      csv.removeAttribute("aria-disabled");
+    }
   }
 
   /** @param {UsageSummary} s */
@@ -854,6 +887,12 @@ export function mount(el, ctx) {
       text(sysUsd, money(sys.usd));
       els.push(sysRow);
     }
+    // Рядок проєктів один на всіх: при переході A → B (B нижче) syncChildren інакше пересунув би
+    // рядок B (і з ним фокус) перед ним. Вийнятий заздалегідь, він сам вставляється під B.
+    if (u.expandedUserId !== subUserId) {
+      userSub.remove();
+      subUserId = u.expandedUserId;
+    }
     syncChildren(usersBody, els);
     if (u.expandedUserId) userProjects.update(u.userProjects, u.expandedProjectId);
   }
@@ -861,7 +900,8 @@ export function mount(el, ctx) {
   /** @param {UsageState} u */
   function renderState(u) {
     const s = u.summary;
-    const empty = !!s && s.totals.calls === 0;
+    // Порожньо — лише без подій і без списань: кредити могли списатися за роботу, витрати якої раніше.
+    const empty = !!s && s.totals.calls === 0 && !s.totals.creditsCharged;
     loadingEl.hidden = !!s || u.error;
     errorEl.hidden = !u.error;
     retry.disabled = u.loading;
@@ -904,6 +944,7 @@ export function mount(el, ctx) {
       render(state, prev);
     },
     destroy() {
+      clearDatesTimer();
       root.remove();
     },
   };

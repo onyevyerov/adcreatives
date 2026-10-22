@@ -26,10 +26,14 @@ const fail = (error: "invalid_query" | "invalid_range", message: string): QueryR
   message,
 });
 
-/** Справжня календарна дата `YYYY-MM-DD` (2026-02-30 — ні). */
+/**
+ * Справжня календарна дата `YYYY-MM-DD` (2026-02-30 — ні). Рік ставиться `setUTCFullYear`, бо
+ * `Date.UTC` переносить роки 0–99 у 1900–1999 (і `0099-01-01` відкидався б).
+ */
 function isRealDate(s: string): boolean {
   const [y, m, d] = s.split("-").map(Number);
-  const date = new Date(Date.UTC(y ?? 0, (m ?? 0) - 1, d));
+  const date = new Date(0);
+  date.setUTCFullYear(y ?? 0, (m ?? 0) - 1, d);
   return date.getUTCFullYear() === y && date.getUTCMonth() === (m ?? 0) - 1 && date.getUTCDate() === d;
 }
 

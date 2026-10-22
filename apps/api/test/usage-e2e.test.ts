@@ -180,7 +180,10 @@ async function consistent(env: Env, qs: string) {
   return { summary, users, projects: first, sharedUsd };
 }
 
-describe("usage — e2e", () => {
+/** Кожен тест сіє користувачів і проєкти: під паралельним навантаженням 5 с замало. */
+const SLOW = { timeout: 20_000 };
+
+describe("usage — e2e", SLOW, () => {
   it("без вікна: інваріанти, атрибуція, кредити й маржа", async () => {
     const { env, olena, petro } = await seed();
     const { summary, users, projects, sharedUsd } = await consistent(env, "");

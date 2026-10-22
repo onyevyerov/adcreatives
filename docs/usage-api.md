@@ -141,5 +141,6 @@ type UsageStageRow = { stage: CostStage; calls: number; usd: number };
 | Ім'я | `Content-Disposition: attachment; filename="adcreative-usage-{YYYY-MM-DD}.csv"` (дата запиту, UTC) |
 | Колонки | `owner_email,project_id,host,status,created_at,first_delivered_at,calls,tokens_input,tokens_output,tokens_cache_write,tokens_cache_read,audio_seconds,renders,usd,first_delivery_usd,revision_usd` |
 | Формат | кома; десятковий — крапка; дати ISO; `null` — порожнє поле; поля з комою/лапками/переводом рядка — в лапках, лапки подвоюються |
-| Останній рядок | без `owner` — `costs-shared.jsonl` у вікні: `project_id` порожній, `host` = `(спільні витрати)` |
+| Формули | у `owner_email`, `host`, `status` значення, що починається з `=` `+` `-` `@`, табуляції чи `\r`, отримує префікс `'` (Excel не виконає його як формулу); числа не змінюються |
+| Останній рядок | без `owner` і без `search` — `costs-shared.jsonl` у вікні (навіть нульовий): `project_id` порожній, `host` = `(спільні витрати)`. З `search` або `owner` його немає — експорт сходиться з таблицею `projects` |
 | Помилки | як у `projects` (400 / 404) — JSON, не CSV |

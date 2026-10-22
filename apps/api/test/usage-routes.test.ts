@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { usageRoutes } from "../src/routes/usage.ts";
 import { type AppEnv, sessionMiddleware } from "../src/session.ts";
-import { CSV_BOM, CSV_COLUMNS, csvField, toCsv } from "../src/usage/csv.ts";
+import { CSV_BOM, CSV_COLUMNS, csvField, csvText, toCsv } from "../src/usage/csv.ts";
 import type {
   CsvQuery,
   ProjectsQuery,
@@ -129,7 +129,10 @@ async function rawText(res: Response): Promise<string> {
 
 const ENDPOINTS = ["/summary", "/users", "/projects", "/projects.csv"];
 
-describe("/api/admin/usage — доступ", () => {
+/** Кожен тест сіє адміна (`seedUser`): під паралельним навантаженням 5 с замало. */
+const SLOW = { timeout: 20_000 };
+
+describe("/api/admin/usage — доступ", SLOW, () => {
   it.each(ENDPOINTS)("%s: гість → 401, не адмін → 403, двигун не викликано", async (path) => {
     const env = await setup();
     const { engine, calls } = fakeEngine();
@@ -155,7 +158,7 @@ describe("/api/admin/usage — доступ", () => {
   });
 });
 
-describe("GET /summary", () => {
+describe("GET /summary", SLOW, () => {
   it("дефолти: порожній запит → source=chat, межі null; відповідь двигуна повертається як є", async () => {
     const { get, calls } = await withAdmin();
     const res = await get("/summary");
@@ -190,6 +193,15 @@ describe("GET /summary", () => {
     const { get, calls } = await withAdmin();
     expect((await get("/summary?from=2028-02-29")).status).toBe(200);
     expect(calls.summary[0]?.from).toBe("2028-02-29");
+  });
+
+  it("роки 0–99 не переносяться в 1900-ті: 0099-01-01 і 0002-10-22 валідні, 0099-02-29 — ні", async () => {
+    const { get, calls } = await withAdmin();
+    expect((await get("/summary?from=0002-10-22&to=0099-01-01")).status).toBe(200);
+    expect(calls.summary).toEqual([{ from: "0002-10-22", to: "0099-01-01", source: "chat" }]);
+    // Перевірка календаря працює і для малих років: 0099 — не високосний, 0096 — високосний.
+    expect((await get("/summary?from=0099-02-29")).status).toBe(400);
+    expect((await get("/summary?from=0096-02-29")).status).toBe(200);
   });
 
   it.each([
@@ -244,7 +256,7 @@ describe("GET /summary", () => {
   });
 });
 
-describe("GET /users", () => {
+describe("GET /users", SLOW, () => {
   it("дефолти: sort=usd, order=desc, source=chat", async () => {
     const { get, calls } = await withAdmin();
     const res = await get("/users");
@@ -291,7 +303,7 @@ describe("GET /users", () => {
   });
 });
 
-describe("GET /projects", () => {
+describe("GET /projects", SLOW, () => {
   it("дефолти: owner=null, search=null, sort=usd, order=desc, page=1, pageSize=25, source=chat", async () => {
     const { get, calls } = await withAdmin();
     const res = await get("/projects");
@@ -421,7 +433,7 @@ describe("GET /projects", () => {
   });
 });
 
-describe("GET /projects.csv", () => {
+describe("GET /projects.csv", SLOW, () => {
   it("заголовки, BOM, 16 колонок, CRLF", async () => {
     const { get, calls } = await withAdmin();
     const res = await get("/projects.csv");
@@ -531,6 +543,31 @@ describe("toCsv / csvField", () => {
     expect(csvField(12.5)).toBe("12.5");
     expect(csvField(0.000001)).toBe("0.000001");
     expect(csvField(1234567)).toBe("1234567");
+  });
+
+  it("csvText: префікс ' для = + - @ \\t \\r на початку; інше й числа — як є", () => {
+    for (const s of ["=1+1", "+x@a.co", "-x@a.co", "@SUM(A1)", "\tx", "\rx"])
+      expect(csvText(s)).toBe(`'${s}`);
+    for (const s of ["olena@example.com", "a=b", "(спільні витрати)", ""]) expect(csvText(s)).toBe(s);
+    expect(csvText(-3)).toBe(-3);
+    expect(csvText(null)).toBeNull();
+  });
+
+  it("toCsv гасить формули лише в owner_email, host, status; числа й project_id не чіпає", () => {
+    const row: UsageCsvRow = {
+      ...CSV_ROW,
+      ownerEmail: "-x@a.co",
+      projectId: "=p",
+      host: '=HYPERLINK("x")',
+      // status типізовано, але в CSV він — рядок зі сховища: захист однаковий.
+      status: "@delivered" as string as UsageCsvRow["status"],
+      usd: -1.5,
+    };
+    const line = toCsv([row]).split("\r\n")[1] ?? "";
+    expect(line.startsWith(`'-x@a.co,=p,"'=HYPERLINK(""x"")",'@delivered,`)).toBe(true);
+    expect(line).toContain(",-1.5,");
+    // `\r` без `\n` — не кінець рядка файлу, але поле в лапках (R9).
+    expect(toCsv([{ ...CSV_ROW, host: "\rx" }]).split("\r\n")[1]).toContain(`,"'\rx",`);
   });
 
   it("колонки відповідають контракту й полям UsageCsvRow", () => {

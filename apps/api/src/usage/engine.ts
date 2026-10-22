@@ -435,13 +435,16 @@ function csvRow(
   };
 }
 
-/** Рядки CSV: вибірка `projects` за `usd ↓`; без `owner` — останнім рядок спільних витрат, завжди (R15). */
+/**
+ * Рядки CSV: вибірка `projects` за `usd ↓`; без `owner` і без `search` — останнім рядок спільних
+ * витрат, навіть нульовий. З пошуком його немає: експорт пошуку сходиться з видимою таблицею.
+ */
 export function csvOf(snap: UsageSnapshot, q: CsvQuery): UsageCsvRow[] | null {
   const c = calc(snap, q);
   const selected = selectProjects(c, q.owner, q.search);
   if (!selected) return null;
   const rows = sortProjects(selected.map(projectRow), "usd", "desc").map((r) => csvRow(r, r));
-  if (q.owner === null)
+  if (q.owner === null && !q.search?.trim())
     rows.push(
       csvRow(aggregateOf(c.shared), {
         ownerEmail: null,

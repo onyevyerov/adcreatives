@@ -16,7 +16,9 @@
  * - Пошук таблиці: `q` пишеться одразу, `page: 1`, запит — через `USAGE_SEARCH_DEBOUNCE_MS` (таймер на
  *   таблицю); проміс дії завершується одразу після планування. Сортування й сторінка — запит одразу.
  * - `rangeError` (`to < from`) — запитів немає, відповіді, що летіли, відкидаються; доки він стоїть,
- *   жодна дія нічого не вантажить (діапазон хибний).
+ *   жодна дія нічого не вантажить (діапазон хибний), а `usageSortUsers` не змінює й `usersSort`.
+ * - Пресети `7d` / `30d` / `month` перед кожним оглядом (вхід, «Повторити», зміна джерела) перераховують
+ *   `range` від «зараз»: вкладка, відкрита до півночі UTC, після неї не губить сьогоднішні витрати.
  * - `deps.offline` (`?mock=1`) — зміни стану працюють, запитів немає.
  */
 
@@ -223,11 +225,23 @@ export const usageActions = (store, deps) => {
   }
 
   /**
+   * Відносний пресет (`7d` / `30d` / `month`) рахується від «зараз»: вкладка може жити добу й довше,
+   * тож перед кожним перезавантаженням межі перераховуються (після півночі UTC `to` — уже новий день).
+   */
+  const refreshPresetRange = () => {
+    const u = getUsage();
+    if (u.preset !== "7d" && u.preset !== "30d" && u.preset !== "month") return;
+    const range = presetRange(u.preset, new Date());
+    if (range.from !== u.range.from || range.to !== u.range.to) setUsage({ range });
+  };
+
+  /**
    * Огляд + проєкти розгорнутого користувача. Успіх огляду не знімає відмову таблиці користувача
-   * з того ж перезавантаження.
+   * з того ж перезавантаження. Відносний пресет спершу оновлює межі.
    * @returns {Promise<void>}
    */
   async function reloadAll() {
+    refreshPresetRange();
     const ok = await Promise.all([loadOverview(), getUsage().expandedUserId ? loadTable("user") : true]);
     if (ok.includes(false)) setUsage({ error: true });
   }
@@ -280,6 +294,8 @@ export const usageActions = (store, deps) => {
     },
 
     async usageSortUsers(key) {
+      // Поки період хибний, список не перевантажується — і стрілка в заголовку не має його випереджати.
+      if (getUsage().rangeError) return;
       setUsage((u) => ({ usersSort: toggleSort(u.usersSort, key) }));
       await loadUsers();
     },

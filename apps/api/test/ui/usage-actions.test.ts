@@ -238,6 +238,8 @@ describe("usage-actions: вхід на ?admin=usage", () => {
     const { api, enter } = makeUsage(
       usageState({
         source: "all",
+        // Свій діапазон (`custom`): відносний пресет перерахував би межі від «зараз».
+        preset: "custom",
         range: { from: "2026-10-01", to: null },
         usersSort: { key: "email", order: "asc" },
         all: { ...initialUsageTable(), q: " zerno ", sort: { key: "host", order: "asc" }, page: 3 },
@@ -315,6 +317,63 @@ describe("usage-actions: вхід на ?admin=usage", () => {
     await own.usageReload();
     expect(usage().error).toBe(false);
     expect(usage().users).toHaveLength(2);
+  });
+
+  it("відносний пресет після півночі UTC: вхід і «Повторити» перераховують range від «зараз»", async () => {
+    const { api, usage, own, enter, clearCalls } = makeUsage(usageState());
+    vi.setSystemTime(new Date("2026-10-22T23:40:00.000Z"));
+    enter();
+    await settle();
+    expect(usage().range).toEqual(RANGE_30D); // той самий день — межі ті самі
+
+    vi.setSystemTime(new Date("2026-10-23T00:20:00.000Z"));
+    clearCalls();
+    enter();
+    await settle();
+    const next = { from: "2026-09-24", to: "2026-10-23" };
+    expect(usage().preset).toBe("30d");
+    expect(usage().range).toEqual(next);
+    expect(api.adminUsageSummary).toHaveBeenCalledWith(next);
+    expect(api.adminUsageUsers).toHaveBeenCalledWith({ ...next, sort: "usd", order: "desc" });
+    expect(api.adminUsageProjects).toHaveBeenCalledWith(projectsArgs(next));
+
+    vi.setSystemTime(new Date("2026-11-01T00:05:00.000Z"));
+    clearCalls();
+    await own.usageReload();
+    const nov = { from: "2026-10-03", to: "2026-11-01" };
+    expect(usage().range).toEqual(nov);
+    expect(api.adminUsageSummary).toHaveBeenCalledWith(nov);
+  });
+
+  it("«Цей місяць» через межу місяця і 7d — теж; custom і all не перераховуються", async () => {
+    const month = makeUsage(usageState({ preset: "month", range: { from: "2026-10-01", to: "2026-10-31" } }));
+    vi.setSystemTime(new Date("2026-11-01T00:05:00.000Z"));
+    await month.own.usageReload();
+    expect(month.usage().range).toEqual({ from: "2026-11-01", to: "2026-11-01" });
+    expect(month.api.adminUsageSummary).toHaveBeenCalledWith({ from: "2026-11-01", to: "2026-11-01" });
+
+    const week = makeUsage(usageState({ preset: "7d", range: { from: "2026-10-16", to: "2026-10-22" } }));
+    week.enter();
+    await settle();
+    expect(week.usage().range).toEqual({ from: "2026-10-26", to: "2026-11-01" });
+
+    const custom = { from: "2026-10-01", to: "2026-10-05" };
+    const c = makeUsage(usageState({ preset: "custom", range: custom }));
+    const before = c.usage().range;
+    await c.own.usageReload();
+    expect(c.usage().range).toBe(before);
+    expect(c.api.adminUsageSummary).toHaveBeenCalledWith(custom);
+    const a = makeUsage(usageState({ preset: "all", range: { from: null, to: null } }));
+    await a.own.usageReload();
+    expect(a.api.adminUsageSummary).toHaveBeenCalledWith({});
+  });
+
+  it("той самий день — range не замінюється новим об'єктом", async () => {
+    const { usage, own } = makeUsage(usageState());
+    const before = usage().range;
+    vi.setSystemTime(new Date("2026-10-22T23:59:00.000Z"));
+    await own.usageReload();
+    expect(usage().range).toBe(before);
   });
 
   it("відповідь після виходу з адмінки відкидається", async () => {
@@ -566,6 +625,20 @@ describe("usage-actions: usageSortUsers", () => {
     await first;
     expect(usage().users.map((u) => u.id)).toEqual(["u_olena", "u_andriy"]);
     expect(usage().usersSort.key).toBe("projects");
+  });
+
+  it("поки стоїть rangeError — no-op: usersSort не змінюється (заголовок не розходиться з рядками)", async () => {
+    const { api, usage, own } = makeUsage(usageState());
+    await own.usageRange({ from: "2026-10-15", to: "2026-10-01" });
+    const before = usage().usersSort;
+    await own.usageSortUsers("email");
+    await own.usageSortUsers("usd");
+    expect(usage().usersSort).toBe(before);
+    expect(api.adminUsageUsers).not.toHaveBeenCalled();
+    // Період виправлено — сортування знову працює.
+    await own.usageRange({ from: "2026-10-01", to: "2026-10-15" });
+    await own.usageSortUsers("email");
+    expect(usage().usersSort).toEqual({ key: "email", order: "desc" });
   });
 
   it("відмова → error: true, список лишається", async () => {
