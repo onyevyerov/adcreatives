@@ -9,6 +9,10 @@
  *   правка         — … → toDelivered → revisionAfterDelivery → revisionDelivered.
  * ID подій (= SSE id, «ms-0») зростають у порядку оголошення сегментів, тож будь-який із
  * шляхів вище монотонний і дедуплікується за id.
+ *
+ * Події progress несуть `step` (підкрок з `STAGE_STEPS`, ТЗ chat-interface-fixes 0.2) — крім
+ * `revise`, якого в переліку немає. Підкроки бренд-кіта й сценарію вписані в той самий час до
+ * чекпоінта, тож решта фікстури не зсунулась.
  */
 
 /** @typedef {import("../js/contracts.js").ChatEvent} ChatEvent */
@@ -402,6 +406,19 @@ const progress = (stage, label, done = null, total = null, dt = 0.4) => ({
   total,
   dt,
 });
+/**
+ * progress з id підкроку (`STAGE_STEPS`); `progress` без нього — стара подія, крок за `stage`.
+ * @param {string} step @param {import("@adc/shared/schemas").CostStage} stage @param {string} label @param {number | null} [done] @param {number | null} [total] @param {number} [dt] @returns {Draft}
+ */
+const progressStep = (step, stage, label, done = null, total = null, dt = 0.4) => ({
+  type: "progress",
+  stage,
+  label,
+  done,
+  total,
+  step,
+  dt,
+});
 /** @param {string} text @param {import("../js/contracts.js").Button[]} [buttons] @param {number} [dt] @returns {Draft} */
 const say = (text, buttons, dt = 0.4) => ({
   type: "message",
@@ -476,9 +493,13 @@ const deliveredText = (total, rows) =>
 
 /** @returns {Draft[]} */
 const renderBody = () => [
-  progress("render", "Рендерю відео (9:16, 1:1)…"),
-  ...[0, 25, 50, 75, 100].map((p) => progress("render", `Рендерю 9:16… ${p}%`, p, 100, p === 0 ? 1 : 3)),
-  ...[0, 25, 50, 75, 100].map((p) => progress("render", `Рендерю 1:1… ${p}%`, p, 100, p === 0 ? 1 : 3)),
+  progressStep("render", "render", "Рендерю відео (9:16, 1:1)…"),
+  ...[0, 25, 50, 75, 100].map((p) =>
+    progressStep("render", "render", `Рендерю 9:16… ${p}%`, p, 100, p === 0 ? 1 : 3),
+  ),
+  ...[0, 25, 50, 75, 100].map((p) =>
+    progressStep("render", "render", `Рендерю 1:1… ${p}%`, p, 100, p === 0 ? 1 : 3),
+  ),
 ];
 
 /** @param {number} rev @param {{ stage: string, usd: number }[]} rows @returns {Draft[]} */
@@ -521,19 +542,19 @@ const deliveryBody = (rev, rows) => {
 
 /** Гілки directing → чекпоінт 3 (спільні для щасливого шляху і повтору після помилки). @returns {Draft[]} */
 const directingBody = () => [
-  progress("codegen", "Генерую сцени і музику…"),
-  progress("audio", "Пишу музику…", null, null, 0.6),
-  progress("codegen", "Генерую сцени… 0/3", 0, 3, 2),
-  progress("codegen", "Генерую сцени… 1/3", 1, 3, 12),
-  progress("codegen", "Генерую сцени… 2/3", 2, 3, 10),
-  progress("audio", "Музику записано", 1, 1, 6),
+  progressStep("code", "codegen", "Генерую сцени і музику…"),
+  progressStep("music", "audio", "Пишу музику…", null, null, 0.6),
+  progressStep("code", "codegen", "Генерую сцени… 0/3", 0, 3, 2),
+  progressStep("code", "codegen", "Генерую сцени… 1/3", 1, 3, 12),
+  progressStep("code", "codegen", "Генерую сцени… 2/3", 2, 3, 10),
+  progressStep("music", "audio", "Музику записано", 1, 1, 6),
   cost("audio", 0.32, 1.11),
-  progress("codegen", "Генерую сцени… 3/3", 3, 3, 9),
+  progressStep("code", "codegen", "Генерую сцени… 3/3", 3, 3, 9),
   cost("codegen", 1.08, 2.19),
-  progress("check", "Перевіряю код сцен…", null, null, 1),
-  progress("check", "Збираю відео-проєкт…", null, null, 6),
-  ...[2, 4, 6].map((n) => progress("check", `Знімаю кадри сцен… ${n}/6`, n, 6, 6)),
-  progress("qa", "Перевіряю кадри…", null, null, 2),
+  progressStep("check", "check", "Перевіряю код сцен…", null, null, 1),
+  progressStep("check", "check", "Збираю відео-проєкт…", null, null, 6),
+  ...[2, 4, 6].map((n) => progressStep("stills", "check", `Знімаю кадри сцен… ${n}/6`, n, 6, 6)),
+  progressStep("qa", "qa", "Перевіряю кадри…", null, null, 2),
   cost("qa", 0.12, 2.31),
   state("awaiting_storyboard", "directing", 1, 12),
   say(STORYBOARD_TEXT, ["approve", "edit"]),
@@ -544,13 +565,17 @@ const directingBody = () => [
 const toBrand = stamp([
   state("crawling", "intake", 1, 0.2),
   ...[1, 2, 3, 4, 5, 6, 7].map((n) =>
-    progress("crawl", `Сканую сайт… ${n}/7 сторінок`, n, 7, n === 1 ? 0.6 : 0.55),
+    progressStep("pages", "crawl", `Сканую сайт… ${n}/7 сторінок`, n, 7, n === 1 ? 0.6 : 0.55),
   ),
   cost("crawl", 0.02, 0.02),
   state("brandkit", "crawling", 1, 0.3),
-  progress("brandkit", "Збираю бренд-кіт…"),
+  progressStep("read", "brandkit", "Збираю бренд-кіт…"),
+  progressStep("look", "brandkit", "Роздивляюсь фото й скриншоти…", null, null, 1.2),
+  progressStep("compose", "brandkit", "Складаю бренд-кіт…", null, null, 1.5),
+  progressStep("verify", "brandkit", "Звіряю факти, кольори й шрифти…", null, null, 1.2),
   cost("brandkit", 0.31, 0.33),
-  state("awaiting_brand", "brandkit", 1, 4.5),
+  // Разом з кроками вище — ті самі 4,5 с до чекпоінта, що й до підкроків (час решти фікстури не зсувається).
+  state("awaiting_brand", "brandkit", 1, 0.6),
   say(BRAND_TEXT, ["approve", "edit"]),
   { type: "checkpoint", rev: 1, checkpoint: "brand", payload: brandPayload, dt: 0.1 },
 ]);
@@ -566,9 +591,14 @@ const brandAnswers = stamp([
 /** Після «Затвердити» на чекпоінті 1 → чекпоінт 2. */
 const toScript = stamp([
   state("scripting", "awaiting_brand", 1, 25),
-  progress("storyboard", "Пишу сценарій…"),
+  // «Пишу сценарій…» з step "brief" шле машина при approve, решту кроків — стадія storyboard.
+  progressStep("brief", "storyboard", "Пишу сценарій…"),
+  progressStep("write", "storyboard", "Пишу концепт і сцени…", null, null, 3),
+  progressStep("fit", "storyboard", "Підганяю тексти під екран…", null, null, 8),
+  progressStep("claims", "storyboard", "Звіряю цифри з сайтом…", null, null, 2),
   cost("storyboard", 0.46, 0.79),
-  state("awaiting_script", "scripting", 1, 15),
+  // Разом з кроками вище — ті самі 15 с до чекпоінта, що й до підкроків.
+  state("awaiting_script", "scripting", 1, 2),
   say(SCRIPT_TEXT, ["approve", "edit"]),
   { type: "checkpoint", rev: 1, checkpoint: "script", payload: scriptPayload, dt: 0.1 },
 ]);
@@ -576,9 +606,9 @@ const toScript = stamp([
 /** Після «Затвердити» на чекпоінті 2: збій генерації сцен. */
 const failed = stamp([
   state("directing", "awaiting_script", 1, 45),
-  progress("codegen", "Генерую сцени і музику…"),
-  progress("audio", "Пишу музику…", null, null, 0.6),
-  progress("codegen", "Генерую сцени… 1/3", 1, 3, 14),
+  progressStep("code", "codegen", "Генерую сцени і музику…"),
+  progressStep("music", "audio", "Пишу музику…", null, null, 0.6),
+  progressStep("code", "codegen", "Генерую сцени… 1/3", 1, 3, 14),
   state("failed", "directing", 1, 30),
   { type: "error", stage: "codegen", message: "модель не відповіла вчасно.", retryable: true, dt: 0 },
   say("Щось пішло не так на етапі «генерація сцен»: модель не відповіла вчасно.", ["retry"], 0),
@@ -609,11 +639,11 @@ const revisionAfterDelivery = stamp([
   progress("revise", "Вношу правки…"),
   cost("revise", 0.04, 2.35),
   state("directing", "revising", 2, 5),
-  progress("codegen", "Генерую сцени… 0/1", 0, 1),
-  progress("codegen", "Генерую сцени… 1/1", 1, 1, 12),
+  progressStep("code", "codegen", "Генерую сцени… 0/1", 0, 1),
+  progressStep("code", "codegen", "Генерую сцени… 1/1", 1, 1, 12),
   cost("codegen", 0.21, 2.56),
-  progress("check", "Знімаю кадри сцен… 2/2", 2, 2, 6),
-  progress("qa", "Перевіряю кадри…", null, null, 2),
+  progressStep("stills", "check", "Знімаю кадри сцен… 2/2", 2, 2, 6),
+  progressStep("qa", "qa", "Перевіряю кадри…", null, null, 2),
   cost("qa", 0.03, 2.59),
   state("awaiting_storyboard", "directing", 2, 6),
   say(
@@ -645,11 +675,26 @@ export const segments = {
 
 /** @typedef {keyof typeof segments} SegmentName */
 
-/** @typedef {"brand" | "script" | "storyboard" | "delivered" | "failed" | "revision" | "revisionDelivered"} PathName */
+/**
+ * Початки сегментів — щоб `?jump=` зупинився посеред busy-стану. Не входять у `segments` і
+ * `allEvents` (ID не дублюються); mock після такого стрибка нічого не програє.
+ */
+const parts = {
+  /** scripting: «Читаю бренд-кіт» і «Пишу концепт» ✓, поточний — «Підганяю тексти під екран». */
+  toScriptFit: toScript.slice(
+    0,
+    toScript.findIndex(({ event }) => event.type === "progress" && event.step === "fit") + 1,
+  ),
+};
 
-/** Шляхи програвання для `?jump=` (mock) і для fixture-states. @type {Record<PathName, SegmentName[]>} */
+/** @typedef {keyof typeof parts} PartName */
+
+/** @typedef {"brand" | "scripting" | "script" | "storyboard" | "delivered" | "failed" | "revision" | "revisionDelivered"} PathName */
+
+/** Шляхи програвання для `?jump=` (mock) і для fixture-states. @type {Record<PathName, (SegmentName | PartName)[]>} */
 export const PATHS = {
   brand: ["toBrand"],
+  scripting: ["toBrand", "brandAnswers", "toScriptFit"],
   script: ["toBrand", "brandAnswers", "toScript"],
   storyboard: ["toBrand", "brandAnswers", "toScript", "toStoryboard"],
   delivered: ["toBrand", "brandAnswers", "toScript", "toStoryboard", "toDelivered"],
@@ -668,11 +713,13 @@ export const PATHS = {
 
 /**
  * Події шляху підряд.
- * @param {SegmentName[]} names
+ * @param {(SegmentName | PartName)[]} names
  * @returns {StoredEvent[]}
  */
 export function eventsOf(names) {
-  return names.flatMap((n) => segments[n]);
+  return names.flatMap((n) =>
+    n in parts ? parts[/** @type {PartName} */ (n)] : segments[/** @type {SegmentName} */ (n)],
+  );
 }
 
 /** Усі події фікстури (усі сегменти, у порядку ID). */
