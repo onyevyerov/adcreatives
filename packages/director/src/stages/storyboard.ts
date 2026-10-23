@@ -15,11 +15,11 @@ import {
   SEMANTIC_PALETTE_ROLES,
   type SemanticPaletteRole,
   SiteData,
+  STAGE_STEPS,
   type Stage,
   type StageContext,
   type Storage,
   Storyboard,
-  t,
 } from "@adc/shared";
 import { z } from "zod";
 import { verifyClaims } from "../claims.ts";
@@ -273,6 +273,17 @@ function briefHash(input: Awaited<ReturnType<typeof storyboardInputs>>, promptHa
   });
 }
 
+/** Подія підкроку чекліста; підпис — з `STAGE_STEPS.scripting`. */
+const stepProgress = (ctx: StageContext<"storyboard">, step: "write" | "fit" | "claims") =>
+  progress(
+    ctx,
+    "storyboard",
+    STAGE_STEPS.scripting.find((s) => s.id === step)?.label ?? step,
+    null,
+    null,
+    step,
+  );
+
 /** Стадія `storyboard`: бренд-кіт → `rev/<n>/storyboard.json` + `claims.json`. */
 export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"storyboard"> {
   const now = opts.now ?? (() => new Date());
@@ -280,7 +291,7 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
     const { storage, projectId, rev } = ctx;
     const rp = revPaths(projectId, rev);
     const dp = directorPaths(projectId, rev);
-    await progress(ctx, "storyboard", t("scriptProgress"));
+    // Перший крок («brief») шле машина при затвердженні бренд-кіта — тут не дублюємо.
 
     const input = await storyboardInputs(storage, projectId, ctx.params.durationSeconds);
     const { brandFile, manifest, formats, language, durationSeconds: duration, siteText } = input;
@@ -315,6 +326,7 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
         await storage.copy(bp.storyboard, rp.storyboard);
         await storage.copy(bp.claims, rp.claims);
         await storage.copy(directorPaths(projectId, base).storyboardMeta, dp.storyboardMeta);
+        await stepProgress(ctx, "claims");
         const sb = await storage.readJson(rp.storyboard, (v) => Storyboard.parse(v));
         const claims = verifyClaims(sb, brandFile, { now: now(), siteText });
         ctx.logger.info("розкадровку взято з попередньої ревізії", { base });
@@ -375,7 +387,9 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
       }
     };
 
+    await stepProgress(ctx, "write");
     const draft = await call();
+    await stepProgress(ctx, "fit");
     let result = normalize(draft);
     let retried = false;
     if (result.textIssues.length > 0) {
@@ -387,6 +401,7 @@ export function createStoryboardStage(opts: { now?: () => Date } = {}): Stage<"s
       }
     }
 
+    await stepProgress(ctx, "claims");
     const claims = verifyClaims(result.storyboard, brandFile, { now: now(), siteText });
     await storage.writeJson(rp.storyboard, result.storyboard);
     await storage.writeJson(rp.claims, claims);

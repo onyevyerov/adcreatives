@@ -5,6 +5,7 @@ import {
   projectPaths,
   readCosts,
   type SiteData,
+  STAGE_STEPS,
   StageError,
 } from "@adc/shared";
 import { fixtureBrandKit, fixtureBrandKitFile, fixtureSiteData } from "@adc/shared/fixtures";
@@ -184,10 +185,22 @@ describe("brandkitStage", () => {
     expect(siteText).toContain("Лате — 85 грн.");
     expect(text).toContain(siteText);
 
-    expect(ctx.emitted.events[0]).toMatchObject({ type: "progress", stage: "brandkit" });
+    // Підкроки — у порядку STAGE_STEPS.brandkit, підписи — з того ж переліку.
+    expect(ctx.emitted.events.filter((e) => e.type === "progress")).toEqual(
+      STAGE_STEPS.brandkit.map((s) =>
+        expect.objectContaining({ stage: "brandkit", step: s.id, label: s.label, done: null, total: null }),
+      ),
+    );
     const costs = await readCosts(storage, PROJECT);
     expect(costs).toHaveLength(1);
     expect(costs[0]).toMatchObject({ source: "test", promptName: "brandkit", model: "claude-opus-5-5" });
+  });
+
+  it("emits only the `read` step when site.json is missing", async () => {
+    const storage = tempStorage();
+    const ctx = makeCtx("brandkit", storage, {}, []);
+    await expect(createBrandkitStage({ now: NOW })(ctx)).rejects.toBeInstanceOf(StageError);
+    expect(ctx.emitted.events.map((e) => e.type === "progress" && e.step)).toEqual(["read"]);
   });
 
   it("keeps prompt-injection text inside the data tags and tells the model not to follow it", async () => {

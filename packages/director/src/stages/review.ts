@@ -19,13 +19,13 @@ import {
   SfxPlan,
   SoundCue,
   SoundSheet,
+  STAGE_STEPS,
   type Stage,
   type StageContext,
   StageError,
   type Storage,
   type Storyboard,
   sha256,
-  t,
 } from "@adc/shared";
 import {
   baseRevOf,
@@ -122,6 +122,9 @@ function imagesLegend(images: readonly ReviewImage[], sb: Storyboard, format: Fo
   }
   return lines.join("\n") || "(no images)";
 }
+
+/** Підпис кроку `review` чекліста (`STAGE_STEPS.directing`). */
+const REVIEW_STEP_LABEL = STAGE_STEPS.directing.find((s) => s.id === "review")?.label ?? "review";
 
 const round = (x: number, digits: number) => Math.round(x * 10 ** digits) / 10 ** digits;
 
@@ -286,7 +289,7 @@ export function createReviewStage(_deps: ReviewStageDeps = {}): Stage<"review"> 
     if (!soundSheet)
       logger.warn("review: немає звукової відомості — звук не оцінюється", { key: rp.soundSheet });
 
-    await progress(ctx, "review", t("reviewProgress"));
+    await progress(ctx, "review", REVIEW_STEP_LABEL, null, null, "review");
     const images = await reviewImages(storage, check, storyboard, formats, format, templates, rp);
     if (images.length === 0) {
       throw new StageError(
