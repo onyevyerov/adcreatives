@@ -121,7 +121,7 @@ afterEach(() => {
 describe("views/start.js", () => {
   it("рендериться з fixtureStates.start", () => {
     const { q, el } = setup();
-    expect(q(".st-head .wordmark").textContent).toBe("AdCreative");
+    expect(q(".st-head .wordmark").textContent).toBe("Crealab");
     const title = q("h1.display-xl");
     expect(title.querySelector(".accent-dot")?.textContent).toBe(".");
     expect(q(".st-lead").classList.contains("body-l")).toBe(true);

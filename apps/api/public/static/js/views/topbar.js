@@ -5,7 +5,7 @@
  * коло акаунта (account-controls.js). «Витрачено $» і «Статистика» — лише адміну.
  * DOM будується один раз, `update` патчить змінене.
  */
-import { AWAITING, BUSY, STATUS_LABELS } from "../contracts.js";
+import { AWAITING, BRAND_NAME, BUSY, STATUS_LABELS } from "../contracts.js";
 import { h, text } from "../dom.js";
 import { STATS_PATH } from "../router.js";
 import * as accountControls from "./account-controls.js";
@@ -97,7 +97,7 @@ export function mount(el, ctx) {
     h(
       "div",
       { class: "tb-left" },
-      h("a", { class: "wordmark wordmark--sm tb-wordmark", href: "/", onclick: onNew, text: "AdCreative" }),
+      h("a", { class: "wordmark wordmark--sm tb-wordmark", href: "/", onclick: onNew, text: BRAND_NAME }),
       sep,
       host,
     ),

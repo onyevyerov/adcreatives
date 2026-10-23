@@ -355,13 +355,13 @@ export const ADMIN_HISTORY = {
 /** @param {string} name @param {string} link @param {"activate" | "reset"} kind */
 const mailText = (name, link, kind) =>
   kind === "activate"
-    ? `Вітаємо, ${name}!\n\nЩоб активувати акаунт AdCreative, відкрийте посилання:\n${link}\n\n` +
+    ? `Вітаємо, ${name}!\n\nЩоб активувати акаунт Crealab, відкрийте посилання:\n${link}\n\n` +
       "Посилання дійсне 24 години. Якщо ви не реєструвалися — просто проігноруйте цей лист."
-    : `Вітаємо, ${name}!\n\nЩоб задати новий пароль для AdCreative, відкрийте посилання:\n${link}\n\n` +
+    : `Вітаємо, ${name}!\n\nЩоб задати новий пароль для Crealab, відкрийте посилання:\n${link}\n\n` +
       "Посилання дійсне 1 годину. Якщо ви не просили скинути пароль — просто проігноруйте цей лист.";
 
-const LINK_ACTIVATE = "https://adcreative.example.com/?auth=activate&token=Qm4xT9vLr2nW8sYp";
-const LINK_RESET = "https://adcreative.example.com/?auth=reset&token=Zt9pK1sWq0dF3hJm";
+const LINK_ACTIVATE = "https://crealab.ai/?auth=activate&token=Qm4xT9vLr2nW8sYp";
+const LINK_RESET = "https://crealab.ai/?auth=reset&token=Zt9pK1sWq0dF3hJm";
 
 /** `GET /api/admin/outbox`, новіші першими. @type {OutboxMail[]} */
 export const OUTBOX = [
@@ -370,7 +370,7 @@ export const OUTBOX = [
     at: at("19.10 11:02"),
     to: IRYNA.email,
     kind: "activate",
-    subject: "Активація акаунта AdCreative",
+    subject: "Активація акаунта Crealab",
     text: mailText(IRYNA.name, LINK_ACTIVATE, "activate"),
     link: LINK_ACTIVATE,
   },
@@ -379,7 +379,7 @@ export const OUTBOX = [
     at: at("19.10 08:15"),
     to: OLENA.email,
     kind: "reset",
-    subject: "Скидання пароля AdCreative",
+    subject: "Скидання пароля Crealab",
     text: mailText(OLENA.name, LINK_RESET, "reset"),
     link: LINK_RESET,
   },

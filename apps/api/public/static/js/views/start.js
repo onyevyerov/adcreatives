@@ -12,7 +12,7 @@
  *
  * `update` патчить лише змінене: `<video>`, поля й textarea не перестворюються.
  */
-import { SEGMENTS } from "../contracts.js";
+import { BRAND_NAME, SEGMENTS } from "../contracts.js";
 import { clear, h, text } from "../dom.js";
 import {
   closingPackage,
@@ -323,12 +323,7 @@ export function mount(el, ctx) {
   const root = h(
     "div",
     { class: "st", "data-view": "start" },
-    h(
-      "header",
-      { class: "st-head" },
-      h("a", { class: "wordmark", href: "/", text: "AdCreative" }),
-      accountEl,
-    ),
+    h("header", { class: "st-head" }, h("a", { class: "wordmark", href: "/", text: BRAND_NAME }), accountEl),
     h(
       "div",
       { class: "st-main" },

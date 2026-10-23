@@ -24,7 +24,7 @@ export function basicAuth(password: string): MiddlewareHandler {
     const given = basicPassword(c.req.header("authorization"));
     if (given !== null && timingSafeEqual(sha256(given), expected)) return next();
     return c.text("Потрібен пароль", 401, {
-      "WWW-Authenticate": 'Basic realm="AdCreative", charset="UTF-8"',
+      "WWW-Authenticate": 'Basic realm="Crealab", charset="UTF-8"',
     });
   };
 }

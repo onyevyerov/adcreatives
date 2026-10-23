@@ -157,14 +157,14 @@ describe("outbox", () => {
     await mailer.send({
       to: "a@example.com",
       kind: "activate",
-      subject: "Активація акаунта AdCreative",
+      subject: "Активація акаунта Crealab",
       text: "перший",
       link: `${env.config.appUrl}/?auth=activate&token=one`,
     });
     await mailer.send({
       to: "b@example.com",
       kind: "reset",
-      subject: "Скидання пароля AdCreative",
+      subject: "Скидання пароля Crealab",
       text: "другий",
       link: `${env.config.appUrl}/?auth=reset&token=two`,
     });

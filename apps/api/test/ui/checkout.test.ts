@@ -161,7 +161,7 @@ function setup(state: UiState, actions = viewActions()) {
 describe("views/checkout.js", () => {
   it("шапка: вордмарк і контроли акаунта (B3) з place start", () => {
     const { q, actions } = setup(fixture("n10-pending"));
-    expect(q(".co-head .wordmark").textContent).toBe("AdCreative");
+    expect(q(".co-head .wordmark").textContent).toBe("Crealab");
     expect(others.accountMount).toHaveBeenCalledTimes(1);
     const [host, , opts] = others.accountMount.mock.calls[0] ?? [];
     expect(host).toBe(q(".co-head .co-account"));
