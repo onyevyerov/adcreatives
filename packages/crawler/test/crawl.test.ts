@@ -418,7 +418,7 @@ describe("crawlStage", () => {
     const labels = emit.events
       .filter((e) => e.type === "progress")
       .map((e) => (e as { label: string }).label);
-    expect(labels).toContain("Сканую сайт… 3/3");
+    expect(labels).toContain("Сканую сторінки 3/3");
     const trace = await readTrace(s, "p1");
     expect(trace).toEqual([expect.objectContaining({ stage: "crawl", ok: true })]);
   }, 60_000);

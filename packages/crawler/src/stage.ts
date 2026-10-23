@@ -3,6 +3,7 @@ import {
   normalizeInputUrl,
   projectPaths,
   type SiteData,
+  STAGE_STEPS,
   type Stage,
   type StageContext,
   StageError,
@@ -55,17 +56,32 @@ async function traced<S extends StageName, R>(ctx: StageContext<S>, run: () => P
   }
 }
 
-async function safeProgress<S extends StageName>(
-  ctx: StageContext<S>,
-  label: string,
-  done: number | null = null,
-  total: number | null = null,
-): Promise<void> {
-  try {
-    await ctx.emit.progress(ctx.stage, label, done, total);
-  } catch (err) {
-    ctx.logger.warn("прогрес не надіслано", { error: (err as Error).message });
-  }
+type CrawlStep = "open" | "pages" | "assets" | "photos";
+
+/** Підпис кроку чекліста (+ лічильник, якщо є done/total). */
+function stepLabel(step: CrawlStep, done: number | null = null, total: number | null = null): string {
+  const label = STAGE_STEPS.crawling.find((s) => s.id === step)?.label ?? step;
+  return done !== null && total !== null ? `${label} ${done}/${total}` : label;
+}
+
+/** Прогрес підкроків стадії; та сама подія поспіль не повторюється, збій емітера не валить стадію. */
+function stepProgress<S extends StageName>(ctx: StageContext<S>) {
+  let last: string | null = null;
+  return async (
+    step: CrawlStep,
+    label: string,
+    done: number | null = null,
+    total: number | null = null,
+  ): Promise<void> => {
+    const key = `${step}|${label}`;
+    if (key === last) return;
+    last = key;
+    try {
+      await ctx.emit.progress(ctx.stage, label, done, total, step);
+    } catch (err) {
+      ctx.logger.warn("прогрес не надіслано", { error: (err as Error).message });
+    }
+  };
 }
 
 const MSG = {
@@ -88,6 +104,7 @@ export function createCrawlStage(options: CrawlStageOptions = {}): Stage<"crawl"
       const { url, manualText } = ctx.params;
       const paths = projectPaths(ctx.projectId);
       const hasManual = Boolean(manualText?.trim());
+      const progress = stepProgress(ctx);
       let site: SiteData | null = null;
       let siteAssets: Awaited<ReturnType<typeof crawlSite>>["assets"] = [];
 
@@ -97,7 +114,7 @@ export function createCrawlStage(options: CrawlStageOptions = {}): Stage<"crawl"
           throw new StageError(`джерело ${kind}: ${url}`, "unsupported_source", MSG.unsupported, false);
         }
         if (kind === "site") {
-          await safeProgress(ctx, "Сканую сайт…");
+          await progress("open", stepLabel("open"));
           try {
             const result = await crawlSite(url, {
               ...options,
@@ -105,15 +122,7 @@ export function createCrawlStage(options: CrawlStageOptions = {}): Stage<"crawl"
               projectId: ctx.projectId,
               logger: ctx.logger,
               ...(ctx.signal ? { signal: ctx.signal } : {}),
-              onProgress: (p) =>
-                safeProgress(
-                  ctx,
-                  p.phase === "pages"
-                    ? `Сканую сайт… ${p.done}/${p.total}`
-                    : `Збираю зображення… ${p.done}/${p.total}`,
-                  p.done,
-                  p.total,
-                ),
+              onProgress: (p) => progress(p.phase, stepLabel(p.phase, p.done, p.total), p.done, p.total),
             });
             site = result.site;
             siteAssets = result.assets;
@@ -141,7 +150,9 @@ export function createCrawlStage(options: CrawlStageOptions = {}): Stage<"crawl"
       const photos = manifest.assets.filter(
         (a) => a.kind === "photo" || a.kind === "background" || a.kind === "user",
       );
-      await safeProgress(ctx, site.source === "site" ? "Сайт проскановано" : "Опис бізнесу збережено");
+      // Підсумок — останнім кроком сайту; ручний режим кроків сканування не має.
+      if (site.source === "site") await progress("assets", "Сайт проскановано");
+      else await progress("open", "Опис бізнесу збережено");
 
       return {
         artifacts: [
@@ -176,7 +187,8 @@ export function createIngestStage(options: { heicConvert?: HeicConverter } = {})
   return (ctx) =>
     traced(ctx, async () => {
       const files = ctx.params.files;
-      await safeProgress(ctx, `Обробляю фото… 0/${files.length}`, 0, files.length);
+      const progress = stepProgress(ctx);
+      await progress("photos", stepLabel("photos", 0, files.length), 0, files.length);
       const result = await ingestUserPhotos({
         storage: ctx.storage,
         projectId: ctx.projectId,
@@ -184,7 +196,7 @@ export function createIngestStage(options: { heicConvert?: HeicConverter } = {})
         logger: ctx.logger,
         ...(options.heicConvert ? { heicConvert: options.heicConvert } : {}),
       });
-      await safeProgress(ctx, `Обробляю фото… ${files.length}/${files.length}`, files.length, files.length);
+      await progress("photos", stepLabel("photos", files.length, files.length), files.length, files.length);
       const details = result.skipped.map((s) => `${s.file.split("/").pop()} — ${SKIP_TEXT[s.reason]}`);
       if (files.length > 0 && result.assets.length === 0) {
         throw new StageError(
