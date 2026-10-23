@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { basicPassword } from "../src/auth.ts";
 import { basic, form, json, setup } from "./helpers.ts";
 
-/** Admin — щоб `/stats` теж відповідав 200 (Basic-gate перевіряється окремо від ролей). */
+/** Admin — щоб `/api/stats` теж відповідав 200 (Basic-gate перевіряється окремо від ролей). */
 const ADMIN = { user: { email: "admin@example.com", admin: true, credits: 100 } };
 
 describe("HTTP Basic (APP_PASSWORD)", () => {
   it("порожній пароль — без Basic-gate, доступ лише за сесією", async () => {
     const env = await setup({ appPassword: "" }, ADMIN);
     expect((await env.request("/api/projects")).status).toBe(200);
+    expect((await env.request("/api/stats")).status).toBe(200);
     expect((await env.request("/stats")).status).toBe(200);
     // Без сесії — 401 від requireUser, а не від Basic.
     const anon = await env.app.request("/api/projects");
@@ -35,6 +36,9 @@ describe("HTTP Basic (APP_PASSWORD)", () => {
     const page = await env.app.request("/", { headers: { Authorization: basic("s3cret") } });
     expect(page.status).toBe(200);
     expect(await page.text()).toContain('<div id="app"');
+    const stats = await env.app.request("/stats", { headers: { Authorization: basic("s3cret") } });
+    expect(stats.status).toBe(200);
+    expect(await stats.text()).toContain('<div id="app"');
     expect((await env.app.request("/static/js/app.js")).status).toBe(401);
     const js = await env.app.request("/static/js/app.js", { headers: { Authorization: basic("s3cret") } });
     expect(js.status).toBe(200);

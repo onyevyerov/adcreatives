@@ -45,14 +45,14 @@ export function initials(name) {
 }
 
 /**
- * Пункти меню: Кабінет · Мої проєкти {N} · Історія · Профіль · [Адмінка · Статистика ↗].
- * `route` — перехід через `navigate`; `href` — звичайне посилання.
+ * Пункти меню: Кабінет · Мої проєкти {N} · Історія · Профіль · [Адмінка · Статистика].
+ * `route` — перехід через `navigate` («Статистика» — вкладка «Використання» адмінки, `/stats`).
  * @param {boolean} isAdmin
  * @param {number | null} projectCount
- * @returns {{ label: string, meta: string, route?: Route, href?: string }[]}
+ * @returns {{ label: string, meta: string, route: Route }[]}
  */
 export function menuItems(isAdmin, projectCount) {
-  /** @type {{ label: string, meta: string, route?: Route, href?: string }[]} */
+  /** @type {{ label: string, meta: string, route: Route }[]} */
   const items = [
     { label: "Кабінет", meta: "", route: { route: "cabinet", section: "balance" } },
     {
@@ -65,7 +65,7 @@ export function menuItems(isAdmin, projectCount) {
   ];
   if (isAdmin) {
     items.push({ label: "Адмінка", meta: "", route: { route: "admin", tab: "users" } });
-    items.push({ label: "Статистика", meta: "↗", href: "/stats" });
+    items.push({ label: "Статистика", meta: "", route: { route: "admin", tab: "usage" } });
   }
   return items;
 }
@@ -204,8 +204,6 @@ export function mount(el, ctx, o) {
     else if (e.key === "Home") focusItem(0);
     else if (e.key === "End") focusItem(-1);
     else if (e.key === "Escape") close(true);
-    else if (e.key === " " && document.activeElement instanceof HTMLAnchorElement)
-      document.activeElement.click();
     else if (e.key === "Tab") {
       // Tab іде далі від кола: фокус на тригер, а перехід робить браузер.
       close(true);
@@ -230,19 +228,17 @@ export function mount(el, ctx, o) {
     const items = [];
     const rows = menuItems(u.isAdmin, count).map((it) => {
       const children = [h("span", { text: it.label }), h("span", { class: "ac-menu__meta", text: it.meta })];
-      const node = it.href
-        ? h("a", { class: "ac-menu__item", role: "menuitem", tabindex: "-1", href: it.href }, children)
-        : h(
-            "button",
-            {
-              type: "button",
-              class: "ac-menu__item",
-              role: "menuitem",
-              tabindex: "-1",
-              onclick: choose(() => it.route && ctx.actions.navigate(it.route)),
-            },
-            children,
-          );
+      const node = h(
+        "button",
+        {
+          type: "button",
+          class: "ac-menu__item",
+          role: "menuitem",
+          tabindex: "-1",
+          onclick: choose(() => ctx.actions.navigate(it.route)),
+        },
+        children,
+      );
       items.push(node);
       return node;
     });

@@ -89,10 +89,26 @@ describe("views/topbar.js", () => {
     const stats = q("a.tb-stats");
     expect(stats?.textContent).toBe("Статистика");
     expect(stats?.getAttribute("href")).toBe("/stats");
+    expect(stats?.getAttribute("target")).toBeNull();
     expect(stats?.hidden).toBe(false);
     expect(q(".tb-cost")?.hidden).toBe(false);
     view.destroy();
     expect(host.children.length).toBe(0);
+  });
+
+  it("«Статистика» → вкладка «Використання» роутером; з модифікатором — як звичайне посилання", () => {
+    const { actions, view } = mountWith(withMe("awaitingBrand", ADMIN_ME));
+    const navigate = vi.spyOn(actions, "navigate");
+    const stats = q("a.tb-stats");
+    const ctrl = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    stats?.dispatchEvent(ctrl);
+    expect(ctrl.defaultPrevented).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    const plain = new MouseEvent("click", { bubbles: true, cancelable: true });
+    stats?.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(true);
+    expect(navigate).toHaveBeenCalledWith({ route: "admin", tab: "usage" });
+    view.destroy();
   });
 
   it("клієнт не бачить «Витрачено $» і «Статистика»; адмін — бачить", () => {

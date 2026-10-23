@@ -14,7 +14,7 @@ import {
   USAGE_SEARCH_DEBOUNCE_MS,
   usageQuery,
 } from "../../public/static/js/lib/usage.js";
-import { ADMIN_TABS, routeFromUrl, urlForRoute } from "../../public/static/js/router.js";
+import { ADMIN_TABS, routeFromUrl, STATS_PATH, urlForRoute } from "../../public/static/js/router.js";
 import { createStore } from "../../public/static/js/store.js";
 import { mount } from "../../public/static/js/views/admin.js";
 
@@ -92,13 +92,42 @@ describe("account-api.js — /api/admin/usage", () => {
   });
 });
 
-describe("router.js — ?admin=usage", () => {
+describe("router.js — /stats", () => {
   it("розбирається й збирається назад", () => {
     expect(ADMIN_TABS).toContain("usage");
+    expect(STATS_PATH).toBe("/stats");
+    const route = routeFromUrl(new URLSearchParams(), "/stats");
+    expect(route).toEqual({ route: "admin", tab: "usage" });
+    expect(urlForRoute(route)).toBe("/stats");
+    expect(stateForUrl(new URLSearchParams(), "/stats")).toMatchObject({
+      route: "admin",
+      admin: { tab: "usage" },
+    });
+  });
+
+  it("шлях важливіший за параметри; токен з листа зберігається", () => {
+    expect(routeFromUrl(new URLSearchParams("admin=users&user=u1"), "/stats")).toEqual({
+      route: "admin",
+      tab: "usage",
+    });
+    expect(routeFromUrl(new URLSearchParams("auth=reset&token=t"), "/stats")).toEqual({
+      route: "admin",
+      tab: "usage",
+      auth: { kind: "reset", token: "t" },
+    });
+  });
+
+  it("старе /?admin=usage — та сама вкладка, адреса збирається як /stats", () => {
     const route = routeFromUrl(new URLSearchParams("admin=usage"));
     expect(route).toEqual({ route: "admin", tab: "usage" });
-    expect(urlForRoute(route)).toBe("/?admin=usage");
-    expect(stateForUrl(new URLSearchParams("admin=usage")).admin.tab).toBe("usage");
+    expect(urlForRoute(route)).toBe("/stats");
+    // Обраний користувач — лише для «Користувачів», в адресу «Використання» не йде.
+    expect(urlForRoute({ route: "admin", tab: "usage", userId: "u1" })).toBe("/stats");
+  });
+
+  it("mock-режим зберігає службові параметри", () => {
+    const mock = new URLSearchParams("mock=1&speed=10&admin=usage");
+    expect(urlForRoute({ route: "admin", tab: "usage" }, mock)).toBe("/stats?mock=1&speed=10");
   });
 });
 

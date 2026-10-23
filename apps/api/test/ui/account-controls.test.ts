@@ -209,7 +209,6 @@ describe("views/account-controls.js", () => {
         "Профіль",
         "Вийти",
       ]);
-      expect(host.querySelector('a[href="/stats"]')).toBeNull();
       expect(menu()?.textContent).not.toContain("Статистика");
       // перший пункт — у фокусі; пункти поза Tab-порядком
       expect(document.activeElement).toBe(items()[0]);
@@ -220,7 +219,7 @@ describe("views/account-controls.js", () => {
       view.destroy();
     });
 
-    it("адмін: «адмін» перед колом, «роль · адміністратор», «Адмінка», «Статистика ↗» → /stats", () => {
+    it("адмін: «адмін» перед колом, «роль · адміністратор», «Адмінка», «Статистика» → вкладка usage", () => {
       const { calls, view } = mountWith(state(ADMIN_ME));
       expect(q(".ac-role")?.hidden).toBe(false);
       expect(q(".ac-role")?.textContent).toBe("адмін");
@@ -233,15 +232,16 @@ describe("views/account-controls.js", () => {
         "Історія",
         "Профіль",
         "Адмінка",
-        "Статистика↗",
+        "Статистика",
         "Вийти",
       ]);
-      const stats = items()[5];
-      expect(stats?.tagName).toBe("A");
-      expect(stats?.getAttribute("href")).toBe("/stats");
+      expect(items()[5]?.tagName).toBe("BUTTON");
       items()[4]?.click();
       expect(calls("navigate")[0]?.args).toEqual([{ route: "admin", tab: "users" }]);
       expect(menu()).toBeNull();
+      trigger().click();
+      items()[5]?.click();
+      expect(calls("navigate")[1]?.args).toEqual([{ route: "admin", tab: "usage" }]);
       view.destroy();
     });
 
@@ -410,21 +410,6 @@ describe("views/account-controls.js", () => {
         document.documentElement.removeAttribute(a);
       view.destroy();
     });
-
-    it("Space на «Статистика ↗» (посилання) відкриває його", () => {
-      const { view } = mountWith(state(ADMIN_ME));
-      trigger().click();
-      const stats = items()[5] as HTMLAnchorElement;
-      let clicked = 0;
-      stats.addEventListener("click", (e) => {
-        e.preventDefault();
-        clicked++;
-      });
-      stats.focus();
-      expect(key(stats, " ").defaultPrevented).toBe(true);
-      expect(clicked).toBe(1);
-      view.destroy();
-    });
   });
 
   it("place start — компактний корінь .ac--start без слота; гість — корінь схований", () => {
@@ -458,7 +443,11 @@ describe("views/account-controls.js", () => {
     expect(initials(null)).toBe("·");
     expect(menuItems(false, 4).map((i) => i.label)).toEqual(["Кабінет", "Мої проєкти", "Історія", "Профіль"]);
     expect(menuItems(true, 1250)[1]?.meta).toBe(`1${NBSP}250`);
-    expect(menuItems(true, null).at(-1)).toEqual({ label: "Статистика", meta: "↗", href: "/stats" });
+    expect(menuItems(true, null).at(-1)).toEqual({
+      label: "Статистика",
+      meta: "",
+      route: { route: "admin", tab: "usage" },
+    });
   });
 });
 

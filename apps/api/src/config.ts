@@ -24,9 +24,9 @@ export const MAX_MANUAL_TEXT_CHARS = 20_000;
 export interface ApiConfig {
   /** Пароль HTTP Basic (`APP_PASSWORD`); порожній — без авторизації. */
   appPassword: string;
-  /** `COST_TARGET_USD`: рядки дорожчі за ціль позначаються в /stats. */
+  /** `COST_TARGET_USD`: рядки дорожчі за ціль позначаються в `/api/stats` і `/api/stats.csv` (`overTarget`). */
   costTargetUsd: number;
-  /** `config/prices.json` (для рядка повної собівартості); null — не вдалося прочитати. */
+  /** `config/prices.json` (фіксовані щомісячні витрати в підсумку `/api/stats`); null — не вдалося прочитати. */
   prices: Prices | null;
   publicDir: string;
   /** DNS-резолвер для `assertPublicHttpUrl` (у тестах — фейк). */

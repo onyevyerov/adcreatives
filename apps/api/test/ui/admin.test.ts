@@ -464,12 +464,16 @@ describe("data/admin-actions.js", () => {
 });
 
 describe("ядро + admin-actions (createAccountActions)", () => {
-  function boot(query: string, me = ADMIN_ME) {
+  /** `me: null` — гість (`/me` → 401). */
+  function boot(query: string, me: typeof ADMIN_ME | null = ADMIN_ME, pathname = "/") {
     const params = new URLSearchParams(query);
-    const store = createStore<UiState>(stateForUrl(params));
+    const store = createStore<UiState>(stateForUrl(params, pathname));
     const api = fakeApi();
-    vi.mocked(api.me).mockImplementation(async () => me);
-    const actions = createAccountActions(store, { params, backend: fakeBackend(), api });
+    vi.mocked(api.me).mockImplementation(async () => {
+      if (!me) throw new ApiError("Потрібно увійти.", 401, "unauthorized", null);
+      return me;
+    });
+    const actions = createAccountActions(store, { params, pathname, backend: fakeBackend(), api });
     return { store, api, actions };
   }
 
@@ -492,6 +496,77 @@ describe("ядро + admin-actions (createAccountActions)", () => {
     expect(store.getState().admin.forbidden).toBe(true);
     expect(api.adminUsers).not.toHaveBeenCalled();
     actions.dispose();
+  });
+
+  describe("/stats — вкладка «Використання»", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("адмін: вкладка usage, огляд вантажиться, адреса не змінюється", async () => {
+      const replace = vi.spyOn(history, "replaceState");
+      const { store, api, actions } = boot("", ADMIN_ME, "/stats");
+      expect(store.getState()).toMatchObject({ route: "admin", admin: { tab: "usage" } });
+      await actions.meReady;
+      await settle();
+      expect(store.getState().admin.forbidden).toBe(false);
+      expect(api.adminUsageSummary).toHaveBeenCalled();
+      expect(replace).not.toHaveBeenCalled();
+      actions.dispose();
+    });
+
+    it("не-адмін → forbidden, без запитів використання; гість → вхід", async () => {
+      const plain = boot("", ME, "/stats");
+      await plain.actions.meReady;
+      await settle();
+      expect(plain.store.getState().admin.forbidden).toBe(true);
+      expect(plain.api.adminUsageSummary).not.toHaveBeenCalled();
+      plain.actions.dispose();
+
+      const guest = boot("", null, "/stats");
+      await guest.actions.meReady;
+      await settle();
+      expect(guest.store.getState().account.meStatus).toBe("anon");
+      expect(guest.store.getState().auth?.view).toBe("login");
+      expect(guest.api.adminUsageSummary).not.toHaveBeenCalled();
+      guest.actions.dispose();
+    });
+
+    it("старе /?admin=usage → та сама вкладка, адреса переписується на /stats", async () => {
+      const replace = vi.spyOn(history, "replaceState");
+      const { store, actions } = boot("admin=usage", ME);
+      expect(store.getState().admin.tab).toBe("usage");
+      expect(replace).toHaveBeenCalledWith(null, "", "/stats");
+      actions.dispose();
+    });
+
+    it("з /stats на іншу вкладку — /?admin=…, назад — /stats", async () => {
+      const push = vi.spyOn(history, "pushState");
+      const { store, actions } = boot("", ADMIN_ME, "/stats");
+      await actions.meReady;
+      await settle();
+      actions.adminTab("outbox");
+      expect(push).toHaveBeenLastCalledWith(null, "", "/?admin=outbox");
+      expect(store.getState().admin.tab).toBe("outbox");
+      actions.adminTab("usage");
+      expect(push).toHaveBeenLastCalledWith(null, "", "/stats");
+      expect(store.getState().admin.tab).toBe("usage");
+      actions.navigate({ route: "start" });
+      expect(push).toHaveBeenLastCalledWith(null, "", "/");
+      actions.dispose();
+    });
+
+    it("popstate читає шлях: /stats → usage", async () => {
+      const { store, actions } = boot("admin=users", ADMIN_ME);
+      await actions.meReady;
+      await settle();
+      history.pushState(null, "", "/stats");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      expect(store.getState().admin.tab).toBe("usage");
+      history.pushState(null, "", "/?admin=all");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      expect(store.getState().admin.tab).toBe("all");
+      history.replaceState(null, "", "/");
+      actions.dispose();
+    });
   });
 });
 
@@ -522,7 +597,7 @@ describe("views/admin.js", () => {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   };
 
-  it("підшапка: «Адмінка», вкладки з лічильниками, «Статистика ↗» → /stats", () => {
+  it("підшапка: «Адмінка», вкладки з лічильниками, «Статистика» → /stats", () => {
     const { view } = mountWith(adminState(selectedOf(OLENA, 12)));
     expect(q(".adm-title")?.textContent).toBe("Адмінка");
     const tabs = all('[role="tab"]');
@@ -534,9 +609,23 @@ describe("views/admin.js", () => {
     ]);
     expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false"]);
     expect(q(".adm-stats")?.getAttribute("href")).toBe("/stats");
-    expect(q(".adm-stats")?.textContent).toBe("Статистика ↗");
+    expect(q(".adm-stats")?.textContent).toBe("Статистика");
+    expect(q(".adm-stats")?.getAttribute("target")).toBeNull();
     view.destroy();
     expect(host.children.length).toBe(0);
+  });
+
+  it("«Статистика» → вкладка usage роутером; з модифікатором — як звичайне посилання", () => {
+    const { navigate } = mountWith(adminState());
+    const link = q<HTMLAnchorElement>(".adm-stats");
+    const ctrl = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    link?.dispatchEvent(ctrl);
+    expect(ctrl.defaultPrevented).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    const plain = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link?.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(true);
+    expect(navigate).toHaveBeenLastCalledWith({ route: "admin", tab: "usage" });
   });
 
   it("клік і стрілки по вкладках → adminTab", () => {
