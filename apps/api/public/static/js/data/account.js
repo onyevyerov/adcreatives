@@ -33,7 +33,7 @@ import {
   projectState,
 } from "../initial.js";
 import { parseCreditMessage } from "../lib/credit-messages.js";
-import { routeFromUrl, urlForRoute } from "../router.js";
+import { routeFromUrl, STATS_PATH, urlForRoute } from "../router.js";
 import * as accountApi from "./account-api.js";
 import { createActions, createBackend } from "./actions.js";
 import { adminActions } from "./admin-actions.js";
@@ -137,10 +137,11 @@ export function routeOf(s) {
 /**
  * Стан сторінки для адреси (app.js, перший рендер).
  * @param {URLSearchParams} params
+ * @param {string} [pathname] шлях сторінки (`/stats` — вкладка «Використання»)
  * @returns {UiState}
  */
-export function stateForUrl(params) {
-  const r = routeFromUrl(params);
+export function stateForUrl(params, pathname) {
+  const r = routeFromUrl(params, pathname);
   const base = initialState(r.route, r.route === "project" ? r.projectId : null);
   return { ...base, ...applyRoute(base, r) };
 }
@@ -181,7 +182,7 @@ const statusOf = (err) =>
  * @returns {Actions & { readonly ready: Promise<void>, readonly meReady: Promise<void>, dispose(): void }}
  */
 export function createAccountActions(store, opts) {
-  const { params } = opts;
+  const { params, pathname = "/" } = opts;
   const api = opts.api ?? accountApi;
   const offline = params.get("mock") === "1";
   const backend = createBackend(store, opts);
@@ -343,7 +344,7 @@ export function createAccountActions(store, opts) {
   }
 
   const onPopState = () => {
-    go(routeFromUrl(new URLSearchParams(globalThis.location?.search ?? "")));
+    go(routeFromUrl(new URLSearchParams(globalThis.location?.search ?? ""), globalThis.location?.pathname));
   };
 
   async function logout() {
@@ -418,12 +419,11 @@ export function createAccountActions(store, opts) {
 
   // ───────────── старт сторінки ─────────────
 
-  const fromUrl = routeFromUrl(params);
-  // Токен з листа не лишається в адресі за жодного маршруту.
-  if (params.has("token") || params.has("auth")) {
-    const { auth: _auth, ...route } = fromUrl;
-    replaceUrl(urlForRoute(route, params));
-  }
+  const fromUrl = routeFromUrl(params, pathname);
+  const { auth: _auth, ...route } = fromUrl;
+  // Токен з листа не лишається в адресі за жодного маршруту; старе `/?admin=usage` → `/stats`.
+  const oldStats = route.route === "admin" && route.tab === "usage" && pathname !== STATS_PATH;
+  if (params.has("token") || params.has("auth") || oldStats) replaceUrl(urlForRoute(route, params));
   if (fromUrl.auth) {
     const { kind, token } = fromUrl.auth;
     store.setState({ auth: authState(kind === "activate" ? "activating" : "reset", null, { token }) });

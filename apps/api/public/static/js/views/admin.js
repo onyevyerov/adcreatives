@@ -11,9 +11,10 @@ import { FORMAT_LABELS, STATUS_LABELS } from "../contracts.js";
 import { NOTE_MAX, needsConfirm, PANEL_ENTRIES, parseCredits } from "../data/admin-actions.js";
 import { clear, h, text } from "../dom.js";
 import { creditWord, formatCredits, formatNumber, signed } from "../lib/credits.js";
+import { STATS_PATH } from "../router.js";
 import { mount as mountUsage } from "./admin-usage.js";
 import { mountForbidden } from "./session.js";
-import { formatUsd, statusKind } from "./topbar.js";
+import { formatUsd, plainClick, statusKind } from "./topbar.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
 /** @typedef {import("../contracts.js").AdminState} AdminState */
@@ -197,7 +198,16 @@ export function mount(el, ctx) {
     "div",
     { class: "adm-head" },
     h("div", { class: "adm-head__left" }, h("h1", { class: "adm-title", text: "Адмінка" }), tablist),
-    h("a", { class: "adm-stats", href: "/stats", text: "Статистика ↗" }),
+    h("a", {
+      class: "adm-stats",
+      href: STATS_PATH,
+      text: "Статистика",
+      onclick: (/** @type {MouseEvent} */ e) => {
+        if (!plainClick(e)) return;
+        e.preventDefault();
+        actions.adminTab("usage");
+      },
+    }),
   );
 
   // ───────────── Головна область ─────────────

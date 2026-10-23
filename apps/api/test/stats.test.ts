@@ -100,57 +100,25 @@ describe("stats", () => {
     expect(lines.find((l) => l.includes(",pricey,"))).toContain(",true,");
   });
 
-  it("GET /stats — HTML-таблиця, дорогі рядки позначені", async () => {
-    const env = await seedStats();
-    const res = await env.request("/stats");
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/html");
-    const html = await res.text();
-    expect(html).toContain('<tr data-project="pricey" data-over-target="1">');
-    expect(html).toContain('<tr data-project="cheap">');
-    expect(html).toContain("понад ціль");
-    expect(html).toContain("$6.55");
-    expect(html).toContain('href="/?project=cheap"');
-  });
-
   it("порожня статистика і ціль із конфігу", async () => {
     const env = await setup({ costTargetUsd: 5 }, ADMIN);
     const report = (await (await env.request("/api/stats")).json()) as StatsReport;
     expect(report.rows).toEqual([]);
     expect(report.summary.targetUsd).toBe(5);
-    expect(await (await env.request("/stats")).text()).toContain("Ще немає проєктів.");
-  });
-
-  it("HTML екранується", async () => {
-    const env = await setup({}, ADMIN);
-    await env.storage.writeJson(
-      projectPaths("xss").project,
-      fixtureProject({
-        id: "xss",
-        input: { kind: "site", url: "https://x.example.com/<script>alert(1)</script>", manualText: null },
-      }),
-    );
-    const html = await (await env.request("/stats")).text();
-    expect(html).not.toContain("<script>alert(1)</script>");
-    expect(html).toContain("&lt;script&gt;");
   });
 });
 
 describe("stats — лише для адміністратора", () => {
-  it("анонім: JSON/CSV → 401 JSON, /stats → 401 текстом", async () => {
+  it("анонім: JSON/CSV → 401 JSON", async () => {
     const env = await setup({}, { user: null });
     for (const route of ["/api/stats", "/api/stats.csv"]) {
       const res = await env.app.request(route);
       expect(res.status, route).toBe(401);
       expect(await res.json()).toEqual({ error: "unauthorized", message: "Потрібно увійти." });
     }
-    const page = await env.app.request("/stats");
-    expect(page.status).toBe(401);
-    expect(page.headers.get("content-type")).toContain("text/plain");
-    expect(await page.text()).toBe("Потрібно увійти.");
   });
 
-  it("не-admin: JSON/CSV → 403 forbidden, /stats → 403 HTML без даних", async () => {
+  it("не-admin: JSON/CSV → 403 forbidden", async () => {
     const env = await seedStats();
     const plain = await seedUser(env, { email: "plain@example.com" });
     for (const route of ["/api/stats", "/api/stats.csv"]) {
@@ -158,18 +126,32 @@ describe("stats — лише для адміністратора", () => {
       expect(res.status, route).toBe(403);
       expect(await res.json()).toEqual({ error: "forbidden", message: "Лише для адміністратора." });
     }
-    const page = await plain.request("/stats");
-    expect(page.status).toBe(403);
-    expect(page.headers.get("content-type")).toContain("text/html");
-    const html = await page.text();
-    expect(html).toContain("Лише для адміністратора");
-    expect(html).not.toContain("pricey");
   });
 
-  it("admin → 200 на всіх трьох", async () => {
+  it("admin → 200 на JSON і CSV", async () => {
     const env = await seedStats();
-    for (const route of ["/api/stats", "/api/stats.csv", "/stats"]) {
+    for (const route of ["/api/stats", "/api/stats.csv"]) {
       expect((await env.request(route)).status, route).toBe(200);
     }
+  });
+});
+
+describe("/stats — сторінка застосунку (вкладка «Використання» адмінки)", () => {
+  it("віддає index.html кожному: доступ перевіряє клієнт, дані — /api/admin/usage/* під requireAdmin", async () => {
+    const env = await seedStats();
+    const plain = await seedUser(env, { email: "plain@example.com" });
+    const index = await (await env.request("/")).text();
+    for (const [who, res] of [
+      ["admin", await env.request("/stats")],
+      ["не-admin", await plain.request("/stats")],
+      ["анонім", await env.app.request("/stats")],
+    ] as const) {
+      expect(res.status, who).toBe(200);
+      expect(res.headers.get("content-type"), who).toContain("text/html");
+      const html = await res.text();
+      expect(html, who).toBe(index);
+      expect(html, who).not.toContain("pricey");
+    }
+    expect((await plain.request("/api/admin/usage/summary")).status).toBe(403);
   });
 });

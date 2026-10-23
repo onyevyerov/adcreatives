@@ -209,7 +209,7 @@ afterEach(() => {
 
 // ───────────── Вхід у маршрут ─────────────
 
-describe("usage-actions: вхід на ?admin=usage", () => {
+describe("usage-actions: вхід на /stats", () => {
   it("вантажить summary + users + all (сторінка 1) паралельно; loading летить, далі дані", async () => {
     const { api, usage, enter } = makeUsage(usageState());
     const sum = deferred<UsageSummary>();

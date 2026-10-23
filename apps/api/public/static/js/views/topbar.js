@@ -7,6 +7,7 @@
  */
 import { AWAITING, BUSY, STATUS_LABELS } from "../contracts.js";
 import { h, text } from "../dom.js";
+import { STATS_PATH } from "../router.js";
 import * as accountControls from "./account-controls.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
@@ -57,7 +58,7 @@ export function hostSlot(state) {
 const isAdmin = (state) => state.account.meStatus === "ready" && !!state.account.me?.user.isAdmin;
 
 /** Клік без модифікаторів (інакше даємо браузеру відкрити посилання як завжди). @param {MouseEvent} e */
-const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+export const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 
 /** @type {import("../contracts.js").MountFn} */
 export function mount(el, ctx) {
@@ -77,7 +78,17 @@ export function mount(el, ctx) {
   const status = h("span", { class: "tb-status", role: "status" }, dot, label);
   const sum = h("b", { class: "tb-cost__sum" });
   const cost = h("span", { class: "tb-cost mono" }, "Витрачено ", sum);
-  const stats = h("a", { class: "tb-stats", href: "/stats", text: "Статистика" });
+  /** «Статистика» — вкладка «Використання» адмінки (`/stats`): перехід роутером, без перезавантаження. */
+  const stats = h("a", {
+    class: "tb-stats",
+    href: STATS_PATH,
+    text: "Статистика",
+    onclick: (/** @type {MouseEvent} */ e) => {
+      if (!plainClick(e)) return;
+      e.preventDefault();
+      ctx.actions.navigate({ route: "admin", tab: "usage" });
+    },
+  });
   const acct = h("div", { class: "tb-acct" });
 
   const root = h(

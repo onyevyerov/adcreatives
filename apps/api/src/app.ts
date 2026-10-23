@@ -17,7 +17,7 @@ import { usageRoutes } from "./routes/usage.ts";
 import { type AppEnv, sessionMiddleware } from "./session.ts";
 
 /**
- * HTTP-застосунок API. Тонкий шар: HTTP, SSE, завантаження файлів, статистика.
+ * HTTP-застосунок API. Тонкий шар: HTTP, SSE, завантаження файлів, статистика (JSON/CSV).
  * `project.json` не пише — лише `intake.json` нового проєкту, оригінали фото в `uploads/`
  * і повідомлення клієнта в стрім подій; усе інше — команди в чергу `pipeline`.
  */
@@ -52,6 +52,9 @@ export function createApp(deps: ApiDeps): Hono<AppEnv> {
   const index = async () => readFile(path.join(deps.config.publicDir, "index.html"), "utf8");
   app.get("/", async (c) => c.html(await index()));
   app.get("/index.html", async (c) => c.html(await index()));
+  // Вкладка «Використання» адмінки: та сама сторінка, маршрут розбирає router.js; доступ — на клієнті
+  // (гість → вхід, не адмін → «немає доступу»), дані — під requireAdmin у /api/admin/usage/*.
+  app.get("/stats", async (c) => c.html(await index()));
 
   app.notFound((c) => c.json({ error: "not_found", message: "Не знайдено." }, 404));
   return app;

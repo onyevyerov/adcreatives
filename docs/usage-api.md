@@ -1,6 +1,6 @@
 # Використання: контракт API ↔ UI (`/api/admin/usage`)
 
-Вкладка адмінки `/?admin=usage`: скільки коштують клієнти, проєкти, моделі й етапи за період. Джерело —
+Вкладка адмінки «Використання» — сторінка `/stats` (старе `/?admin=usage` переписується на неї): скільки коштують клієнти, проєкти, моделі й етапи за період. Джерело —
 рядки `CostEvent` у `projects/<id>/costs.jsonl` і `costs-shared.jsonl`; кредити — `ledger.jsonl` користувачів.
 TS-дзеркало — `apps/api/src/usage/types.ts`, JSDoc-дзеркало — `apps/api/public/static/js/contracts.js`.
 
