@@ -61,6 +61,23 @@
   color: var(--accent);
 }
 
+/* ── B3 · формати-чернетка: тайли як на ЧП1 (.cb-fmt), «Застосувати формати» / «Скинути» ── */
+
+.cd-formats {
+  margin-top: 20px;
+}
+
+.cd-formats__hint {
+  color: var(--accent);
+  font: 400 12px / 1.5 var(--f-mono);
+}
+
+.cd-formats__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* Композер після видачі (C5): «↵ надіслати · правка — 3 кредити»; нестача — --ink. */
 .cmp-hint {
   min-width: 0;

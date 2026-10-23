@@ -7,15 +7,17 @@
  * програє фікстуру подій (з `&jump=…` або `&project=…` — одразу робочий простір).
  * Переходи createProject → project і newProject → start теж робить шар даних.
  *
- * Дії, що шлють повідомлення не з композера (`setFormats`, `setLanguage`), не чіпають
- * чернетку `ui.draft` і режим правки — їх скидає лише `sendMessage`.
+ * `setFormats` / `setLanguage` лише пишуть чернетку вибору (`ui.pendingFormats` /
+ * `ui.pendingLanguage`) — без повідомлень і запитів. На ЧП1 її фіксує `approve()` (команда з
+ * `choices`), на ЧП3 — `applyFormats()` («Формати: …», це ревізія). Повідомлення не з композера
+ * (`applyFormats`) не чіпає чернетку `ui.draft` і режим правки — їх скидає лише `sendMessage`.
  *
  * Крок 0 акаунтів: переходи старт ↔ проєкт скидають лише гілки проєкту (`projectState`), акаунт і
  * модалку входу не чіпають; `GET /api/projects/:id` 404 → `session: "404"`, поле `credits` →
  * `projectCredits`; `POST /api/projects` 402 → `ui.startShortage`, успіх → `refreshMe()`.
  * Решту акаунтів (`Object.assign` поверх цього об'єкта) збирає data/account.js.
  */
-import { FORMAT_LABELS, FORMATS, FORMATS_DEBOUNCE_MS } from "../contracts.js";
+import { CHECKPOINT_STATUS, FORMAT_LABELS, FORMATS } from "../contracts.js";
 import { projectState } from "../initial.js";
 import * as api from "./api.js";
 import { createMockBackend } from "./mock.js";
@@ -27,6 +29,9 @@ import { connectEvents } from "./sse.js";
 /** @typedef {import("../contracts.js").DataOptions} DataOptions */
 /** @typedef {import("../contracts.js").UiFlags} UiFlags */
 /** @typedef {import("../contracts.js").ChatEvent} ChatEvent */
+/** @typedef {import("../contracts.js").UiState} UiState */
+/** @typedef {import("../contracts.js").Format} Format */
+/** @typedef {import("../contracts.js").Language} Language */
 /** @typedef {import("./api.js").CommandBody} CommandBody */
 /** @typedef {import("./sse.js").EventSourceCtor} EventSourceCtor */
 
@@ -50,6 +55,68 @@ import { connectEvents } from "./sse.js";
 
 /** Вікно збирання подій SSE в один `setState`, мс. */
 export const BATCH_MS = 30;
+
+export const NEED_FORMAT = "Оберіть хоча б один формат.";
+export const APPLY_FORMATS_FIRST = "Спершу застосуйте або скиньте формати.";
+
+/** @param {readonly Format[]} list @returns {Format[]} у канонічному порядку `FORMATS` */
+const canonical = (list) => FORMATS.filter((f) => list.includes(f));
+
+/** @param {readonly Format[]} a @param {readonly Format[]} b */
+const sameFormats = (a, b) => canonical(a).join() === canonical(b).join();
+
+/**
+ * Мова відео, яку показує ЧП1 без чернетки: мова бренд-кіта, якщо вона серед мовних версій сайту
+ * (або версій немає), інакше перша версія; `null` — payload немає.
+ * @param {Pick<UiState, "checkpoints">} state
+ * @returns {string | null}
+ */
+export function brandLanguage(state) {
+  const p = state.checkpoints.brand?.payload;
+  if (p?.checkpoint !== "brand") return null;
+  const langs = p.languageOptions.map((o) => o.lang);
+  const kit = p.brandkit.identity.language;
+  return langs.length === 0 || langs.includes(kit) ? kit : (langs[0] ?? kit);
+}
+
+/**
+ * Вибір ЧП1 для команди approve: те з чернетки, що відрізняється від payload. `null` — змін немає
+ * (approve без `choices`), `"empty"` — зняли всі формати (затверджувати не можна).
+ * @param {Pick<UiState, "ui" | "checkpoints">} state
+ * @returns {{ formats?: Format[], language?: Language } | null | "empty"}
+ */
+export function brandChoices(state) {
+  const p = state.checkpoints.brand?.payload;
+  if (p?.checkpoint !== "brand") return null;
+  const { pendingFormats, pendingLanguage } = state.ui;
+  if (pendingFormats && pendingFormats.length === 0) return "empty";
+  /** @type {{ formats?: Format[], language?: Language }} */
+  const choices = {};
+  if (pendingFormats && !sameFormats(pendingFormats, p.formats)) choices.formats = canonical(pendingFormats);
+  if (pendingLanguage && pendingLanguage !== brandLanguage(state)) choices.language = pendingLanguage;
+  return choices.formats || choices.language ? choices : null;
+}
+
+/**
+ * Формати ЧП3 без чернетки: `primaryFormat` + формати аркушів (бекенд робить аркуш на кожен
+ * неосновний формат), у канонічному порядку; `[]` — payload немає.
+ * @param {Pick<UiState, "checkpoints">} state
+ * @returns {Format[]}
+ */
+export function boardCurrentFormats(state) {
+  const p = state.checkpoints.storyboard?.payload;
+  if (p?.checkpoint !== "storyboard") return [];
+  return canonical([p.primaryFormat, ...p.sheets.map((s) => s.format)]);
+}
+
+/**
+ * Чи є на ЧП3 незастосована чернетка форматів (відмінна від поточних).
+ * @param {Pick<UiState, "ui" | "checkpoints">} state
+ */
+export function boardFormatsDirty(state) {
+  const draft = state.ui.pendingFormats;
+  return draft !== null && !sameFormats(draft, boardCurrentFormats(state));
+}
 
 /** @param {unknown} err */
 const messageOf = (err) => (err instanceof Error && err.message ? err.message : "Щось пішло не так.");
@@ -178,8 +245,6 @@ export function createActions(store, opts) {
 
   /** Поточний запуск потоку даних (тести чекають на нього). */
   let ready = Promise.resolve();
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
-  let formatsTimer;
   let inflight = 0;
 
   /** @param {Partial<UiFlags>} patch */
@@ -234,16 +299,51 @@ export function createActions(store, opts) {
     }
   }
 
-  /** @param {CommandBody} body */
+  /**
+   * @param {CommandBody} body
+   * @returns {Promise<boolean>} команду прийнято
+   */
   async function command(body) {
     const id = projectId();
-    if (!id) return;
+    if (!id) return false;
     ui({ notice: null });
     try {
       await backend.sendCommand(id, body);
+      return true;
     } catch (err) {
       ui({ notice: messageOf(err) });
+      return false;
     }
+  }
+
+  /** Затвердження з чернеткою вибору: ЧП1 — `choices`, ЧП3 — лише без незастосованих форматів. */
+  async function approve() {
+    const state = store.getState();
+    if (state.status === CHECKPOINT_STATUS.storyboard && boardFormatsDirty(state)) {
+      ui({ notice: APPLY_FORMATS_FIRST });
+      return;
+    }
+    const atBrand = state.status === CHECKPOINT_STATUS.brand;
+    const choices = atBrand ? brandChoices(state) : null;
+    if (choices === "empty") {
+      ui({ notice: NEED_FORMAT });
+      return;
+    }
+    const { pendingFormats, pendingLanguage } = state.ui;
+    // `CommandBody` у data/api.js ще без `choices` (Крок 0 додав його лише в API) — звідси приведення.
+    const body = /** @type {CommandBody} */ ({
+      type: "approve",
+      rev: state.rev,
+      ...(choices ? { choices } : {}),
+    });
+    const ok = await command(body);
+    if (!ok || !atBrand) return;
+    // Чернетку, змінену під час запиту, не скидаємо.
+    const now = store.getState().ui;
+    ui({
+      ...(now.pendingFormats === pendingFormats ? { pendingFormats: null } : {}),
+      ...(now.pendingLanguage === pendingLanguage ? { pendingLanguage: null } : {}),
+    });
   }
 
   // Потік даних для маршруту, з яким відкрито сторінку.
@@ -264,13 +364,10 @@ export function createActions(store, opts) {
     },
 
     dispose() {
-      clearTimeout(formatsTimer);
       backend.stop();
     },
 
     openStream(id) {
-      clearTimeout(formatsTimer);
-      formatsTimer = undefined;
       backend.stop();
       store.setState({ ...projectState(id), route: "project" });
       ready = backend.start(id);
@@ -299,8 +396,6 @@ export function createActions(store, opts) {
     },
 
     newProject() {
-      clearTimeout(formatsTimer);
-      formatsTimer = undefined;
       backend.stop();
       replaceUrl(pageUrl(null));
       store.setState({ ...projectState(null), route: "start" });
@@ -308,11 +403,11 @@ export function createActions(store, opts) {
 
     sendMessage: (text) => send(text, true),
 
-    approve: () => command({ type: "approve", rev: store.getState().rev }),
-    retry: () => command({ type: "retry" }),
-    setLogo: (assetId) => command({ type: "set_logo", assetId }),
+    approve,
+    retry: () => command({ type: "retry" }).then(() => {}),
+    setLogo: (assetId) => command({ type: "set_logo", assetId }).then(() => {}),
     // Без window.confirm: підтвердженням є сама кнопка «Так, почати заново» в повідомленні.
-    confirmRestart: () => command({ type: "restart_confirmed" }),
+    confirmRestart: () => command({ type: "restart_confirmed" }).then(() => {}),
 
     async uploadPhotos(files) {
       const list = Array.from(files ?? []);
@@ -331,23 +426,23 @@ export function createActions(store, opts) {
     },
 
     setFormats(formats) {
-      const chosen = FORMATS.filter((f) => formats.includes(f));
-      ui({ pendingFormats: chosen });
-      clearTimeout(formatsTimer);
-      formatsTimer = setTimeout(async () => {
-        formatsTimer = undefined;
-        if (chosen.length === 0) {
-          ui({ notice: "Оберіть хоча б один формат." });
-          return;
-        }
-        await send(`Формати: ${chosen.map((f) => FORMAT_LABELS[f]).join(", ")}`, false);
-        // Новіший вибір, зроблений під час надсилання, не скидаємо.
-        if (store.getState().ui.pendingFormats === chosen) ui({ pendingFormats: null });
-      }, FORMATS_DEBOUNCE_MS);
+      ui({ pendingFormats: canonical(formats) });
     },
 
     setLanguage(lang) {
-      void send(`Мова відео: ${lang}`, false);
+      ui({ pendingLanguage: /** @type {Language} */ (lang) });
+    },
+
+    async applyFormats() {
+      const chosen = store.getState().ui.pendingFormats;
+      if (!chosen) return;
+      if (chosen.length === 0) {
+        ui({ notice: NEED_FORMAT });
+        return;
+      }
+      const ok = await send(`Формати: ${chosen.map((f) => FORMAT_LABELS[f]).join(", ")}`, false);
+      // Новіший вибір, зроблений під час надсилання, не скидаємо.
+      if (ok && store.getState().ui.pendingFormats === chosen) ui({ pendingFormats: null });
     },
 
     startEdit() {

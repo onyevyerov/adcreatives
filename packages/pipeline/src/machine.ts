@@ -352,7 +352,9 @@ function onSetLogo(d: Draft, assetId: string): void {
   d.enqueue("brandkit-patch", { instruction: null, logoAssetId: assetId, facts: [] });
 }
 
-function onApprove(d: Draft, rev: number | null): void {
+type ApproveChoices = Extract<PipelineCommand, { type: "approve" }>["choices"];
+
+function onApprove(d: Draft, rev: number | null, choices: ApproveChoices): void {
   const cp = checkpointOf(d.status);
   if (cp === null) return; // подвійний клік / застаріла кнопка — ігноруємо мовчки
   if (rev !== null && rev !== d.project.rev) {
@@ -360,9 +362,28 @@ function onApprove(d: Draft, rev: number | null): void {
     return;
   }
   d.project.restartRequested = false;
-  if (cp === "brand") approveBrand(d);
-  else if (cp === "script") approveScript(d);
+  if (cp === "brand") {
+    // Вибір з панелі ЧП1 («Затвердити») — одним кроком із затвердженням, без answersSaved.
+    // На інших чекпоінтах choices ігноруються (warn пише драйвер).
+    if (choices) applyAnswers(d, choicesIntent(choices));
+    approveBrand(d);
+  } else if (cp === "script") approveScript(d);
   else approveStoryboard(d);
+}
+
+/** `choices` команди approve → розбір наміру для `applyAnswers` (лише формати й мова). */
+function choicesIntent(choices: NonNullable<ApproveChoices>): ChatIntent {
+  return {
+    kind: "approve",
+    answers: [],
+    formats: choices.formats ?? null,
+    language: choices.language ?? null,
+    brandEdits: null,
+    edits: null,
+    facts: [],
+    durationSeconds: null,
+    question: null,
+  };
 }
 
 function approveBrand(d: Draft): void {
@@ -1133,7 +1154,7 @@ export function nextStep(state: MachineState, input: StepInput, ctx: StepContext
         onUserMessage(d, cmd, input.intent, input.deferred === true);
         break;
       case "approve":
-        onApprove(d, cmd.rev);
+        onApprove(d, cmd.rev, cmd.choices);
         break;
       case "set_logo":
         onSetLogo(d, cmd.assetId);
