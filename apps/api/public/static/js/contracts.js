@@ -7,6 +7,7 @@
  */
 
 /** @typedef {import("@adc/shared/schemas").Format} Format */
+/** @typedef {import("@adc/shared/schemas").Language} Language */
 /** @typedef {import("@adc/shared/schemas").ProjectStatus} ProjectStatus */
 /** @typedef {import("@adc/shared/schemas").Checkpoint} Checkpoint */
 /** @typedef {import("@adc/shared/schemas").Button} Button */
@@ -60,8 +61,12 @@
 /**
  * `startShortage` — нестача на старті (клієнтська перевірка або 402 від `POST /api/projects`);
  * `retry` — картка «Баланс поповнено · Повторити» після повернення з оплати (кладе B8, знімає B6).
+ * `pendingFormats` / `pendingLanguage` — чернетка вибору в панелі до підтвердження (ЧП1 — «Затвердити»,
+ * ЧП3 — «Застосувати формати»); `null` — чернетки немає (показується значення проєкту), `[]` —
+ * зняли всі формати (затвердити не можна).
  * @typedef {{
- *   editing: boolean, draft: string, pendingFormats: Format[] | null, doneFormat: Format | null,
+ *   editing: boolean, draft: string, pendingFormats: Format[] | null, pendingLanguage: Language | null,
+ *   doneFormat: Format | null,
  *   notice: string | null, startError: string | null, sending: boolean,
  *   startShortage: { need: number, have: number } | null,
  *   retry: { ctx: "cp3" | "rev", plus: number, text: string | null } | null
@@ -69,10 +74,11 @@
  */
 
 /**
- * Елемент стрічки; `id` = ID події SSE (дедуплікація).
+ * Елемент стрічки; `id` = ID події SSE (дедуплікація). `step` у progress — id підкроку з `STAGE_STEPS`
+ * останньої події рядка (немає — старі події; крок визначається за `stage`).
  * @typedef {(
  *   | { kind: "message", id: string, at: string, role: "user" | "assistant" | "system", text: string, buttons: Button[] }
- *   | { kind: "progress", id: string, at: string, stage: string, label: string, done: number | null, total: number | null, running: boolean }
+ *   | { kind: "progress", id: string, at: string, stage: string, label: string, done: number | null, total: number | null, running: boolean, step?: string }
  *   | { kind: "checkpoint", id: string, at: string, checkpoint: Checkpoint, rev: number }
  *   | { kind: "error", id: string, at: string, stage: string | null, message: string, retryable: boolean }
  * )} FeedItem
@@ -288,7 +294,11 @@
 
 /**
  * Дії проєкту (data/actions.js).
- * `setFormats` — debounce FORMATS_DEBOUNCE_MS → «Формати: 9:16, 1:1»; `setLanguage` → «Мова відео: en».
+ * `setFormats` / `setLanguage` лише пишуть чернетку (`ui.pendingFormats` / `ui.pendingLanguage`), без
+ * повідомлень і запитів. `approve()` сам бере чернетку зі стору: на ЧП1, якщо вона відрізняється від
+ * payload, шле `approve` з `choices: { formats?, language? }` і після успіху чистить чернетку.
+ * `applyFormats()` (ЧП3) — шле «Формати: …» (ревізія) і чистить чернетку; необов'язковий у типі,
+ * доки його не реалізує data/actions.js.
  * @typedef {{
  *   createProject(form: FormData): Promise<void>,
  *   newProject(): void,
@@ -300,6 +310,7 @@
  *   uploadPhotos(files: FileList | File[]): Promise<void>,
  *   setFormats(formats: Format[]): void,
  *   setLanguage(lang: string): void,
+ *   applyFormats?(): Promise<void>,
  *   startEdit(): void,
  *   setDraft(text: string): void,
  *   setDoneFormat(f: Format): void
@@ -419,8 +430,11 @@ export const EVENT_TYPES = [
 /** @type {Record<Format, string>} */
 export const FORMAT_LABELS = { vertical: "9:16", square: "1:1", landscape: "16:9" };
 
+/** Назва продукту, яку бачить користувач. */
+export const BRAND_NAME = "Crealab";
+
 /** @type {Record<"user" | "assistant" | "system", string>} */
-export const ROLE_LABELS = { user: "Ви", assistant: "AdCreative", system: "Система" };
+export const ROLE_LABELS = { user: "Ви", assistant: BRAND_NAME, system: "Система" };
 
 /** @type {Record<ProjectStatus, string>} */
 export const STATUS_LABELS = {
@@ -496,3 +510,46 @@ export const SEGMENTS = [
 
 /** Затримка надсилання «Формати: …» після останньої зміни (C6). */
 export const FORMATS_DEBOUNCE_MS = 900;
+
+/** @typedef {import("@adc/shared").StageStep} StageStep */
+
+/**
+ * Підкроки busy-стадій для чекліста прогресу (= `STAGE_STEPS` з `@adc/shared`, паритет —
+ * `packages/shared/test/parity-contracts.test.ts`). `revising` окремого списку не має.
+ * @type {typeof import("@adc/shared").STAGE_STEPS}
+ */
+export const STAGE_STEPS = {
+  crawling: [
+    { id: "open", label: "Відкриваю сайт", stages: ["crawl"] },
+    { id: "pages", label: "Сканую сторінки", stages: [] },
+    { id: "assets", label: "Завантажую фото й шрифти", stages: [] },
+    { id: "photos", label: "Обробляю фото", stages: ["ingest"] },
+  ],
+  brandkit: [
+    { id: "read", label: "Читаю тексти сайту", stages: ["brandkit"] },
+    { id: "look", label: "Роздивляюсь фото й скриншоти", stages: [] },
+    { id: "compose", label: "Складаю бренд-кіт", stages: [] },
+    { id: "verify", label: "Звіряю факти, кольори й шрифти", stages: [] },
+  ],
+  scripting: [
+    { id: "brief", label: "Читаю бренд-кіт і сайт", stages: ["storyboard"] },
+    { id: "write", label: "Пишу концепт і сцени", stages: [] },
+    { id: "fit", label: "Підганяю тексти під екран", stages: [] },
+    { id: "claims", label: "Звіряю цифри з сайтом", stages: [] },
+  ],
+  directing: [
+    { id: "code", label: "Пишу анімацію сцен", stages: ["codegen", "author"], branch: "scenes" },
+    { id: "check", label: "Перевіряю код сцен", stages: ["check"], branch: "scenes" },
+    { id: "fix", label: "Виправляю сцени", stages: ["fix"], branch: "scenes", optional: true },
+    { id: "stills", label: "Знімаю кадри", stages: [], branch: "scenes" },
+    { id: "qa", label: "Перевіряю кадри", stages: ["qa"], branch: "scenes" },
+    { id: "music", label: "Пишу музику", stages: ["audio"], branch: "music" },
+    { id: "sfx", label: "Розставляю звук", stages: ["sfx"] },
+    { id: "review", label: "Рецензент дивиться ролик", stages: ["review"] },
+    { id: "review-fix", label: "Правлю за рецензією", stages: [], optional: true },
+  ],
+  rendering: [
+    // Рядок на кожен формат малює UI з done/total.
+    { id: "render", label: "Рендер", stages: ["render"] },
+  ],
+};

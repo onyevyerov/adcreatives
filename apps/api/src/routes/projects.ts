@@ -4,8 +4,9 @@ import {
   appendEvent,
   assertPublicHttpUrl,
   classifySource,
-  type Format,
+  Format,
   InsufficientCreditsError,
+  Language,
   type LedgerEntry,
   makeCommandJobId,
   noopLogger,
@@ -68,6 +69,12 @@ const CommandBody = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("approve"),
     rev: z.number().int().min(1).nullable().optional(),
+    choices: z
+      .object({
+        formats: z.array(Format).min(1).optional(),
+        language: Language.optional(),
+      })
+      .optional(),
     commandId: CommandId.optional(),
   }),
   z.object({ type: z.literal("set_logo"), assetId: AssetId, commandId: CommandId.optional() }),
@@ -412,7 +419,12 @@ export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
     let command: PipelineCommand;
     switch (body.type) {
       case "approve":
-        command = { ...base, type: "approve", rev: body.rev ?? null };
+        command = {
+          ...base,
+          type: "approve",
+          rev: body.rev ?? null,
+          ...(body.choices ? { choices: body.choices } : {}),
+        };
         break;
       case "set_logo":
         command = { ...base, type: "set_logo", assetId: body.assetId };

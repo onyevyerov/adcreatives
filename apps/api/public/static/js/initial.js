@@ -59,6 +59,7 @@ export function projectState(projectId) {
       editing: false,
       draft: "",
       pendingFormats: null,
+      pendingLanguage: null,
       doneFormat: null,
       notice: null,
       startError: null,

@@ -1,4 +1,4 @@
-import type { Format } from "./schemas/common.ts";
+import type { Format, Language } from "./schemas/common.ts";
 import type { StageName } from "./schemas/project.ts";
 import type { StageOutputsMap, StageParamsMap } from "./stage.ts";
 
@@ -84,7 +84,7 @@ export interface StageJob<S extends StageName = StageName> {
 export type PipelineCommand = { projectId: string; commandId: string; issuedAt: string } & (
   | { type: "start" }
   | { type: "user_message"; text: string; messageId: string }
-  | { type: "approve"; rev: number | null }
+  | { type: "approve"; rev: number | null; choices?: { formats?: Format[]; language?: Language } }
   | { type: "set_logo"; assetId: string }
   | { type: "photos_added"; files: string[] }
   | { type: "retry" }

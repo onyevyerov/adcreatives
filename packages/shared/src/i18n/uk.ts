@@ -67,6 +67,13 @@ export const I18N_KEYS = [
   "chargedRevision",
   "chargedFormats",
   "refundedFailure",
+  "brandCheckpointShort",
+  "scriptCheckpointSummary",
+  "scriptUnverifiedShort",
+  "storyboardCheckpointSummary",
+  "storyboardIssuesShort",
+  "storyboardScoreShort",
+  "choicesLine",
 ] as const;
 export type I18nKey = (typeof I18N_KEYS)[number];
 
@@ -147,6 +154,15 @@ export const uk: Record<I18nKey, string> = {
   chargedRevision: "Списано {credits} кредитів за правку. Залишок: {balance}.",
   chargedFormats: "Списано {credits} кредитів за додаткові формати ({count}). Залишок: {balance}.",
   refundedFailure: "Не вдалося завершити ролик — {credits} кредитів повернуто на баланс.",
+  brandCheckpointShort:
+    "Бренд-кіт готовий — перевірте праворуч: палітра, шрифти, лого, факти. Там же оберіть формати й мову відео й натисніть «Затвердити».",
+  scriptCheckpointSummary: "Сценарій готовий: {scenes} сцен, {seconds} с. Музика: {music}.",
+  scriptUnverifiedShort:
+    "⚠ {count} твердж. не знайдено на сайті — позначені праворуч. «Затвердити» = ви підтверджуєте, що вони правдиві.",
+  storyboardCheckpointSummary: "Розкадровка готова: кадри {scenes} сцен і музика — праворуч.",
+  storyboardIssuesShort: "Зауважень: {count} (автоперевірка {qa}, рецензент {review}) — деталі праворуч.",
+  storyboardScoreShort: "Оцінка рецензента: {score}/10.",
+  choicesLine: "Формати: {formats} · Мова відео: {language}",
 };
 
 /** Підставляє {name} у шаблон. */

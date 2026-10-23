@@ -9,6 +9,7 @@ export * from "./logger.ts";
 export * from "./moments.ts";
 export * from "./net/index.ts";
 export * from "./pipeline.ts";
+export * from "./progress-steps.ts";
 export * from "./queue.ts";
 export * from "./render/RenderEngine.ts";
 export * from "./schemas/index.ts";

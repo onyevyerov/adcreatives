@@ -595,6 +595,14 @@ describe("Крок 0 «прогалини якості»: сумісність �
     ).toThrow();
   });
 
+  it("старий storyboard без motionNote/musicNote парситься; нові примітки зберігаються", () => {
+    const old = Storyboard.parse(fixtureStoryboard);
+    expect(old.musicNote).toBeUndefined();
+    expect(old.scenes[0]?.motionNote).toBeUndefined();
+    const scenes = fixtureStoryboard.scenes.map((s) => ({ ...s, motionNote: "Логотип виїжджає зліва." }));
+    roundTrip(Storyboard, { ...fixtureStoryboard, scenes, musicNote: "Сучасний tech house, ~120 BPM" });
+  });
+
   it("старий бренд-кіт без files парситься з []; local зберігає файли", () => {
     const kit = JSON.parse(JSON.stringify(fixtureBrandKitFile));
     delete kit.typography.heading.files;
@@ -666,6 +674,8 @@ describe("Крок 0 «акаунти»: ownerId адитивний", () => {
 describe("toStrictJsonSchema", () => {
   // AudioPlan — збережений план; LLM-схема стадії — AudioPlanDraft у @adc/audio.
   const llmSchemas = { BrandKit, BrandKitPatch, Storyboard, QaReport, RevisionPlan, ChatIntent };
+  /** Необов'язкові поля LLM-схем (старі файли без них валідні): є в properties, але не в required. */
+  const optionalKeys = new Set(["motionNote", "musicNote"]);
 
   for (const [name, schema] of Object.entries(llmSchemas)) {
     it(`${name}: strict, enums kept, no open objects`, () => {
@@ -675,7 +685,8 @@ describe("toStrictJsonSchema", () => {
         const n = node as Record<string, unknown>;
         if (n.type === "object" || (Array.isArray(n.type) && n.type.includes("object"))) {
           expect(n.additionalProperties).toBe(false);
-          expect(Object.keys(n.properties as object).sort()).toEqual([...(n.required as string[])].sort());
+          const keys = Object.keys(n.properties as object).filter((k) => !optionalKeys.has(k));
+          expect(keys.sort()).toEqual([...(n.required as string[])].sort());
         }
         for (const banned of ["minimum", "maximum", "minLength", "maxLength", "pattern", "maxItems"]) {
           expect(n).not.toHaveProperty(banned);
@@ -688,6 +699,16 @@ describe("toStrictJsonSchema", () => {
       visit(json);
     });
   }
+
+  it("Storyboard: motionNote і musicNote дозволені structured output, але не обов'язкові", () => {
+    type Obj = { properties: Record<string, Record<string, unknown>>; required: string[] };
+    const json = toStrictJsonSchema(Storyboard) as Obj;
+    const scene = (json.properties.scenes as { items: Obj }).items;
+    expect(json.properties.musicNote?.type).toBe("string");
+    expect(json.required).not.toContain("musicNote");
+    expect(scene.properties.motionNote?.type).toBe("string");
+    expect(scene.required).not.toContain("motionNote");
+  });
 
   it("keeps enum and const", () => {
     const json = toStrictJsonSchema(Storyboard) as { properties: Record<string, Record<string, unknown>> };

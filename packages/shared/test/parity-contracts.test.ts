@@ -9,6 +9,7 @@ import { fixtureBrandKitFile, fixtureStoryboard } from "../src/fixtures.ts";
 import { type AgentTool, createLlm, LlmError } from "../src/llm/client.ts";
 import { createMockAgent, createMockAnthropic } from "../src/llm/mock.ts";
 import { createPromptLoader } from "../src/llm/prompts.ts";
+import { STAGE_STEPS } from "../src/progress-steps.ts";
 import { STAGE_QUEUE } from "../src/queue.ts";
 import {
   BrandKit,
@@ -116,6 +117,21 @@ describe("ТЗ паритету, Крок 0: схеми адитивні", () =>
 
   it("стадія author іде в чергу режисера", () => {
     expect(STAGE_QUEUE.author).toBe(STAGE_QUEUE.codegen);
+  });
+});
+
+describe("ТЗ чату, Крок 0: дзеркало STAGE_STEPS у contracts.js", () => {
+  it("фронтовий STAGE_STEPS збігається з @adc/shared", async () => {
+    // Шлях не літерал: shared не тягне типи JS-файлів фронту в tsc.
+    const url = new URL("../../../apps/api/public/static/js/contracts.js", import.meta.url).href;
+    const contracts: { STAGE_STEPS: unknown } = await import(url);
+    expect(contracts.STAGE_STEPS).toEqual(STAGE_STEPS);
+  });
+
+  it("id кроків унікальні в межах статусу", () => {
+    for (const steps of Object.values(STAGE_STEPS)) {
+      expect(new Set(steps.map((s) => s.id)).size).toBe(steps.length);
+    }
   });
 });
 

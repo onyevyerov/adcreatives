@@ -32,6 +32,8 @@ export const ProgressEvent = z.object({
   label: z.string(),
   done: z.number().int().nullable(),
   total: z.number().int().nullable(),
+  /** id підкроку з STAGE_STEPS; відсутній — старі події або стадія з одним кроком (крок береться за `stage`). */
+  step: z.string().optional(),
 });
 
 const MediaRef = z.object({

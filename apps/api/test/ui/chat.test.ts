@@ -95,7 +95,7 @@ describe("chat · елементи стрічки (C4, X1)", () => {
     const assistant = $$('[data-role="assistant"]');
     expect(assistant.length).toBeGreaterThan(0);
     const first = assistant[0] as HTMLElement;
-    expect(first.querySelector(".ch-msg__meta")?.textContent).toMatch(/^AdCreative · \d\d:\d\d$/);
+    expect(first.querySelector(".ch-msg__meta")?.textContent).toMatch(/^Crealab · \d\d:\d\d$/);
     const strong = [...first.querySelectorAll(".ch-msg__text strong")].map((n) => n.textContent);
     expect(strong).toContain("Зерно");
     expect(first.querySelector(".ch-msg__text")?.textContent).not.toContain("**");

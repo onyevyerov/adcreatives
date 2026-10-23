@@ -203,8 +203,8 @@ class Draft {
     this.events.push({ type: "message", role: "assistant", text, ...(buttons ? { buttons } : {}) });
   }
 
-  progress(stage: CostStage, label: string): void {
-    this.events.push({ type: "progress", stage, label, done: null, total: null });
+  progress(stage: CostStage, label: string, step?: string): void {
+    this.events.push({ type: "progress", stage, label, done: null, total: null, ...(step ? { step } : {}) });
   }
 
   /** Ставить job стадії; attempt — порядковий номер запуску цієї стадії в ревізії. */
@@ -374,7 +374,7 @@ function approveBrand(d: Draft): void {
     d.project.language ??= brand.language;
   }
   d.setStatus("scripting");
-  d.progress("storyboard", t("scriptProgress"));
+  d.progress("storyboard", t("scriptProgress"), "brief");
   d.enqueue("storyboard", { durationSeconds: d.project.durationSeconds });
 }
 
@@ -408,7 +408,7 @@ function startDirecting(
   d.pipe.sfxProvider = d.ctx.sfxProvider ?? readTuning().sfxProvider;
   d.pipe.musicDone = false;
   d.pipe.sfxDone = false;
-  d.progress(stage, t("directingStarted"));
+  d.progress(stage, t("directingStarted"), "code");
   d.enqueue(stage, { sceneIds, instructions });
   // designer: трек паралельно з кодом, зведення — після звукорежисера.
   d.enqueue("audio", audioParams(d, sfxMode === "designer" ? "music" : "full"));
@@ -427,7 +427,7 @@ function authoredByAgent(d: Draft): boolean {
 function approveStoryboard(d: Draft): void {
   if (!chargeExtraFormats(d)) return;
   d.setStatus("rendering");
-  d.progress("render", t("renderStarted", { formats: formatsLabel(d.project.formats) }));
+  d.progress("render", t("renderStarted", { formats: formatsLabel(d.project.formats) }), "render");
   for (const format of d.project.formats) {
     d.enqueue("render", { format } satisfies RenderParams, format);
   }
@@ -987,7 +987,7 @@ function videoDone(d: Draft): void {
 
 function startSfx(d: Draft, sceneIds: string[] | null, instructions: ReviewIssue[]): void {
   d.pipe.sfxDone = false;
-  d.progress("sfx", t("sfxProgress"));
+  d.progress("sfx", t("sfxProgress"), "sfx");
   d.enqueue("sfx", { sceneIds, instructions });
 }
 
@@ -1026,7 +1026,7 @@ function onAudioDone(d: Draft, ev: StageDoneOk<"audio">, job: JobRecord): void {
   // Зведення за фінальним планом SFX: обидві гілки зійшлись.
   d.project.branches.video = "done";
   if (d.ctx.filmReview ?? readTuning().filmReview) {
-    d.progress("review", t("reviewProgress"));
+    d.progress("review", t("reviewProgress"), "review");
     d.enqueue("review", { round: d.pipe.reviewRounds });
     return;
   }
@@ -1057,7 +1057,7 @@ function onReviewDone(d: Draft, ev: StageDoneOk<"review">): void {
       };
       d.project.branches = { video: "running", audio: "running" };
       if (fix.length > 0) {
-        d.progress("fix", t("reviewFixProgress"));
+        d.progress("fix", t("reviewFixProgress"), "review-fix");
         d.enqueue("fix", { sceneIds: fix, reason: "review" });
       } else {
         startPendingSfx(d);

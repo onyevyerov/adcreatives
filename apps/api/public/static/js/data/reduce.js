@@ -93,14 +93,16 @@ function closeProgress(feed) {
  */
 function onProgress(s, ev, id) {
   const item = { stage: ev.stage, label: ev.label, done: ev.done, total: ev.total };
+  const step = ev.step === undefined ? {} : { step: ev.step };
   const last = s.feed.at(-1);
   /** @type {FeedItem[]} */
   let feed;
   if (last?.kind === "progress" && last.running && last.stage === ev.stage) {
-    feed = [...s.feed.slice(0, -1), { ...last, ...item, at: ev.at }];
+    const { step: _prevStep, ...prev } = last;
+    feed = [...s.feed.slice(0, -1), { ...prev, ...item, ...step, at: ev.at }];
   } else {
     if (hasFeedId(s.feed, id)) return s;
-    feed = [...closeProgress(s.feed), { kind: "progress", id, at: ev.at, ...item, running: true }];
+    feed = [...closeProgress(s.feed), { kind: "progress", id, at: ev.at, ...item, ...step, running: true }];
   }
   const stageLog =
     s.stageLog.at(-1)?.label === ev.label
