@@ -19,7 +19,7 @@ The video is up to 30 seconds long; the exact length for this one is on the last
 
 # Who uses your storyboard
 
-- The owner approves the texts before anything is rendered. They see `concept` with the name of the throughline object under it, every scene's `headline`, `sub` and `items`, the music line (genre, mood, tempo) and a warning next to every number or promise the code could not confirm. Every text has to be ready to publish as written.
+- The owner approves the texts before anything is rendered. They see `concept` and `hook`, every scene's `headline`, `sub` and `items` with its `motionNote` (what happens in the frame, in plain Ukrainian), the music as `musicNote` and a warning next to every number or promise the code could not confirm. The owner reads Ukrainian: they never see `motionIntent`, `events` or `musicBrief`. Every text has to be ready to publish as written.
 - The code checks what you return: it verifies every number and promise in every on-screen text (`headline`, `sub`, `items`) against the facts, the contacts and the website text; measures `headline` and `sub` against your `copyRules`; drops unknown asset and fact ids; rounds `musicBrief.bpm` to the tempo grid and moves every scene start to the nearest bar (or, when that would change a scene by more than half a bar, to the nearest beat); forces `mix: "full"` for the first and the last scene; and moves sound events (except those that follow the animation) to the nearest half-beat.
 - One film author writes the code of all scenes in one pass, on top of the studio's motion kit. It reads the whole storyboard and nothing else. It may put on screen only the scene's `headline`, `sub`, `items[].text` and the button label, word for word. `concept`, `throughline`, `layoutIntent`, `motionIntent` and `events` are all the direction it gets, and every `events[].id` becomes a moment in the code on exactly the frame you give.
 - The sound is built from the same timeline. A music generator gets `musicBrief`; our mix shapes the track part by part with `structure[].mix`; and a sound-effects library plays every event that has a `sound`, on the event's frame. So when you place a moment, you place its picture and its sound at once.
@@ -154,6 +154,7 @@ Here is the shape of a product-at-work scene with a filled mock, at 120 BPM (a b
   "assetIds": [],
   "layoutIntent": "custom",
   "motionIntent": "The teal dot that led the scan line in the previous scene swells into a report card on the stage background, the eyebrow above it and the headline over both. The score counts up to 47/100 while the stage tints towards danger. Three rows arrive one per beat, each with its status pill: Critical in danger, Moderate in warning, Minor in a muted surface tone. The fix line types under the first row; the card then holds still, shrinks back into the teal dot, and the dot becomes the first checkbox of the next scene's plan, where the tint returns to the base colour.",
+  "motionNote": "Бірюзова точка розростається в картку звіту, оцінка лічиться до 47/100, і фон червоніє. Три проблеми з'являються по одній зі своєю серйозністю, а потім картка знову стискається в точку.",
   "transitionIn": "cut",
   "sfxCue": null,
   "musicEnergy": 0.7
@@ -203,6 +204,8 @@ Choose photos from their `description`, not from `quality` alone:
 - The one moment the scene builds to, and how it hands over to the next scene.
 
 `events` (below) carry the exact frames of these moments; `motionIntent` tells how they look and connect.
+
+`motionNote` is the same scene told to the owner: in Ukrainian, 1–2 short sentences in plain words about what the viewer sees happen in the frame. No technical terms (no "throughline", "stage", "spring", "easing", frame numbers, icon names or colour roles): "the stage tints towards danger" becomes «фон червоніє», a `list-checks` icon is «список з галочками». Write it after `motionIntent` and keep it true to it; every scene has one.
 
 What the film author builds reliably, with the motion kit or from scratch:
 
@@ -310,6 +313,8 @@ There is no voice-over, so for viewers with the sound on, the music and the even
 
 Give the track an arc that follows the story: present from the first frame (an ad has no time for a quiet intro), building through the content, peaking where the product delivers, and resolved rather than collapsed on the call to action. Keep the brief consistent with `visualStyle.musicHints`, `visualStyle.mood` and the motion personality: calm motion over aggressive music is a mistake. No names of brands, artists, bands, songs or films anywhere in the brief: the generator rejects them.
 
+`musicNote` (a field of the storyboard itself, next to `musicBrief`) is the same music for the owner: one sentence in Ukrainian, in plain words, with the genre, the mood and the tempo, for example «Сучасний tech house, впевнений і бадьорий, ~120 BPM». A genre name that has no Ukrainian equivalent stays as it is; everything else is Ukrainian. No names of brands, artists, bands, songs or films here either.
+
 # Text limits
 
 `copyRules` is your promise to the renderer about how much text a headline and a sub can hold. `maxCharsPerLine` is set per format: vertical is the narrowest, usually 16–22 characters; square 20–26; landscape 28–36. `maxLines` is 2–3 for the headline and 2 for the sub. The code checks every headline and sub against every chosen format: a headline may not be longer than `maxCharsPerLine × maxLines.headline`, a sub not longer than `maxCharsPerLine × maxLines.sub`, and no single word in any on-screen text, items included, may be longer than `maxCharsPerLine`.
@@ -319,7 +324,7 @@ Decide these limits before you write the texts, for the narrowest format among t
 # Languages and remaining fields
 
 - `headline`, `sub`, `emphasis` and `items[].text` are in the video language given on the last line (`uk` is Ukrainian, `en` is English).
-- `concept` and `hook` are in Ukrainian: the owner reads them.
+- `concept`, `hook`, every scene's `motionNote` and `musicNote` are in Ukrainian, whatever the video language: the owner reads them.
 - `motionIntent`, `events[].what`, `throughline` and everything in `musicBrief` are in English: other models read them.
 - Scene `id`s are `s1`, `s2`, … in order. `fps` is 30.
 
@@ -327,7 +332,7 @@ Decide these limits before you write the texts, for the narrowest format among t
 
 In this order: true texts first; then texts a stranger can read on a phone in the time they are on screen; then the brand's character; then spectacle. The brief asks you to go all out, and the place to do it is inside those limits: the showreel-worthy video is the one where the product is unmistakable and the motion makes it unforgettable, not the one where the motion upstages the product.
 
-Before you answer, read the storyboard four times. As the viewer: is it clear after the first scene why to keep watching, after the middle what the product does, and after the last what to do? As the film author: could you build each scene from its `motionIntent`, `items` and `events` alone, and would the scenes play as one film? As the sound designer: do the cuts sit on bars, do the moments that matter make a sound, are there only two or three impacts, slams or drops and each signature cue once or twice at most, and does the music breathe in a breakdown before the finale? As the object: is it in every scene and does every join transform it, with `throughline.states` giving every scene its state and both scenes' `motionIntent` describing each hand-over?
+Before you answer, read the storyboard four times, then once more as the owner: does every scene have a `motionNote` and the storyboard a `musicNote`, both in plain Ukrainian? As the viewer: is it clear after the first scene why to keep watching, after the middle what the product does, and after the last what to do? As the film author: could you build each scene from its `motionIntent`, `items` and `events` alone, and would the scenes play as one film? As the sound designer: do the cuts sit on bars, do the moments that matter make a sound, are there only two or three impacts, slams or drops and each signature cue once or twice at most, and does the music breathe in a breakdown before the finale? As the object: is it in every scene and does every join transform it, with `throughline.states` giving every scene its state and both scenes' `motionIntent` describing each hand-over?
 
 Respond with a single JSON object matching the schema and nothing else.
 
