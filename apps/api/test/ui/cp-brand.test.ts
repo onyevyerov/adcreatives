@@ -17,6 +17,7 @@ import {
   mount,
   NEED_MORE_PHOTOS,
   selectedFormats,
+  selectedLanguage,
   textOn,
   toggleFormat,
 } from "../../public/static/js/views/cp-brand.js";
@@ -390,21 +391,50 @@ describe("cp-brand · дії", () => {
     expect(called("setFormats").at(-1)).toEqual([["square", "landscape"]]);
   });
 
-  it("не можна зняти останній формат", () => {
+  it("можна зняти 9:16 і останній формат: «Затвердити» вимкнено, підказка під тайлами", () => {
     const { $, called } = setup();
+    const approve = $<HTMLButtonElement>(".cb-approve");
+    const hint = $(".cb-hint");
+    expect(hint.hidden).toBe(true);
     const vertical = $<HTMLButtonElement>('.cb-fmt[data-format="vertical"]');
-    expect(vertical.title).toBe("Потрібен хоча б один формат");
     vertical.click();
-    expect(called("setFormats")).toEqual([]);
-    expect(vertical.getAttribute("aria-pressed")).toBe("true");
+    expect(called("setFormats")).toEqual([[[]]]);
+    expect(vertical.getAttribute("aria-pressed")).toBe("false");
+    expect(approve.disabled).toBe(true);
+    expect(hint.hidden).toBe(false);
+    expect(hint.textContent).toBe("Оберіть хоча б один формат.");
+
+    $<HTMLButtonElement>('.cb-fmt[data-format="square"]').click();
+    expect(called("setFormats").at(-1)).toEqual([["square"]]);
+    expect(approve.disabled).toBe(false);
+    expect(hint.hidden).toBe(true);
   });
 
-  it("сегмент мови → setLanguage(lang)", () => {
-    const { $, $$, called } = setup();
+  it("клік по тайлу чи мові не кличе нічого, крім чернетки", () => {
+    const { $, actions } = setup();
+    $<HTMLButtonElement>('.cb-fmt[data-format="square"]').click();
+    $<HTMLButtonElement>('.cb-lang[data-lang="en"]').click();
+    expect(actions.calls.map((c) => c.name)).toEqual(["setFormats", "setLanguage"]);
+  });
+
+  it("сегмент мови → setLanguage(lang); натиснута кнопка — з ui.pendingLanguage", () => {
+    const { $, $$, store, called } = setup();
+    expect(pressed($$(".cb-lang"))).toEqual(["Українська"]);
     $<HTMLButtonElement>('.cb-lang[data-lang="uk"]').click();
     $<HTMLButtonElement>('.cb-lang[data-lang="en"]').click();
     expect(called("setLanguage")).toEqual([["en"]]);
+    const buttons = $$(".cb-lang");
+    store.setState((s) => ({ ui: { ...s.ui, pendingLanguage: "en" } }));
     expect(pressed($$(".cb-lang"))).toEqual(["English"]);
+    expect($$(".cb-lang").every((b, i) => b === buttons[i])).toBe(true);
+    store.setState((s) => ({ ui: { ...s.ui, pendingLanguage: null } }));
+    expect(pressed($$(".cb-lang"))).toEqual(["Українська"]);
+  });
+
+  it("selectedLanguage: чернетка, інакше мова бренд-кіта", () => {
+    const s = awaitingBrand();
+    expect(selectedLanguage(s)).toBe("uk");
+    expect(selectedLanguage({ ...s, ui: { ...s.ui, pendingLanguage: "en" } })).toBe("en");
   });
 
   it("«Додати фото» відкриває input, вибір файлів → uploadPhotos", async () => {
@@ -564,7 +594,7 @@ describe("cp-brand · чисті функції", () => {
     expect(
       selectedFormats({ ui: { ...state.ui, pendingFormats: ["landscape", "vertical"] } }, brandPayload),
     ).toEqual(["vertical", "landscape"]);
-    expect(toggleFormat(["vertical"], "vertical")).toBeNull();
+    expect(toggleFormat(["vertical"], "vertical")).toEqual([]);
     expect(toggleFormat(["landscape"], "vertical")).toEqual(["vertical", "landscape"]);
   });
 });

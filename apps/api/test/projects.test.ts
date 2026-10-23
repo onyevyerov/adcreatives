@@ -1,5 +1,12 @@
-import { makeCommandJobId, type PipelineJob, projectPaths, readEvents, t } from "@adc/shared";
-import { fixtureProject } from "@adc/shared/fixtures";
+import {
+  makeCommandJobId,
+  type PipelineJob,
+  type ProjectState,
+  projectPaths,
+  readEvents,
+  t,
+} from "@adc/shared";
+import { fixtureBrandKitFile, fixtureProject } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import { IntakeFile, intakeKey } from "../src/intake.ts";
 import { type Env, form, json, NOW, photo, setup } from "./helpers.ts";
@@ -251,6 +258,77 @@ describe("messages, commands, uploads", () => {
     await send({ type: "approve", rev: 1, commandId: "click-12345678" });
     expect(env.queue.pipeline.length).toBe(before + 1);
     expect(makeCommandJobId(id, "click-12345678")).toBe(`${id}.cmd.click-12345678`);
+  });
+
+  describe("approve з choices (вибір панелі ЧП1)", () => {
+    async function atBrand(over: Partial<ProjectState> = {}) {
+      const env = await funded();
+      const id = await createProject(env);
+      await env.storage.writeJson(
+        projectPaths(id).project,
+        fixtureProject({ id, status: "awaiting_brand", brandkitVersion: 1, ...over }),
+      );
+      await env.storage.writeJson(projectPaths(id).brandkit(1), fixtureBrandKitFile);
+      const send = (body: unknown) => env.request(`/api/projects/${id}/commands`, json(body));
+      const messages = async () =>
+        (await readEvents(env.redis, id))
+          .map((e) => e.event)
+          .flatMap((e) => (e.type === "message" && e.role === "user" ? [e.text] : []))
+          .slice(1); // перше — ехо старту
+      return { env, id, send, messages };
+    }
+
+    it("1:1 + en → рядок вибору в чаті і команда з choices", async () => {
+      const { env, send, messages } = await atBrand();
+      const res = await send({ type: "approve", rev: 1, choices: { formats: ["square"], language: "en" } });
+      expect(res.status).toBe(202);
+      expect(await messages()).toEqual(["Формати: 1:1 · Мова відео: англійська"]);
+      expect(await messages()).toEqual([t("choicesLine", { formats: "1:1", language: "англійська" })]);
+      const cmd = commands(env.queue.pipeline).at(-1);
+      expect(cmd).toMatchObject({
+        type: "approve",
+        rev: 1,
+        choices: { formats: ["square"], language: "en" },
+      });
+    });
+
+    it("лише формати → мова з проєкту, інакше з бренд-кіта; формати в канонічному порядку", async () => {
+      const a = await atBrand();
+      await a.send({ type: "approve", rev: null, choices: { formats: ["landscape", "vertical"] } });
+      expect(await a.messages()).toEqual([
+        t("choicesLine", { formats: "9:16, 16:9", language: "українська" }),
+      ]);
+
+      const b = await atBrand({ language: "en", formats: ["vertical", "square"] });
+      await b.send({ type: "approve", rev: null, choices: { language: "uk" } });
+      expect(await b.messages()).toEqual([
+        t("choicesLine", { formats: "9:16, 1:1", language: "українська" }),
+      ]);
+
+      const c = await atBrand({ language: "en" });
+      await c.send({ type: "approve", rev: null, choices: { formats: ["square"] } });
+      expect(await c.messages()).toEqual([t("choicesLine", { formats: "1:1", language: "англійська" })]);
+    });
+
+    it("без choices або поза ЧП1 — повідомлення немає, команда йде як була", async () => {
+      const a = await atBrand();
+      await a.send({ type: "approve", rev: 1 });
+      expect(await a.messages()).toEqual([]);
+      expect(commands(a.env.queue.pipeline).at(-1)).not.toHaveProperty("choices");
+
+      const b = await atBrand({ status: "awaiting_script" });
+      expect((await b.send({ type: "approve", rev: 1, choices: { formats: ["square"] } })).status).toBe(202);
+      expect(await b.messages()).toEqual([]);
+      expect(commands(b.env.queue.pipeline).at(-1)).toMatchObject({ type: "approve" });
+    });
+
+    it("порожні формати → 400 без повідомлення", async () => {
+      const { env, send, messages } = await atBrand();
+      const before = env.queue.pipeline.length;
+      expect((await send({ type: "approve", rev: 1, choices: { formats: [] } })).status).toBe(400);
+      expect(await messages()).toEqual([]);
+      expect(env.queue.pipeline.length).toBe(before);
+    });
   });
 
   it("невідомі або некоректні команди → 400", async () => {

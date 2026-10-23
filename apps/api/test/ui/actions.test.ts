@@ -1,8 +1,16 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixtureStates } from "../../public/static/dev/fixture-states.js";
-import { FORMATS_DEBOUNCE_MS, type UiState } from "../../public/static/js/contracts.js";
-import { createActions } from "../../public/static/js/data/actions.js";
+import type { UiState } from "../../public/static/js/contracts.js";
+import {
+  APPLY_FORMATS_FIRST,
+  boardCurrentFormats,
+  boardFormatsDirty,
+  brandChoices,
+  brandLanguage,
+  createActions,
+  NEED_FORMAT,
+} from "../../public/static/js/data/actions.js";
 import { initialState } from "../../public/static/js/initial.js";
 import { createStore } from "../../public/static/js/store.js";
 
@@ -158,44 +166,133 @@ describe("повідомлення", () => {
     });
   });
 
-  it("setLanguage шле текст, не чіпаючи чернетку", async () => {
+  it("setLanguage / setFormats лише пишуть чернетку — без запитів і повідомлень", async () => {
+    vi.useFakeTimers();
     const calls = stubFetch();
     const store = projectStore();
     store.setState((s) => ({ ui: { ...s.ui, draft: "моя правка", editing: true } }));
     const actions = make(store);
     actions.setLanguage("en");
-    await vi.waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls.map(jsonBody)).toEqual([{ text: "Мова відео: en" }]);
-    await vi.waitFor(() => expect(store.getState().ui.sending).toBe(false));
-    expect(store.getState().ui).toMatchObject({ draft: "моя правка", editing: true });
+    actions.setFormats(["square", "vertical"]);
+    expect(store.getState().ui).toMatchObject({
+      pendingLanguage: "en",
+      pendingFormats: ["vertical", "square"],
+      draft: "моя правка",
+      editing: true,
+    });
+    // Можна зняти будь-який, зокрема всі (чернетка `[]`).
+    actions.setFormats([]);
+    expect(store.getState().ui.pendingFormats).toEqual([]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(calls).toHaveLength(0);
+    expect(store.getState().ui.notice).toBeNull();
+  });
+});
+
+describe("approve з чернеткою вибору (ЧП1)", () => {
+  it("без змін чернетки → approve без choices, як раніше", async () => {
+    const calls = stubFetch();
+    const store = projectStore({ rev: 2 });
+    const actions = make(store);
+    // Чернетка, що збігається з payload (9:16 і мова бренд-кіта), — це не зміна.
+    actions.setFormats(["vertical"]);
+    actions.setLanguage("uk");
+    await actions.approve();
+    expect(calls.map(jsonBody)).toEqual([{ type: "approve", rev: 2 }]);
   });
 
-  it("setFormats: pendingFormats одразу, debounce → одне повідомлення в канонічному порядку", async () => {
-    vi.useFakeTimers();
+  it("1:1 + en → один запит approve з choices; після успіху чернетка чиста", async () => {
     const calls = stubFetch();
+    const store = projectStore({ rev: 2 });
+    const actions = make(store);
+    actions.setFormats(["square"]);
+    actions.setLanguage("en");
+    expect(calls).toHaveLength(0);
+    await actions.approve();
+    expect(calls.map((c) => c.url)).toEqual(["/api/projects/p1/commands"]);
+    expect(calls.map(jsonBody)).toEqual([
+      { type: "approve", rev: 2, choices: { formats: ["square"], language: "en" } },
+    ]);
+    expect(store.getState().ui).toMatchObject({ pendingFormats: null, pendingLanguage: null });
+  });
+
+  it("лише формати → choices без мови", async () => {
+    const calls = stubFetch();
+    const actions = make(projectStore({ rev: 1 }));
+    actions.setFormats(["landscape", "vertical"]);
+    await actions.approve();
+    expect(calls.map(jsonBody)).toEqual([
+      { type: "approve", rev: 1, choices: { formats: ["vertical", "landscape"] } },
+    ]);
+  });
+
+  it("0 форматів → запиту немає, підказка; помилка команди лишає чернетку", async () => {
+    const calls = stubFetch({
+      "POST /api/projects/p1/commands": { status: 400, body: { message: "Некоректні параметри команди." } },
+    });
     const store = projectStore();
     const actions = make(store);
-    actions.setFormats(["square", "vertical"]);
-    expect(store.getState().ui.pendingFormats).toEqual(["vertical", "square"]);
-    vi.advanceTimersByTime(FORMATS_DEBOUNCE_MS - 100);
-    actions.setFormats(["landscape", "vertical"]);
-    expect(store.getState().ui.pendingFormats).toEqual(["vertical", "landscape"]);
-    await vi.advanceTimersByTimeAsync(FORMATS_DEBOUNCE_MS - 1);
+    actions.setFormats([]);
+    await actions.approve();
     expect(calls).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(1);
+    expect(store.getState().ui.notice).toBe(NEED_FORMAT);
+
+    actions.setFormats(["square"]);
+    await actions.approve();
     expect(calls).toHaveLength(1);
-    expect(jsonBody(calls[0])).toEqual({ text: "Формати: 9:16, 16:9" });
-    await vi.waitFor(() => expect(store.getState().ui.pendingFormats).toBeNull());
+    expect(store.getState().ui).toMatchObject({
+      notice: "Некоректні параметри команди.",
+      pendingFormats: ["square"],
+    });
   });
 
-  it("setFormats: порожній вибір не надсилається", async () => {
-    vi.useFakeTimers();
+  it("brandChoices / brandLanguage — чисті функції над станом", () => {
+    const s = projectStore().getState();
+    expect(brandLanguage(s)).toBe("uk");
+    expect(brandChoices(s)).toBeNull();
+    expect(brandChoices({ ...s, ui: { ...s.ui, pendingFormats: [] } })).toBe("empty");
+    expect(brandChoices({ ...s, ui: { ...s.ui, pendingFormats: ["square", "vertical"] } })).toEqual({
+      formats: ["vertical", "square"],
+    });
+    expect(brandChoices({ ...s, ui: { ...s.ui, pendingLanguage: "en" } })).toEqual({ language: "en" });
+  });
+});
+
+describe("формати на ЧП3 — чернетка і «Застосувати»", () => {
+  function boardStore() {
+    const s = fixtureStates.awaitingStoryboard;
+    if (!s) throw new Error("немає фікстури");
+    return createStore<UiState>(s);
+  }
+
+  it("applyFormats шле «Формати: …» (ревізія) і чистить чернетку; approve при незастосованій — ні", async () => {
     const calls = stubFetch();
-    const store = projectStore();
-    make(store).setFormats([]);
-    await vi.advanceTimersByTimeAsync(FORMATS_DEBOUNCE_MS);
+    const store = boardStore();
+    const actions = make(store);
+    const current = boardCurrentFormats(store.getState());
+    const other = current.includes("landscape")
+      ? current.filter((f) => f !== "landscape")
+      : [...current, "landscape" as const];
+    actions.setFormats(other);
+    expect(boardFormatsDirty(store.getState())).toBe(true);
+    await actions.approve();
     expect(calls).toHaveLength(0);
-    expect(store.getState().ui.notice).toMatch(/формат/);
+    expect(store.getState().ui.notice).toBe(APPLY_FORMATS_FIRST);
+
+    await actions.applyFormats?.();
+    expect(calls.map((c) => c.url)).toEqual(["/api/projects/p1/messages"]);
+    expect(jsonBody(calls[0]).text).toMatch(/^Формати: /);
+    expect(store.getState().ui.pendingFormats).toBeNull();
+  });
+
+  it("чернетка, що збігається з поточними, не блокує approve", async () => {
+    const calls = stubFetch();
+    const store = boardStore();
+    const actions = make(store);
+    actions.setFormats(boardCurrentFormats(store.getState()));
+    expect(boardFormatsDirty(store.getState())).toBe(false);
+    await actions.approve();
+    expect(calls.map(jsonBody)).toEqual([{ type: "approve", rev: store.getState().rev }]);
   });
 });
 
@@ -330,14 +427,13 @@ describe("mock (?mock=1)", () => {
     expect(s.status).toBe("awaiting_brand");
     expect(s.feed[0]).toMatchObject({ kind: "message", role: "user", text: "https://zerno.example.com/" });
 
+    // Вибір форматів — лише чернетка: у стрічці нічого нового.
+    const feedLength = s.feed.length;
     actions.setFormats(["square", "vertical"]);
     await vi.runAllTimersAsync();
     s = store.getState();
-    expect(s.feed.slice(-2).map((f) => (f.kind === "message" ? [f.role, f.text] : null))).toEqual([
-      ["user", "Формати: 9:16, 1:1"],
-      ["assistant", "Записав: формати — 9:16, 1:1."],
-    ]);
-    expect(s.ui.pendingFormats).toBeNull();
+    expect(s.feed).toHaveLength(feedLength);
+    expect(s.ui.pendingFormats).toEqual(["vertical", "square"]);
     expect(calls).toHaveLength(0);
 
     actions.newProject();

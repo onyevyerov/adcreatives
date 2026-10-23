@@ -326,6 +326,12 @@ export function createPipelineDriver(deps: PipelineDriverDeps): PipelineDriverIm
       const intake = await readIntake(storage, project.id);
       ctx.uploads = intake ? intake.photos : await storage.list(projectPaths(project.id).uploadsDir);
     }
+    if (cmd.type === "approve" && cmd.choices && project.status !== "awaiting_brand") {
+      logger.warn("choices у approve поза чекпоінтом 1 — ігнорую", {
+        projectId: project.id,
+        status: project.status,
+      });
+    }
     const mayApprove = cmd.type === "approve" || cmd.type === "user_message";
     if (mayApprove && project.status === "awaiting_brand") {
       const kit = await readBrandkit(storage, project);
