@@ -5,7 +5,12 @@
  * Шапка: eyebrow з ромбом і ревізією, «Правки» → `startEdit`, «Затвердити →» → `approve` (активні
  * лише в `awaiting_script`, поки `checkpoints.script.state === "open"`). Далі — концепт, хук і мета;
  * трек сцен пропорційно таймлайну (`lib/scene-track.js`) зі шкалою секунд; статус тверджень
- * (`claims.unverified`); рядки сцен; музичний бриф; мініатюри.
+ * (`claims.unverified`); рядки сцен; музика; мініатюри.
+ *
+ * Службове для власника — лише українською: «Рух» = `scene.motionNote` (немає — рядка немає,
+ * англійський `motionIntent` не показуємо), музика = `musicNote ?? musicBrief.genre`, факти — тексти
+ * підтверджених тверджень сцени, звук — українська назва cue. Англійською лишаються тільки тексти
+ * в кадрі (headline/sub), якщо мова відео en.
  *
  * `update` перебудовує вміст лише при новому payload/ревізії; зміна статусу чи стану чекпоінта
  * лише вмикає/вимикає кнопки й перемикає ромб. Тексти — лише через `textContent`.
@@ -42,6 +47,42 @@ export const TRANSITION_LABELS = {
   zoom: "наїзд",
 };
 
+/** Українські назви стандартних звуків (`SoundCue`) для застарілого `sfxCue`. @type {Record<string, string>} */
+export const SFX_LABELS = {
+  whoosh: "проліт",
+  swoosh: "змах",
+  riser: "наростання",
+  impact: "удар",
+  slam: "гучний удар",
+  pop: "поп",
+  ding: "дзвіночок",
+  tick: "тікання",
+  click: "клік",
+  shimmer: "мерехтіння",
+  drop: "басовий удар",
+  error: "помилка",
+  alert: "сигнал уваги",
+  glitch: "збій",
+  scratch: "скретч",
+  typing: "друк",
+  notify: "сповіщення",
+  scan: "сканування",
+  swipe: "свайп",
+  success: "успіх",
+  shutter: "затвор камери",
+  scribble: "розчерк",
+  flip: "перегортання",
+  slide: "ковзання",
+  cash: "каса",
+  lock: "замок",
+  zap: "розряд",
+  snap: "клацання",
+  bounce: "відскок",
+  cheer: "оплески",
+};
+
+export const FACTS_FROM_BRANDKIT = "✓ підтверджено фактами бренд-кіта";
+
 export const NOTE_UNVERIFIED =
   "Позначені твердження не знайдено на сайті. «Затвердити» означає, що ви їх підтверджуєте.";
 export const ALL_VERIFIED = "✓ Усі цифри й обіцянки знайдено на сайті";
@@ -60,12 +101,12 @@ export function plural(n, [one, few, many]) {
 }
 
 /**
- * Мета під концептом: «15,0 с · 30 fps · 3 сцени».
+ * Мета під концептом: «15,0 с · 30 кадр/с · 3 сцени».
  * @param {Pick<ScriptCheckpointPayload, "durationSeconds"> & { storyboard: { fps: number, scenes: readonly unknown[] } }} payload
  */
 export function formatMeta(payload) {
   const n = payload.storyboard.scenes.length;
-  return `${formatSeconds(payload.durationSeconds)} с · ${payload.storyboard.fps} fps · ${n} ${plural(n, ["сцена", "сцени", "сцен"])}`;
+  return `${formatSeconds(payload.durationSeconds)} с · ${payload.storyboard.fps} кадр/с · ${n} ${plural(n, ["сцена", "сцени", "сцен"])}`;
 }
 
 /**
@@ -122,6 +163,24 @@ export function highlight(value, fragments) {
   if (pos < src.length || out.length === 0) out.push(document.createTextNode(src.slice(pos)));
   return out;
 }
+
+/**
+ * «Факти» сцени: тексти підтверджених тверджень («✓ «75 грн», «-10%»»); без них, але з `factIds` —
+ * загальна позначка; інакше «—». Сирі id фактів власнику не показуємо.
+ * @param {Pick<Scene, "id" | "factIds">} scene
+ * @param {readonly { sceneId: string, text: string }[]} verified
+ */
+export function factsLabel(scene, verified) {
+  const texts = [...new Set(verified.filter((c) => c.sceneId === scene.id && c.text).map((c) => c.text))];
+  if (texts.length > 0) return `✓ ${texts.map((t) => `«${t}»`).join(", ")}`;
+  return scene.factIds.length > 0 ? FACTS_FROM_BRANDKIT : "—";
+}
+
+/**
+ * Непорожній рядок або `null` (поля-примітки старих розкадровок відсутні чи порожні).
+ * @param {unknown} v
+ */
+const note = (v) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 /**
  * Чи можна зараз затвердити/правити: статус `awaiting_script` і відкритий чекпоінт.
@@ -262,13 +321,15 @@ function metaItem(key, label, value, title) {
  * @param {number} index
  * @param {number} fps
  * @param {Claim[]} claims непідтверджені твердження цієї сцени
+ * @param {Claim[]} verified підтверджені твердження розкадровки
  * @param {{ assetId: string, url: string }[]} thumbs мініатюри асетів сцени
  */
-function sceneRow(scene, index, fps, claims, thumbs) {
+function sceneRow(scene, index, fps, claims, verified, thumbs) {
   const purpose = PURPOSE_LABELS[scene.purpose] ?? scene.purpose;
   const of = /** @param {"headline" | "sub"} field */ (field) =>
     claims.filter((c) => c.field === field).map((c) => c.text);
-  const facts = scene.factIds.length > 0;
+  const motion = note(scene.motionNote);
+  const sfx = scene.sfxCue ? SFX_LABELS[scene.sfxCue] : undefined;
   const transition =
     index === 0
       ? "—"
@@ -301,10 +362,10 @@ function sceneRow(scene, index, fps, claims, thumbs) {
         h(
           "dl",
           { class: "cs-scene__meta" },
-          metaItem("motion", "Рух", scene.motionIntent || "—"),
-          metaItem("facts", "Факти", facts ? `✓ ${scene.factIds.join(", ")}` : "—"),
+          motion ? metaItem("motion", "Рух", motion) : null,
+          metaItem("facts", "Факти", factsLabel(scene, verified)),
           metaItem("transition", "Перехід", transition),
-          metaItem("sfx", "Звук", scene.sfxCue || "—"),
+          sfx ? metaItem("sfx", "Звук", sfx) : null,
         ),
       ),
       thumbs.length > 0
@@ -342,6 +403,7 @@ function content(payload) {
   const sb = payload.storyboard;
   const timeline = tryTimeline(sb);
   const unverified = payload.claims?.unverified ?? [];
+  const verified = payload.claims?.verified ?? [];
   const sceneIds = new Set(sb.scenes.map((s) => s.id));
   const thumbs = (payload.thumbnails ?? [])
     .map((t) => ({ assetId: t.assetId, url: safeMediaUrl(t.url) }))
@@ -363,11 +425,12 @@ function content(payload) {
         );
 
   const music = payload.musicBrief;
+  const musicNote = note(sb.musicNote);
   return [
     h(
       "div",
       { class: "cs-intro" },
-      h("h1", { class: "display-m cs-concept", text: sb.concept }),
+      h("h1", { class: "display-s cs-concept", text: sb.concept }),
       h("p", { class: "body-l cs-hook", text: `Хук: «${sb.hook}»` }),
       h("p", { class: "mono cs-meta", text: formatMeta(payload) }),
     ),
@@ -382,6 +445,7 @@ function content(payload) {
           i,
           sb.fps,
           unverified.filter((c) => c.sceneId === scene.id),
+          verified,
           thumbs.filter((t) => scene.assetIds.includes(t.assetId)),
         ),
       ),
@@ -394,22 +458,15 @@ function content(payload) {
           h(
             "div",
             { class: "cs-music__body" },
-            h("p", { class: "display-s cs-music__genre", text: music.genre }),
-            music.mood.length > 0
-              ? h(
-                  "ul",
-                  { class: "cs-music__mood", "aria-label": "Настрій" },
-                  music.mood.map((m) => h("li", { class: "chip cs-chip", text: m })),
-                )
-              : null,
-            h(
-              "p",
-              { class: "mono cs-music__tech" },
-              h("span", { class: "cs-music__bpm", text: `${music.bpm} BPM` }),
-              music.instrumentation.length > 0
-                ? h("span", { class: "cs-music__instr", text: music.instrumentation.join(" · ") })
-                : null,
-            ),
+            h("p", { class: "body-l cs-music__note", text: musicNote ?? music.genre }),
+            // Темп у musicNote уже названо словами; рядок BPM — лише для старих розкадровок (жанр).
+            musicNote
+              ? null
+              : h(
+                  "p",
+                  { class: "mono cs-music__tech" },
+                  h("span", { class: "cs-music__bpm", text: `${music.bpm} BPM` }),
+                ),
           ),
         )
       : null,

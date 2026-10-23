@@ -9,8 +9,11 @@
  *
  * B4 · відео-превʼю ЧП3: `n5-cp3-preview-{pending,ready,failed}` — ЧП3 з `payload.timeline` і
  * `payload.preview` (9:16) у трьох станах превʼю; `ready` грає `/static/media/sample-9x16.mp4`.
+ *
+ * ЧП2 українською: `n5-cp2` — розкадровка з примітками для власника (`motionNote` у кожній сцені,
+ * `musicNote`); `n5-cp2-legacy` — стара розкадровка без них (рядка «Рух» немає, музика — жанр).
  */
-import { MEDIA } from "../fixture-events.js";
+import { MEDIA, scriptPayload } from "../fixture-events.js";
 import { meOf, merge, OLENA, workspaceFixture } from "./_base.js";
 
 /** @typedef {import("../../js/contracts.js").UiState} UiState */
@@ -69,11 +72,37 @@ const boardRev2 = (s) => ({
   ),
 });
 
+/** Що бачить глядач у кожній сцені «Зерна» — простими словами для власника. @type {Record<string, string>} */
+const MOTION_NOTES = {
+  s1: "Камера повільно наїжджає на фото кав'ярні, заголовок з'являється слово за словом.",
+  s2: "Ціна виїжджає знизу й підсвічується акцентним кольором, поруч спливає знижка.",
+  s3: "Логотип м'яко з'являється, під ним пульсує кнопка бронювання.",
+};
+
+/** ЧП2 з примітками для власника (`motionNote`, `musicNote`). */
+const scriptNotes = {
+  checkpoints: {
+    script: {
+      payload: {
+        ...scriptPayload,
+        storyboard: {
+          ...scriptPayload.storyboard,
+          scenes: scriptPayload.storyboard.scenes.map((s) => ({ ...s, motionNote: MOTION_NOTES[s.id] })),
+          musicNote: "Теплий ранковий лоу-фай хіп-хоп з електропіаніно, неспішний, ~85 BPM",
+        },
+      },
+    },
+  },
+};
+
 /** @type {Record<string, UiState>} */
 export default {
   "n5-cp1": workspaceFixture("brand", brandFormats(["vertical", "square"])),
   "n5-cp1-short": workspaceFixture("brand", { ...brandFormats(["vertical", "square"]), ...olena(1) }),
   "n5-cp1-one": workspaceFixture("brand", brandFormats(["vertical"])),
+
+  "n5-cp2": workspaceFixture("script", scriptNotes),
+  "n5-cp2-legacy": workspaceFixture("script"),
 
   "n5-cp3": workspaceFixture("storyboard", boardSheets(["square"])),
   "n5-cp3-short": workspaceFixture("storyboard", { ...boardSheets(["square"]), ...olena(1) }),

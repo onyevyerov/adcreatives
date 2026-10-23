@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { SoundCue } from "@adc/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDevActions } from "../../public/static/dev/dev-actions.js";
 import { scriptPayload } from "../../public/static/dev/fixture-events.js";
@@ -9,12 +10,15 @@ import type { ScriptCheckpointPayload, UiState } from "../../public/static/js/co
 import { createStore } from "../../public/static/js/store.js";
 import {
   ALL_VERIFIED,
+  FACTS_FROM_BRANDKIT,
+  factsLabel,
   formatMeta,
   highlight,
   isActive,
   mount,
   NOTE_UNVERIFIED,
   plural,
+  SFX_LABELS,
   safeMediaUrl,
 } from "../../public/static/js/views/cp-script.js";
 import { DEFAULT_PUBLIC_DIR } from "../../src/config.ts";
@@ -117,13 +121,14 @@ describe("cp-script · шапка", () => {
 });
 
 describe("cp-script · концепт, трек, сцени (S3)", () => {
-  it("концепт display-m, хук, мета з комою", () => {
+  it("концепт рівня заголовків сцен (display-s, не display-m), хук, мета з комою", () => {
     const { $ } = setup(fixture("awaitingScript"));
     const concept = $(".cs-concept");
-    expect(concept?.classList.contains("display-m")).toBe(true);
+    expect(concept?.classList.contains("display-s")).toBe(true);
+    expect(concept?.classList.contains("display-m")).toBe(false);
     expect(concept?.textContent).toBe("Ранок у «Зерні»: від зерна до чашки");
     expect($(".cs-hook")?.textContent).toBe("Хук: «Кава, яку обсмажуємо самі»");
-    expect($(".cs-meta")?.textContent).toBe("15,0 с · 30 fps · 3 сцени");
+    expect($(".cs-meta")?.textContent).toBe("15,0 с · 30 кадр/с · 3 сцени");
   });
 
   it("трек: блоки пропорційно таймлайну, кольори, смугасті переходи, шкала секунд", () => {
@@ -170,7 +175,7 @@ describe("cp-script · концепт, трек, сцени (S3)", () => {
     expect($$(".cs-transition")).toHaveLength(0);
   });
 
-  it("рядки сцен: номер, purpose і тривалість, headline, sub, рух, факти, перехід, звук", () => {
+  it("рядки сцен: номер, purpose і тривалість, headline, sub, факти, перехід, звук (стара розкадровка)", () => {
     const { el } = setup(fixture("awaitingScript"));
     const rows = [...el.querySelectorAll<HTMLElement>(".cs-scenes > .cs-scene")];
     expect(rows.map((r) => r.dataset.scene)).toEqual(["s1", "s2", "s3"]);
@@ -185,17 +190,66 @@ describe("cp-script · концепт, трек, сцени (S3)", () => {
     expect(head?.classList.contains("scene-head")).toBe(true);
     expect(head?.textContent).toBe("Кава, яку обсмажуємо самі");
     expect(s1?.querySelector(".cs-scene__sub")).toBeNull();
-    expect(meta(s1, "motion")).toBe("повільний наїзд на фото, заголовок по словах");
+    // Без motionNote рядка «Рух» немає: motionIntent власнику не показуємо.
+    expect(s1?.querySelector('[data-meta="motion"]')).toBeNull();
     expect(meta(s1, "facts")).toBe("—");
     expect(meta(s1, "transition")).toBe("—");
-    expect(meta(s1, "sfx")).toBe("whoosh");
+    expect(meta(s1, "sfx")).toBe("проліт");
 
     const s2 = row(el, "s2");
     expect(s2?.querySelector(".cs-scene__purpose")?.textContent).toBe("пропозиція · 5,5 с");
     expect(s2?.querySelector(".cs-scene__sub")?.textContent).toBe("-10% на каву з собою до 10:00");
-    expect(meta(s2, "facts")).toBe("✓ f1, f2");
+    expect(meta(s2, "facts")).toBe("✓ «75 грн», «-10%»");
     expect(meta(s2, "transition")).toBe("зсув · 0,5 с");
-    expect(meta(s2, "sfx")).toBe("pop");
+    expect(meta(s2, "sfx")).toBe("поп");
+  });
+
+  it("«Рух» = motionNote; музика = musicNote (n5-cp2)", () => {
+    const { el, $ } = setup(fixture("n5-cp2"));
+    expect(meta(row(el, "s1"), "motion")).toBe(
+      "Камера повільно наїжджає на фото кав'ярні, заголовок з'являється слово за словом.",
+    );
+    expect(meta(row(el, "s3"), "motion")).toBe(
+      "Логотип м'яко з'являється, під ним пульсує кнопка бронювання.",
+    );
+    expect($(".cs-music__note")?.textContent).toBe(
+      "Теплий ранковий лоу-фай хіп-хоп з електропіаніно, неспішний, ~85 BPM",
+    );
+    expect(el.textContent).not.toContain("lo-fi hip hop");
+    // Темп уже в musicNote — окремого рядка BPM немає.
+    expect($(".cs-music__bpm")).toBeNull();
+  });
+
+  it("англійський motionIntent не показується; порожній motionNote — як відсутній", () => {
+    const sb = scriptPayload.storyboard;
+    const payload = {
+      ...scriptPayload,
+      storyboard: {
+        ...sb,
+        scenes: sb.scenes.map((s, i) => ({
+          ...s,
+          motionIntent: "The teal dot swells into a report card.",
+          motionNote: i === 0 ? "   " : "Точка розростається в картку звіту.",
+        })),
+        musicNote: "",
+      },
+    };
+    const { el, $ } = setup(withPayload(fixture("awaitingScript"), payload));
+    expect(el.textContent).not.toContain("teal dot");
+    expect(row(el, "s1")?.querySelector('[data-meta="motion"]')).toBeNull();
+    expect(meta(row(el, "s2"), "motion")).toBe("Точка розростається в картку звіту.");
+    // Порожній musicNote — запасний жанр.
+    expect($(".cs-music__note")?.textContent).toBe("lo-fi hip hop");
+  });
+
+  it("на ЧП2 з примітками немає англійського службового тексту (крім BPM)", () => {
+    const { $, $$ } = setup(fixture("n5-cp2"));
+    const body = $(".cs-body")?.cloneNode(true) as HTMLElement;
+    // Тексти в кадрі — мовою відео; їх не перевіряємо.
+    for (const n of body.querySelectorAll(".cs-scene__head, .cs-scene__sub")) n.remove();
+    const latin = (body.textContent ?? "").match(/[A-Za-z]{2,}/g) ?? [];
+    expect(latin.filter((w) => w !== "BPM")).toEqual([]);
+    expect($$(".cs-scene [data-meta]").length).toBeGreaterThan(0);
   });
 
   it("мініатюри: <img> з безпечним URL у рядку сцени з цим асетом", () => {
@@ -231,15 +285,28 @@ describe("cp-script · концепт, трек, сцени (S3)", () => {
     ]);
   });
 
-  it("музичний бриф: жанр display-s, настрій чипами, BPM та інструменти mono", () => {
-    const { $, $$ } = setup(fixture("awaitingScript"));
-    const genre = $(".cs-music__genre");
-    expect(genre?.classList.contains("display-s")).toBe(true);
-    expect(genre?.textContent).toBe("lo-fi hip hop");
-    expect($$(".cs-music__mood .chip").map((c) => c.textContent)).toEqual(["теплий", "ранковий"]);
+  it("музика старої розкадровки: жанр body-l і BPM mono; англійських настрою й інструментів немає", () => {
+    const { $, el } = setup(fixture("awaitingScript"));
+    const note = $(".cs-music__note");
+    expect(note?.classList.contains("body-l")).toBe(true);
+    expect(note?.textContent).toBe("lo-fi hip hop");
     expect($(".cs-music__tech")?.classList.contains("mono")).toBe(true);
     expect($(".cs-music__bpm")?.textContent).toBe("85 BPM");
-    expect($(".cs-music__instr")?.textContent).toBe("rhodes · soft drums · vinyl crackle");
+    expect(el.querySelector(".cs-music .chip")).toBeNull();
+    expect(el.textContent).not.toContain("rhodes");
+  });
+
+  it("звук: українська назва cue; null чи невідомий ключ — рядка немає", () => {
+    const sb = scriptPayload.storyboard;
+    const cues = [null, "custom-brand-jingle", "impact"];
+    const payload = {
+      ...scriptPayload,
+      storyboard: { ...sb, scenes: sb.scenes.map((s, i) => ({ ...s, sfxCue: cues[i] ?? null })) },
+    };
+    const { el } = setup(withPayload(fixture("awaitingScript"), payload));
+    expect(row(el, "s1")?.querySelector('[data-meta="sfx"]')).toBeNull();
+    expect(row(el, "s2")?.querySelector('[data-meta="sfx"]')).toBeNull();
+    expect(meta(row(el, "s3"), "sfx")).toBe("удар");
   });
 });
 
@@ -377,7 +444,7 @@ describe("cp-script · update", () => {
 
 describe("cp-script · допоміжне", () => {
   it("formatMeta і множина", () => {
-    expect(formatMeta(scriptPayload)).toBe("15,0 с · 30 fps · 3 сцени");
+    expect(formatMeta(scriptPayload)).toBe("15,0 с · 30 кадр/с · 3 сцени");
     expect([1, 2, 4, 5, 11, 12, 21, 22, 25].map((n) => plural(n, ["сцена", "сцени", "сцен"]))).toEqual([
       "сцена",
       "сцени",
@@ -389,7 +456,24 @@ describe("cp-script · допоміжне", () => {
       "сцени",
       "сцен",
     ]);
-    expect(formatMeta({ ...scriptPayload, durationSeconds: 16.5 })).toBe("16,5 с · 30 fps · 3 сцени");
+    expect(formatMeta({ ...scriptPayload, durationSeconds: 16.5 })).toBe("16,5 с · 30 кадр/с · 3 сцени");
+  });
+
+  it("factsLabel: тексти підтверджених тверджень сцени без повторів, інакше позначка або «—», без id", () => {
+    const verified = [
+      { sceneId: "s2", text: "+25%" },
+      { sceneId: "s2", text: "4080" },
+      { sceneId: "s2", text: "+25%" },
+      { sceneId: "s1", text: "№1" },
+    ];
+    expect(factsLabel({ id: "s2", factIds: ["f7", "f35"] }, verified)).toBe("✓ «+25%», «4080»");
+    expect(factsLabel({ id: "s3", factIds: ["f7", "f35"] }, verified)).toBe(FACTS_FROM_BRANDKIT);
+    expect(factsLabel({ id: "s3", factIds: [] }, verified)).toBe("—");
+  });
+
+  it("SFX_LABELS покриває всі SoundCue і лише українською", () => {
+    expect(Object.keys(SFX_LABELS).sort()).toEqual([...SoundCue.options].sort());
+    for (const label of Object.values(SFX_LABELS)) expect(label).not.toMatch(/[A-Za-z]/);
   });
 
   it("safeMediaUrl", () => {
