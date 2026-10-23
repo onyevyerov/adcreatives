@@ -23,7 +23,7 @@ describe("HTTP Basic (APP_PASSWORD)", () => {
       // Навіть із валідною сесією Basic-gate стоїть поверх усього.
       const res = await env.request(route);
       expect(res.status, route).toBe(401);
-      expect(res.headers.get("www-authenticate")).toMatch(/^Basic realm="AdCreative"/);
+      expect(res.headers.get("www-authenticate")).toMatch(/^Basic realm="Crealab"/);
     }
     const wrong = await env.request("/api/projects", { headers: { Authorization: basic("nope") } });
     expect(wrong.status).toBe(401);

@@ -279,7 +279,7 @@ class FakeServer {
       at: this.now(),
       to: u.email,
       kind,
-      subject: kind === "activate" ? "Активація акаунта AdCreative" : "Скидання пароля AdCreative",
+      subject: kind === "activate" ? "Активація акаунта Crealab" : "Скидання пароля Crealab",
       text: `Вітаємо, ${u.name}!\n\n${link}`,
       link,
     });

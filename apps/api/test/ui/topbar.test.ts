@@ -78,7 +78,7 @@ describe("views/topbar.js", () => {
 
   it("хост, вордмарк, «Новий проєкт», «Статистика» (адмін)", () => {
     const { view } = mountWith(withMe("awaitingBrand", ADMIN_ME));
-    expect(q(".tb-wordmark")?.textContent).toBe("AdCreative");
+    expect(q(".tb-wordmark")?.textContent).toBe("Crealab");
     expect(q(".tb-host")?.textContent).toBe("zerno.example.com");
     expect(q(".tb-host")?.getAttribute("title")).toBe("zerno.example.com");
     expect(q(".tb-host")?.classList.contains("mono")).toBe(true);
