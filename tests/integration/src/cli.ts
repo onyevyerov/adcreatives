@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
-import { formatSceneItems } from "@adc/pipeline";
 import {
   aggregateCosts,
   type ChatEvent,
@@ -34,6 +33,21 @@ export const CLI_USAGE = `Використання: pnpm tsx scripts/cli.ts <к�
     --source chat|test       джерело в обліку витрат (дефолт test)
   stats [--csv]              зведена статистика витрат (DATA_DIR)
 Платні виклики Anthropic/ElevenLabs — ключі з кореневого .env.`;
+
+/**
+ * Рядок текстів `items` сцени для чекпоінта 2: `· текст · текст ⚠`; ⚠ — у пункті є непідтверджене
+ * твердження. null — сцена без items. (Чат більше не показує items — це лише для термінала.)
+ */
+function formatSceneItems(
+  scene: { id: string; items: ReadonlyArray<{ id: string; text: string }> },
+  unverified: ReadonlyArray<{ sceneId: string; field: string; itemId?: string | null }>,
+): string | null {
+  if (scene.items.length === 0) return null;
+  const flagged = new Set(
+    unverified.filter((c) => c.sceneId === scene.id && c.field === "item").map((c) => c.itemId),
+  );
+  return scene.items.map((i) => `· ${i.text}${flagged.has(i.id) ? " ⚠" : ""}`).join(" ");
+}
 
 const FORMAT_INPUT: Record<string, Format> = {
   "9:16": "vertical",
