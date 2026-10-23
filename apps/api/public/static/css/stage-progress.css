@@ -93,12 +93,86 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── directing: дві гілки ── */
+/* ── Чекліст підкроків: ✓ виконані з часом, спінер на поточному, сірі майбутні ── */
+
+.sp-steps {
+  max-width: 640px;
+  border-top: 1px solid var(--line);
+}
+
+.sp-numeral ~ .sp-steps,
+.sp-caption ~ .sp-steps {
+  margin-top: 36px;
+}
+
+.sp-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font: 400 15px / 1.45 var(--f-ui);
+}
+
+.sp-step[data-state="done"] {
+  color: var(--ink-2);
+}
+
+.sp-step[data-state="pending"] {
+  color: var(--muted);
+}
+
+.sp-step__mark {
+  justify-self: start;
+  color: var(--ink);
+  font: 500 13px / 1 var(--f-mono);
+}
+
+/* Майбутній крок — порожнє коло розміру спінера, колір його треку (спінер з components.css). */
+.sp-step[data-state="pending"] .sp-step__mark {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--spinner-track);
+  border-radius: 50%;
+}
+
+.sp-step__meta {
+  color: var(--muted);
+  font: 400 12px / 1.4 var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sp-step[data-state="active"] .sp-step__meta {
+  color: var(--ink);
+}
+
+/* У гілках directing — щільніше, без верхньої лінії (її дає смуга). */
+.sp-steps--branch {
+  margin-top: 18px;
+}
+
+.sp-steps--branch .sp-step {
+  padding: 10px 0;
+  font-size: 14px;
+}
+
+/* ── directing: дві гілки, під ними спільні кроки ── */
 
 .sp-branches {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 40px 56px;
+}
+
+.sp-shared {
+  grid-column: 1 / -1;
+}
+
+.sp-shared__name {
+  margin-bottom: 18px;
 }
 
 .sp-branch__head {
@@ -126,7 +200,8 @@
   color: var(--ink);
 }
 
-.sp-branch[data-state="pending"] .sp-branch__name {
+.sp-branch[data-state="pending"] .sp-branch__name,
+.sp-shared:not(:has(.sp-step:not([data-state="pending"]))) .sp-shared__name {
   color: var(--muted);
 }
 

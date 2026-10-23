@@ -71,13 +71,19 @@ function apply(s, { id, event: ev }) {
     case "progress": {
       const last = s.feed.at(-1);
       const item = { stage: ev.stage, label: ev.label, done: ev.done, total: ev.total };
-      const feed =
-        last?.kind === "progress" && last.running && last.stage === ev.stage
-          ? [...s.feed.slice(0, -1), { ...last, ...item, at: ev.at }]
-          : [
-              ...closeProgress(s.feed),
-              { kind: /** @type {const} */ ("progress"), id, at: ev.at, ...item, running: true },
-            ];
+      // `step` рядка — останньої події (без step — поле зникає), як у редьюсері.
+      const step = ev.step === undefined ? {} : { step: ev.step };
+      /** @type {FeedItem[]} */
+      let feed;
+      if (last?.kind === "progress" && last.running && last.stage === ev.stage) {
+        const { step: _prevStep, ...prev } = last;
+        feed = [...s.feed.slice(0, -1), { ...prev, ...item, ...step, at: ev.at }];
+      } else {
+        feed = [
+          ...closeProgress(s.feed),
+          { kind: "progress", id, at: ev.at, ...item, ...step, running: true },
+        ];
+      }
       const stageLog =
         s.stageLog.at(-1)?.label === ev.label
           ? s.stageLog
@@ -196,6 +202,8 @@ const legacyStates = {
   /** crawling, 4/7 сторінок (C3: плейхед 8.53%). */
   crawling: fold(upTo(toBrand, progressLabel("Сканую сайт… 4/7 сторінок"))),
   brandkit: fold(upTo(toBrand, progressLabel("Збираю бренд-кіт…"))),
+  /** scripting: два кроки ✓, поточний — «Підганяю тексти під екран» (= `?jump=scripting`). */
+  scripting: fold(eventsOf(PATHS.scripting)),
   awaitingBrand: fold(eventsOf(PATHS.brand)),
   awaitingScript: fold(eventsOf(PATHS.script)),
   /** X3: чекпоінт 2 з непідтвердженим твердженням. */
