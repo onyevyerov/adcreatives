@@ -1,7 +1,7 @@
 // @ts-check
 /**
- * B11 · Адмінка (N14-A): підшапка з вкладками «Користувачі · Outbox · Усі проєкти» і
- * «Статистика ↗»; на «Користувачах» — таблиця з пошуком (фільтр на клієнті) і бічна панель
+ * B11 · Адмінка (N14-A): підшапка з вкладками «Користувачі · Outbox · Усі проєкти»;
+ * на «Користувачах» — таблиця з пошуком (фільтр на клієнті) і бічна панель
  * 420px: профіль, баланс, ручне коригування (з підтвердженням великого списання), останні
  * операції. Не-адмін (`admin.forbidden`) — екран 403 з views/session.js (B12).
  * Топбар (`#admin-topbar`) монтує app.js. DOM будується один раз, `update` патчить змінене:
@@ -11,10 +11,9 @@ import { FORMAT_LABELS, STATUS_LABELS } from "../contracts.js";
 import { NOTE_MAX, needsConfirm, PANEL_ENTRIES, parseCredits } from "../data/admin-actions.js";
 import { clear, h, text } from "../dom.js";
 import { creditWord, formatCredits, formatNumber, signed } from "../lib/credits.js";
-import { STATS_PATH } from "../router.js";
 import { mount as mountUsage } from "./admin-usage.js";
 import { mountForbidden } from "./session.js";
-import { formatUsd, plainClick, statusKind } from "./topbar.js";
+import { formatUsd, statusKind } from "./topbar.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
 /** @typedef {import("../contracts.js").AdminState} AdminState */
@@ -198,16 +197,6 @@ export function mount(el, ctx) {
     "div",
     { class: "adm-head" },
     h("div", { class: "adm-head__left" }, h("h1", { class: "adm-title", text: "Адмінка" }), tablist),
-    h("a", {
-      class: "adm-stats",
-      href: STATS_PATH,
-      text: "Статистика",
-      onclick: (/** @type {MouseEvent} */ e) => {
-        if (!plainClick(e)) return;
-        e.preventDefault();
-        actions.adminTab("usage");
-      },
-    }),
   );
 
   // ───────────── Головна область ─────────────

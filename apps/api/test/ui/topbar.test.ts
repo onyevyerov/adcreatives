@@ -76,7 +76,7 @@ describe("views/topbar.js", () => {
 
   const q = (sel: string) => host.querySelector<HTMLElement>(sel);
 
-  it("хост, вордмарк, «Новий проєкт», «Статистика» (адмін)", () => {
+  it("хост, вордмарк, «Новий проєкт»; «Статистики» немає навіть адміну", () => {
     const { view } = mountWith(withMe("awaitingBrand", ADMIN_ME));
     expect(q(".tb-wordmark")?.textContent).toBe("AdCreative");
     expect(q(".tb-host")?.textContent).toBe("zerno.example.com");
@@ -86,45 +86,24 @@ describe("views/topbar.js", () => {
     const btn = q("button.tb-new");
     expect(btn?.textContent).toBe("Новий проєкт");
     expect(btn?.classList.contains("btn--ghost")).toBe(true);
-    const stats = q("a.tb-stats");
-    expect(stats?.textContent).toBe("Статистика");
-    expect(stats?.getAttribute("href")).toBe("/stats");
-    expect(stats?.getAttribute("target")).toBeNull();
-    expect(stats?.hidden).toBe(false);
+    expect(q(".tb-stats")).toBeNull();
+    expect(host.querySelector('a[href="/stats"]')).toBeNull();
+    expect(host.textContent).not.toContain("Статистика");
     expect(q(".tb-cost")?.hidden).toBe(false);
     view.destroy();
     expect(host.children.length).toBe(0);
   });
 
-  it("«Статистика» → вкладка «Використання» роутером; з модифікатором — як звичайне посилання", () => {
-    const { actions, view } = mountWith(withMe("awaitingBrand", ADMIN_ME));
-    const navigate = vi.spyOn(actions, "navigate");
-    const stats = q("a.tb-stats");
-    const ctrl = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
-    stats?.dispatchEvent(ctrl);
-    expect(ctrl.defaultPrevented).toBe(false);
-    expect(navigate).not.toHaveBeenCalled();
-    const plain = new MouseEvent("click", { bubbles: true, cancelable: true });
-    stats?.dispatchEvent(plain);
-    expect(plain.defaultPrevented).toBe(true);
-    expect(navigate).toHaveBeenCalledWith({ route: "admin", tab: "usage" });
-    view.destroy();
-  });
-
-  it("клієнт не бачить «Витрачено $» і «Статистика»; адмін — бачить", () => {
+  it("клієнт не бачить «Витрачено $»; адмін — бачить", () => {
     const { store, view } = mountWith(withMe("awaitingBrand"));
     expect(q(".tb-cost")?.hidden).toBe(true);
-    expect(q("a.tb-stats")?.hidden).toBe(true);
     expect(visibleText(host)).not.toContain("$");
-    expect(visibleText(host)).not.toContain("Статистика");
     // завантаження /me — так само
     store.setState((s) => ({ account: { ...s.account, me: null, meStatus: "loading" } }));
     expect(q(".tb-cost")?.hidden).toBe(true);
-    expect(q("a.tb-stats")?.hidden).toBe(true);
     // адмін — з'явились
     store.setState((s) => ({ account: { ...s.account, me: ADMIN_ME, meStatus: "ready" } }));
     expect(q(".tb-cost")?.hidden).toBe(false);
-    expect(q("a.tb-stats")?.hidden).toBe(false);
     expect(visibleText(host)).toContain("$");
     view.destroy();
   });
@@ -141,12 +120,12 @@ describe("views/topbar.js", () => {
     expect(host.querySelector(".ac")).toBeNull();
   });
 
-  it("порядок Tab = видимий: пілюля → «Новий проєкт» → «Статистика» → коло", () => {
+  it("порядок Tab = видимий: пілюля → «Новий проєкт» → коло", () => {
     const { view } = mountWith(withMe("awaitingBrand", ADMIN_ME));
     const focusable = [...host.querySelectorAll<HTMLElement>(".tb-right a, .tb-right button")].map((n) =>
       n.className.split(" ").find((c) => c.startsWith("tb-") || c.startsWith("ac-")),
     );
-    expect(focusable).toEqual(["ac-pill__bal", "ac-pill__plus", "tb-new", "tb-stats", "ac-trigger"]);
+    expect(focusable).toEqual(["ac-pill__bal", "ac-pill__plus", "tb-new", "ac-trigger"]);
     view.destroy();
   });
 

@@ -89,20 +89,9 @@
   font-size: 13px;
 }
 
-.tb-stats {
-  color: var(--ink-2);
-  font: 500 13px / 1 var(--f-ui);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.tb-stats:hover {
-  color: var(--accent);
-}
-
 /*
  * Контроли акаунта (account-controls.js, place "page") стають у ряд .tb-right:
- * статус · «Витрачено» · пілюля · [слот: «Новий проєкт» · «Статистика»] · «адмін» + коло.
+ * статус · «Витрачено» · пілюля · [слот: «Новий проєкт»] · «адмін» + коло.
  */
 .tb-acct,
 .tb-acct > .ac,

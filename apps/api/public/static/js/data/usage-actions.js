@@ -3,7 +3,7 @@
  * Вкладка «Використання» адмінки: дії `usage*` (ключі заморожені в `UsageActions`, contracts.js).
  *
  * - Стан — `store.getState().admin.usage`; усі зміни імутабельні (`admin: { ...s.admin, usage: { … } }`).
- * - Вхід на `/stats` (`deps.onRoute`, адмін не `forbidden`) і будь-яка зміна періоду/джерела →
+ * - Вхід на `?admin=usage` (`deps.onRoute`, адмін не `forbidden`) і будь-яка зміна періоду/джерела →
  *   «огляд»: `summary` + `users` + таблиця `all` (сторінка з її стану) паралельно через
  *   `Promise.allSettled`; розгорнутий користувач — ще й його `userProjects`. `loading` — поки летить
  *   огляд (чи показувати «Завантажую…», вирішує view: лише без даних). Успіх усіх трьох знімає `error`;

@@ -202,7 +202,7 @@ storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx
 - **Оплата — заглушка.** `POST /api/billing/topups` повертає `checkoutUrl` = `${APP_URL}/?checkout=<topupId>`,
   а «оплата» — це `POST /api/billing/topups/<id>/confirm {"outcome":"paid"|"failed"}` (ідемпотентно).
 - **Google** — `POST /api/auth/google` → 501.
-- **Адмін** (`ADMIN_EMAILS`): `/stats` (вкладка «Використання» адмінки) і `/api/stats*`, `GET /api/admin/users[/:id[/transactions]]`,
+- **Адмін** (`ADMIN_EMAILS`): `/api/stats*` (JSON/CSV), `GET /api/admin/users[/:id[/transactions]]`,
   ручне нарахування або коригування `POST /api/admin/users/<id>/credits {"credits": 20, "note": "…"}` (знак будь-який,
   але баланс не може стати від'ємним — інакше 402), dev-outbox `GET /api/admin/outbox`, а також усі проєкти
   (`GET /api/projects?all=1`) і використання за період `GET /api/admin/usage/*` (`docs/usage-api.md`).
@@ -237,7 +237,7 @@ API + воркер + Redis, у `.env` задані `ADMIN_EMAILS` і `APP_URL`:
 - [ ] `topups {"packageId":"starter"}` → `confirm {"outcome":"paid"}` → баланс 10; у `transactions` є `topup`.
 - [ ] `POST /api/projects` → 201 з `balance: 0`, у `users/<id>/ledger.jsonl` з'явився `video:<id>`; другий старт → 402 з `required: 10, available: 0`.
 - [ ] Після видачі правка через `messages`: у стрімі «Списано 3 кредитів…» або відмова при балансі < 3; ЧП3 з двома форматами списує додатковий формат.
-- [ ] `/api/stats*` і `/api/admin/*` віддають 403 звичайному користувачу і 200 адміну (`/stats` — сторінка застосунку: клієнт бачить «немає доступу»); `POST /api/admin/users/<id>/credits` змінює баланс; чужий `GET /api/projects/<id>` і `/files/projects/<id>/…` → 404.
+- [ ] `/api/stats*` і `/api/admin/*` віддають 403 звичайному користувачу і 200 адміну; `POST /api/admin/users/<id>/credits` змінює баланс; чужий `GET /api/projects/<id>` і `/files/projects/<id>/…` → 404.
 - [ ] Із заданим `APP_PASSWORD` Basic-gate працює поверх усього, як раніше; з порожнім діють лише сесії.
 
 ## Відхилення від тексту ТЗ (технічні, свідомі)
@@ -265,8 +265,8 @@ docker compose up --build     # перша збірка ~5–10 хв: брауз
 
 Відкрити `http://localhost:3000` (порт — `PORT` з `.env`). Якщо задано `APP_PASSWORD`, браузер спершу попросить
 його (логін будь-який). Старт проєкту потребує акаунта з кредитами — див. [Користувачі, кредити, адмін](#користувачі-кредити-адмін);
-посилання активації — у `docker compose logs api` або в томі `data` (`/data/outbox`). Статистика — `http://localhost:3000/stats`
-(вкладка «Використання» адмінки, лише для `ADMIN_EMAILS`).
+посилання активації — у `docker compose logs api` або в томі `data` (`/data/outbox`). Витрати — «Адмінка → Використання»
+(`http://localhost:3000/?admin=usage`, лише для `ADMIN_EMAILS`).
 
 - `api` — `apps/api` (HTTP, SSE, чат-сторінка); `worker` — `apps/worker` (усі черги BullMQ + оркестратор);
   `redis` — `redis:7` з `appendonly yes`.
@@ -326,7 +326,7 @@ pnpm tsx scripts/cli.ts run --text "Шиномонтаж на Сихові…" -
 pnpm tsx scripts/cli.ts stats [--csv]                                 # статистика витрат DATA_DIR
 ```
 
-`run` працює в тому ж `DATA_DIR`, що й API (проєкти видно на `/stats` з джерелом `test`), без Redis і браузера;
+`run` працює в тому ж `DATA_DIR`, що й API (проєкти видно в «Адмінка → Використання» і `/api/stats` з джерелом `test`), без Redis і браузера;
 витрати — з `source: "test"` (або `--source chat`).
 
 ## Веб-чат (`apps/api/public`)
@@ -372,8 +372,7 @@ pnpm --filter @adc/api dev      # http://localhost:3000 (інший порт: PO
 | `/?project=<id>` | робочий простір; чужий або неіснуючий — «Проєкт не знайдено», протухла сесія — форма входу в сцені |
 | `/?cabinet=balance\|history\|projects\|profile` | кабінет (гість — модалка входу поверх) |
 | `/?checkout=<topupId>` | тестова оплата: «Оплатити» / «Скасувати» (це `checkoutUrl` з `POST /api/billing/topups`) |
-| `/?admin=users\|outbox\|all[&user=<id>]` | адмінка (`ADMIN_EMAILS`); клієнт бачить 403 |
-| `/stats` | адмінка, вкладка «Використання» — витрати за період (`docs/usage-api.md`); старе `/?admin=usage` переписується сюди; кнопки «Статистика» в топбарі, підшапці адмінки й меню акаунта |
+| `/?admin=users\|outbox\|all\|usage[&user=<id>]` | адмінка (`ADMIN_EMAILS`); клієнт бачить 403; `usage` — витрати за період (`docs/usage-api.md`) |
 | `/?auth=activate&token=…`, `/?auth=reset&token=…` | посилання з листа: старт + модалка; токен одразу зникає з адреси |
 
 - **Відкладений старт.** Гість вводить адресу і тисне «Почати» → запис `adc.pendingStart` у localStorage (TTL 24 год,
@@ -383,7 +382,7 @@ pnpm --filter @adc/api dev      # http://localhost:3000 (інший порт: PO
 - **Ціни** на старті, на ЧП1/ЧП3 і в підказці композера — з `me.prices` (гість — з публічного
   `GET /api/billing/packages`). Відмови й списання в чаті — тексти сервера; після них топбар оновлює баланс
   (`GET /api/auth/me`) і показує мітку «−3 / +10».
-- Валюти в інтерфейсі немає; `$` і «Статистика» — лише для адміна.
+- Валюти в інтерфейсі немає; `$` і вкладка «Використання» — лише для адміна.
 
 ### Фікстури й Референс
 

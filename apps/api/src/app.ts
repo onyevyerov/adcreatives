@@ -52,9 +52,6 @@ export function createApp(deps: ApiDeps): Hono<AppEnv> {
   const index = async () => readFile(path.join(deps.config.publicDir, "index.html"), "utf8");
   app.get("/", async (c) => c.html(await index()));
   app.get("/index.html", async (c) => c.html(await index()));
-  // Вкладка «Використання» адмінки: та сама сторінка, маршрут розбирає router.js; доступ — на клієнті
-  // (гість → вхід, не адмін → «немає доступу»), дані — під requireAdmin у /api/admin/usage/*.
-  app.get("/stats", async (c) => c.html(await index()));
 
   app.notFound((c) => c.json({ error: "not_found", message: "Не знайдено." }, 404));
   return app;

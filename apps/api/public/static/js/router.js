@@ -8,12 +8,10 @@
  * | `/?project=<id>`                            | project                        |
  * | `/?cabinet=balance\|history\|projects\|profile` | cabinet                    |
  * | `/?checkout=<topupId>`                      | checkout                       |
- * | `/?admin=users\|outbox\|all[&user=<id>]`      | admin                          |
- * | `/stats`                                    | admin, вкладка `usage`         |
+ * | `/?admin=users\|outbox\|all\|usage[&user=<id>]` | admin                      |
  * | `/?auth=activate\|reset&token=…`            | start + `auth` (модалка)       |
  *
  * `auth` повертається за будь-якого маршруту (ядро прибирає токен з адреси завжди).
- * Старе `/?admin=usage` теж розбирається у вкладку `usage`; ядро переписує адресу на `/stats`.
  *
  * У mock-режимі (`?mock=1`) `urlForRoute` зберігає службові параметри (`mock`, `speed`, `fail`…).
  */
@@ -26,9 +24,6 @@
 export const CABINET_SECTIONS = ["balance", "history", "projects", "profile"];
 /** @type {readonly AdminTab[]} */
 export const ADMIN_TABS = ["users", "outbox", "all", "usage"];
-
-/** Шлях вкладки «Використання» адмінки (замість `/?admin=usage`). */
-export const STATS_PATH = "/stats";
 
 /** Параметри, що описують маршрут (решта — службові, зберігаються лише в mock-режимі). */
 const ROUTE_KEYS = ["project", "cabinet", "checkout", "admin", "user", "auth", "token", "jump"];
@@ -44,14 +39,12 @@ const oneOf = (list, value, fallback) =>
   list.includes(/** @type {T} */ (value)) ? /** @type {T} */ (value) : fallback;
 
 /**
- * Маршрут з адреси. Невідомий розділ кабінету / вкладка адмінки → перший за списком.
+ * Маршрут з параметрів адреси. Невідомий розділ кабінету / вкладка адмінки → перший за списком.
  * @param {URLSearchParams} params
- * @param {string} [pathname] шлях сторінки: `/stats` → вкладка «Використання», решта — за параметрами
  * @returns {Route & { auth?: { kind: "activate" | "reset", token: string } }}
  */
-export function routeFromUrl(params, pathname = "/") {
-  /** @type {Route} */
-  const route = pathname === STATS_PATH ? { route: "admin", tab: "usage" } : baseRoute(params);
+export function routeFromUrl(params) {
+  const route = baseRoute(params);
   const kind = params.get("auth");
   const token = params.get("token");
   return (kind === "activate" || kind === "reset") && token ? { ...route, auth: { kind, token } } : route;
@@ -81,14 +74,12 @@ function baseRoute(params) {
 
 /**
  * Адреса маршруту. `params` — поточні параметри сторінки: у mock-режимі службові зберігаються.
- * Вкладка «Використання» — `/stats` (обраний користувач до неї не належить і в адресу не йде).
  * @param {Route} r
  * @param {URLSearchParams} [params]
  * @returns {string}
  */
 export function urlForRoute(r, params) {
   const q = new URLSearchParams();
-  let path = "/";
   if (params?.get("mock") === "1") {
     for (const [k, v] of params) if (!ROUTE_KEYS.includes(k)) q.append(k, v);
   }
@@ -103,10 +94,6 @@ export function urlForRoute(r, params) {
       q.set("checkout", r.id);
       break;
     case "admin":
-      if (r.tab === "usage") {
-        path = STATS_PATH;
-        break;
-      }
       q.set("admin", r.tab ?? "users");
       if (r.userId) q.set("user", r.userId);
       break;
@@ -114,5 +101,5 @@ export function urlForRoute(r, params) {
       break;
   }
   const s = q.toString();
-  return s ? `${path}?${s}` : path;
+  return s ? `/?${s}` : "/";
 }

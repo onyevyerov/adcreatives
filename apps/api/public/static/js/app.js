@@ -3,8 +3,7 @@
  * Точка входу сторінки (Крок 0; блоки цей файл не правлять).
  *
  * - маршрут — з адреси (router.js): старт, `?project=<id>` → робочий простір, `?cabinet=…`,
- *   `?checkout=<id>`, `?admin=…`, `/stats` (вкладка «Використання» адмінки);
- *   `?auth=activate|reset&token=…` — старт + модалка входу;
+ *   `?checkout=<id>`, `?admin=…`; `?auth=activate|reset&token=…` — старт + модалка входу;
  * - `?mock=1[&jump=…][&speed=…]` → шар даних програє фікстуру подій (data/mock.js), акаунт — фейковий;
  * - `?fixture=<стан>` → статичний стан з dev/fixture-states.js і dev-дії, без шару даних.
  *
@@ -127,19 +126,18 @@ function byId(doc, id) {
 
 /**
  * Запускає сторінку. Параметри — для тестів і режиму фікстур.
- * @param {{ doc?: Document, params?: URLSearchParams, pathname?: string, state?: UiState, actions?: (store: Store) => Actions }} [opts]
+ * @param {{ doc?: Document, params?: URLSearchParams, state?: UiState, actions?: (store: Store) => Actions }} [opts]
  * @returns {Promise<{ store: Store, actions: Actions, destroy(): void }>}
  */
 export async function boot(opts = {}) {
   initTheme();
   const doc = opts.doc ?? document;
   const params = opts.params ?? new URLSearchParams(doc.location?.search ?? "");
-  const pathname = opts.pathname ?? (opts.params ? "/" : (doc.location?.pathname ?? "/"));
   const fixture = params.get("fixture");
 
-  let state = opts.state ?? stateForUrl(params, pathname);
+  let state = opts.state ?? stateForUrl(params);
   /** @type {(store: Store) => Actions} */
-  let makeActions = opts.actions ?? ((s) => createAccountActions(s, { params, pathname }));
+  let makeActions = opts.actions ?? ((s) => createAccountActions(s, { params }));
   if (!opts.state && fixture) {
     const [{ fixtureStates, LEGACY_FIXTURES }, { createDevActions }, { ME, PROJECTS }] = await Promise.all([
       import("../dev/fixture-states.js"),

@@ -382,8 +382,7 @@
  * Параметри шару даних: `createActions(store, opts)` з data/actions.js створює дії і сам запускає
  * потік даних для поточного маршруту (GET проєкту + SSE, або програвання фікстури при `?mock=1`).
  * `refreshMe` — оновити баланс після успішного старту проєкту (передає data/account.js).
- * `pathname` — шлях сторінки (`/stats` — вкладка «Використання» адмінки); без нього — `/`.
- * @typedef {{ params: URLSearchParams, pathname?: string, refreshMe?: () => Promise<void> }} DataOptions
+ * @typedef {{ params: URLSearchParams, refreshMe?: () => Promise<void> }} DataOptions
  */
 
 // ───────────── View ─────────────
