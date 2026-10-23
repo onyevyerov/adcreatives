@@ -64,19 +64,22 @@ async function readBody<T>(c: Ctx, schema: z.ZodType<T>): Promise<T | null> {
   return r.success ? r.data : null;
 }
 
+/** Назва сервісу в листах (на фронті — `BRAND_NAME` з contracts.js). */
+const BRAND_NAME = "Crealab";
+
 const MAIL = {
   activate: {
-    subject: "Активація акаунта AdCreative",
+    subject: `Активація акаунта ${BRAND_NAME}`,
     ttlMs: ACTIVATE_TOKEN_TTL_MS,
     text: (name: string, link: string) =>
-      `Вітаємо, ${name}!\n\nЩоб активувати акаунт AdCreative, відкрийте посилання:\n${link}\n\n` +
+      `Вітаємо, ${name}!\n\nЩоб активувати акаунт ${BRAND_NAME}, відкрийте посилання:\n${link}\n\n` +
       "Посилання дійсне 24 години. Якщо ви не реєструвалися — просто проігноруйте цей лист.",
   },
   reset: {
-    subject: "Скидання пароля AdCreative",
+    subject: `Скидання пароля ${BRAND_NAME}`,
     ttlMs: RESET_TOKEN_TTL_MS,
     text: (name: string, link: string) =>
-      `Вітаємо, ${name}!\n\nЩоб задати новий пароль для AdCreative, відкрийте посилання:\n${link}\n\n` +
+      `Вітаємо, ${name}!\n\nЩоб задати новий пароль для ${BRAND_NAME}, відкрийте посилання:\n${link}\n\n` +
       "Посилання дійсне 1 годину. Якщо ви не просили скинути пароль — просто проігноруйте цей лист.",
   },
 } as const satisfies Record<TokenKind, unknown>;

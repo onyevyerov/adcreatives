@@ -9,11 +9,11 @@ import {
   NotFoundInStorageError,
   projectPaths,
   SiteData,
+  STAGE_STEPS,
   type Stage,
   type StageContext,
   StageError,
   type Storage,
-  t,
 } from "@adc/shared";
 import { addClientFacts } from "./facts.ts";
 import { finalizeBrandKit } from "./finalize.ts";
@@ -72,13 +72,23 @@ function llmToStageError(err: unknown, what: string): never {
   throw err;
 }
 
+/** Подія підкроку чекліста; підпис — з `STAGE_STEPS.brandkit`. */
+async function stepProgress(ctx: StageContext<"brandkit">, step: "read" | "look" | "compose" | "verify") {
+  const label = STAGE_STEPS.brandkit.find((s) => s.id === step)?.label ?? step;
+  try {
+    await ctx.emit.progress("brandkit", label, null, null, step);
+  } catch (err) {
+    ctx.logger.warn("прогрес не надіслано", { error: (err as Error).message });
+  }
+}
+
 /** Стадія `brandkit`: site.json + assets.json → brandkit/v<k>.json (перша — v1) і brandkit/site-text.txt. */
 export function createBrandkitStage(opts: BrandkitStageOptions = {}): Stage<"brandkit"> {
   const now = opts.now ?? (() => new Date());
   return async (ctx: StageContext<"brandkit">) => {
     const { storage, projectId } = ctx;
     const paths = projectPaths(projectId);
-    await ctx.emit.progress("brandkit", t("brandkitProgress"));
+    await stepProgress(ctx, "read");
 
     const site = await readSite(storage, projectId);
     if (!site) {
@@ -91,6 +101,7 @@ export function createBrandkitStage(opts: BrandkitStageOptions = {}): Stage<"bra
     }
     const assets = await readAssets(storage, projectId);
 
+    await stepProgress(ctx, "look");
     const input = await buildBrandkitInput(storage, site, assets, {
       textBudgetTokens: opts.textBudgetTokens,
       maxScreenshots: opts.maxScreenshots,
@@ -111,6 +122,7 @@ export function createBrandkitStage(opts: BrandkitStageOptions = {}): Stage<"bra
 
     let data: BrandKit;
     let promptHash: string;
+    await stepProgress(ctx, "compose");
     try {
       const res = await ctx.llm.structured("brandkit", input.vars, BrandKit, {
         images: input.images,
@@ -122,6 +134,7 @@ export function createBrandkitStage(opts: BrandkitStageOptions = {}): Stage<"bra
       llmToStageError(err, "сайт");
     }
 
+    await stepProgress(ctx, "verify");
     const fin = finalizeBrandKit(
       data,
       {

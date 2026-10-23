@@ -348,3 +348,110 @@ describe("reduce: відео-превʼю ЧП3", () => {
     expect(reduce(s, again.event, again.id)).toBe(s);
   });
 });
+
+describe("reduce: прогрес без дублів (B4)", () => {
+  const stepEv = (
+    stage: string,
+    label: string,
+    step?: string,
+    {
+      done = null,
+      total = null,
+      sec = 0,
+    }: { done?: number | null; total?: number | null; sec?: number } = {},
+  ) => ev({ type: "progress", stage, label, done, total, ...(step ? { step } : {}) }, sec);
+  const progressItems = (s: UiState) => s.feed.filter((f) => f.kind === "progress");
+  const atBrand = () =>
+    reduceAll(base(), [
+      stateEv("awaiting_brand", "brandkit", 0),
+      ev({
+        type: "checkpoint",
+        rev: 1,
+        checkpoint: "brand",
+        payload: fixtureStates.awaitingBrand?.checkpoints.brand?.payload,
+      }),
+    ]);
+
+  it("гонка машина+стадія: progress стадії до state машини → один рядок, не «✓ … / ○ …»", () => {
+    // Драйвер ставить job у чергу до emit подій кроку: стадія встигає надіслати свій
+    // «Пишу сценарій…» раніше за state(scripting) і такий самий рядок машини (step brief).
+    const s = reduceAll(atBrand(), [
+      stepEv("storyboard", "Пишу сценарій…", undefined, { sec: 1 }),
+      stateEv("scripting", "awaiting_brand", 2),
+      stepEv("storyboard", "Пишу сценарій…", "brief", { sec: 2 }),
+    ]);
+    const items = progressItems(s);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      stage: "storyboard",
+      label: "Пишу сценарій…",
+      step: "brief",
+      running: true,
+    });
+    // Рядок належить поточному busy-відрізку (його `at` не раніше busySince) — його бачить центральна панель.
+    expect(Date.parse(items[0]?.at ?? "")).toBeGreaterThanOrEqual(Date.parse(s.busySince ?? ""));
+  });
+
+  it("той самий stage+label після state у busy без проміжних рядків — не дублює і в звичайному порядку", () => {
+    const s = reduceAll(atBrand(), [
+      stateEv("scripting", "awaiting_brand", 1),
+      stepEv("storyboard", "Пишу сценарій…", "brief"),
+      stepEv("storyboard", "Пишу сценарій…"),
+    ]);
+    expect(progressItems(s)).toEqual([
+      expect.objectContaining({ label: "Пишу сценарій…", step: "brief", running: true }),
+    ]);
+  });
+
+  it("закритий рядок не відкривається, якщо статус уже не busy", () => {
+    const s = reduceAll(base(), [
+      stateEv("scripting", "awaiting_brand", 0),
+      stepEv("storyboard", "Пишу сценарій…", "brief"),
+      stateEv("awaiting_script", "scripting", 5),
+      stepEv("storyboard", "Пишу сценарій…"),
+    ]);
+    const items = progressItems(s);
+    expect(items).toHaveLength(2);
+    expect(items.map((i) => i.kind === "progress" && i.running)).toEqual([false, true]);
+  });
+
+  it("підкроки одного stage — окремі елементи стрічки (для чекліста B6), лічильник — на місці", () => {
+    const s = reduceAll(base(), [
+      stateEv("scripting", "awaiting_brand", 0),
+      stepEv("storyboard", "Читаю бренд-кіт і сайт", "brief"),
+      stepEv("storyboard", "Пишу концепт і сцени", "write"),
+      stepEv("storyboard", "Підганяю тексти під екран", "fit"),
+      stepEv("storyboard", "Звіряю цифри з сайтом 1/3", "claims", { done: 1, total: 3 }),
+      stepEv("storyboard", "Звіряю цифри з сайтом 2/3", "claims", { done: 2, total: 3 }),
+    ]);
+    expect(progressItems(s).map((i) => i.kind === "progress" && [i.step, i.label, i.running])).toEqual([
+      ["brief", "Читаю бренд-кіт і сайт", false],
+      ["write", "Пишу концепт і сцени", false],
+      ["fit", "Підганяю тексти під екран", false],
+      ["claims", "Звіряю цифри з сайтом 2/3", true],
+    ]);
+  });
+
+  it("подія без step оновлює рядок поточного кроку того самого stage і не губить його step", () => {
+    const s = reduceAll(base(), [
+      stateEv("directing", "awaiting_script", 0),
+      stepEv("codegen", "Пишу анімацію сцен", "code"),
+      stepEv("codegen", "Генерую сцени… 1/3", undefined, { done: 1, total: 3 }),
+    ]);
+    expect(progressItems(s)).toEqual([
+      expect.objectContaining({ step: "code", label: "Генерую сцени… 1/3", done: 1, running: true }),
+    ]);
+  });
+
+  it("старі події без step — як раніше: той самий stage оновлює один рядок", () => {
+    // Фікстура вже з step (B6) — знімаємо його, щоб відтворити старі події.
+    const legacy = eventsOf(PATHS.brand).map((e) => {
+      const { step: _step, ...event } = e.event as ChatEvent & { step?: string };
+      return { ...e, event: event as ChatEvent };
+    });
+    const s = reduceAll(base(), legacy);
+    const items = progressItems(s);
+    expect(items.every((i) => !("step" in i))).toBe(true);
+    expect(items.map((i) => i.kind === "progress" && i.stage)).toEqual(["crawl", "brandkit"]);
+  });
+});

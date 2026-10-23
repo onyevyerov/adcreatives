@@ -71,13 +71,24 @@ function apply(s, { id, event: ev }) {
     case "progress": {
       const last = s.feed.at(-1);
       const item = { stage: ev.stage, label: ev.label, done: ev.done, total: ev.total };
-      const feed =
-        last?.kind === "progress" && last.running && last.stage === ev.stage
-          ? [...s.feed.slice(0, -1), { ...last, ...item, at: ev.at }]
-          : [
-              ...closeProgress(s.feed),
-              { kind: /** @type {const} */ ("progress"), id, at: ev.at, ...item, running: true },
-            ];
+      // Як `continuesRow` у редьюсері: новий крок того самого stage — новий рядок; подія без step
+      // лишає крок рядка; та сама мітка в busy продовжує рядок, навіть закритий state-подією.
+      const step = ev.step === undefined ? {} : { step: ev.step };
+      const continues =
+        last?.kind === "progress" &&
+        last.stage === ev.stage &&
+        ((last.running && (ev.step === undefined || ev.step === last.step)) ||
+          (last.label === ev.label && (last.running || BUSY.includes(s.status))));
+      /** @type {FeedItem[]} */
+      let feed;
+      if (continues) {
+        feed = [...s.feed.slice(0, -1), { ...last, ...item, ...step, at: ev.at, running: true }];
+      } else {
+        feed = [
+          ...closeProgress(s.feed),
+          { kind: "progress", id, at: ev.at, ...item, ...step, running: true },
+        ];
+      }
       const stageLog =
         s.stageLog.at(-1)?.label === ev.label
           ? s.stageLog
@@ -196,6 +207,8 @@ const legacyStates = {
   /** crawling, 4/7 сторінок (C3: плейхед 8.53%). */
   crawling: fold(upTo(toBrand, progressLabel("Сканую сайт… 4/7 сторінок"))),
   brandkit: fold(upTo(toBrand, progressLabel("Збираю бренд-кіт…"))),
+  /** scripting: два кроки ✓, поточний — «Підганяю тексти під екран» (= `?jump=scripting`). */
+  scripting: fold(eventsOf(PATHS.scripting)),
   awaitingBrand: fold(eventsOf(PATHS.brand)),
   awaitingScript: fold(eventsOf(PATHS.script)),
   /** X3: чекпоінт 2 з непідтвердженим твердженням. */

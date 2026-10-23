@@ -203,8 +203,8 @@ class Draft {
     this.events.push({ type: "message", role: "assistant", text, ...(buttons ? { buttons } : {}) });
   }
 
-  progress(stage: CostStage, label: string): void {
-    this.events.push({ type: "progress", stage, label, done: null, total: null });
+  progress(stage: CostStage, label: string, step?: string): void {
+    this.events.push({ type: "progress", stage, label, done: null, total: null, ...(step ? { step } : {}) });
   }
 
   /** Ставить job стадії; attempt — порядковий номер запуску цієї стадії в ревізії. */
@@ -352,7 +352,9 @@ function onSetLogo(d: Draft, assetId: string): void {
   d.enqueue("brandkit-patch", { instruction: null, logoAssetId: assetId, facts: [] });
 }
 
-function onApprove(d: Draft, rev: number | null): void {
+type ApproveChoices = Extract<PipelineCommand, { type: "approve" }>["choices"];
+
+function onApprove(d: Draft, rev: number | null, choices: ApproveChoices): void {
   const cp = checkpointOf(d.status);
   if (cp === null) return; // подвійний клік / застаріла кнопка — ігноруємо мовчки
   if (rev !== null && rev !== d.project.rev) {
@@ -360,9 +362,28 @@ function onApprove(d: Draft, rev: number | null): void {
     return;
   }
   d.project.restartRequested = false;
-  if (cp === "brand") approveBrand(d);
-  else if (cp === "script") approveScript(d);
+  if (cp === "brand") {
+    // Вибір з панелі ЧП1 («Затвердити») — одним кроком із затвердженням, без answersSaved.
+    // На інших чекпоінтах choices ігноруються (warn пише драйвер).
+    if (choices) applyAnswers(d, choicesIntent(choices));
+    approveBrand(d);
+  } else if (cp === "script") approveScript(d);
   else approveStoryboard(d);
+}
+
+/** `choices` команди approve → розбір наміру для `applyAnswers` (лише формати й мова). */
+function choicesIntent(choices: NonNullable<ApproveChoices>): ChatIntent {
+  return {
+    kind: "approve",
+    answers: [],
+    formats: choices.formats ?? null,
+    language: choices.language ?? null,
+    brandEdits: null,
+    edits: null,
+    facts: [],
+    durationSeconds: null,
+    question: null,
+  };
 }
 
 function approveBrand(d: Draft): void {
@@ -374,7 +395,7 @@ function approveBrand(d: Draft): void {
     d.project.language ??= brand.language;
   }
   d.setStatus("scripting");
-  d.progress("storyboard", t("scriptProgress"));
+  d.progress("storyboard", t("scriptProgress"), "brief");
   d.enqueue("storyboard", { durationSeconds: d.project.durationSeconds });
 }
 
@@ -408,7 +429,7 @@ function startDirecting(
   d.pipe.sfxProvider = d.ctx.sfxProvider ?? readTuning().sfxProvider;
   d.pipe.musicDone = false;
   d.pipe.sfxDone = false;
-  d.progress(stage, t("directingStarted"));
+  d.progress(stage, t("directingStarted"), "code");
   d.enqueue(stage, { sceneIds, instructions });
   // designer: трек паралельно з кодом, зведення — після звукорежисера.
   d.enqueue("audio", audioParams(d, sfxMode === "designer" ? "music" : "full"));
@@ -427,7 +448,7 @@ function authoredByAgent(d: Draft): boolean {
 function approveStoryboard(d: Draft): void {
   if (!chargeExtraFormats(d)) return;
   d.setStatus("rendering");
-  d.progress("render", t("renderStarted", { formats: formatsLabel(d.project.formats) }));
+  d.progress("render", t("renderStarted", { formats: formatsLabel(d.project.formats) }), "render");
   for (const format of d.project.formats) {
     d.enqueue("render", { format } satisfies RenderParams, format);
   }
@@ -987,7 +1008,7 @@ function videoDone(d: Draft): void {
 
 function startSfx(d: Draft, sceneIds: string[] | null, instructions: ReviewIssue[]): void {
   d.pipe.sfxDone = false;
-  d.progress("sfx", t("sfxProgress"));
+  d.progress("sfx", t("sfxProgress"), "sfx");
   d.enqueue("sfx", { sceneIds, instructions });
 }
 
@@ -1026,7 +1047,7 @@ function onAudioDone(d: Draft, ev: StageDoneOk<"audio">, job: JobRecord): void {
   // Зведення за фінальним планом SFX: обидві гілки зійшлись.
   d.project.branches.video = "done";
   if (d.ctx.filmReview ?? readTuning().filmReview) {
-    d.progress("review", t("reviewProgress"));
+    d.progress("review", t("reviewProgress"), "review");
     d.enqueue("review", { round: d.pipe.reviewRounds });
     return;
   }
@@ -1057,7 +1078,7 @@ function onReviewDone(d: Draft, ev: StageDoneOk<"review">): void {
       };
       d.project.branches = { video: "running", audio: "running" };
       if (fix.length > 0) {
-        d.progress("fix", t("reviewFixProgress"));
+        d.progress("fix", t("reviewFixProgress"), "review-fix");
         d.enqueue("fix", { sceneIds: fix, reason: "review" });
       } else {
         startPendingSfx(d);
@@ -1133,7 +1154,7 @@ export function nextStep(state: MachineState, input: StepInput, ctx: StepContext
         onUserMessage(d, cmd, input.intent, input.deferred === true);
         break;
       case "approve":
-        onApprove(d, cmd.rev);
+        onApprove(d, cmd.rev, cmd.choices);
         break;
       case "set_logo":
         onSetLogo(d, cmd.assetId);

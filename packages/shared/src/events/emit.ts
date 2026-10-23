@@ -11,7 +11,13 @@ export const EVENT_FIELD = "data";
 export interface Emitter {
   /** Пише подію в стрім проєкту; повертає ID запису (він же SSE `id`). */
   emit(event: ChatEventInput): Promise<string>;
-  progress(stage: CostStage, label: string, done?: number | null, total?: number | null): Promise<string>;
+  progress(
+    stage: CostStage,
+    label: string,
+    done?: number | null,
+    total?: number | null,
+    step?: string,
+  ): Promise<string>;
   message(
     text: string,
     opts?: {
@@ -33,8 +39,8 @@ export function createEmitter(redis: Redis, projectId: string, now: () => Date =
     appendEvent(redis, projectId, { ...event, at: now().toISOString() } as ChatEvent);
   return {
     emit,
-    progress: (stage, label, done = null, total = null) =>
-      emit({ type: "progress", stage, label, done, total }),
+    progress: (stage, label, done = null, total = null, step) =>
+      emit({ type: "progress", stage, label, done, total, ...(step ? { step } : {}) }),
     message: (text, opts = {}) =>
       emit({
         type: "message",
@@ -55,8 +61,8 @@ export function createMemoryEmitter(now: () => Date = () => new Date()): Emitter
   return {
     events,
     emit,
-    progress: (stage, label, done = null, total = null) =>
-      emit({ type: "progress", stage, label, done, total }),
+    progress: (stage, label, done = null, total = null, step) =>
+      emit({ type: "progress", stage, label, done, total, ...(step ? { step } : {}) }),
     message: (text, opts = {}) =>
       emit({
         type: "message",

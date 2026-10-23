@@ -1,4 +1,4 @@
-import { brandCheckpointPayload, formatBrandSummaryText, summarizeBrandKit } from "@adc/brandkit";
+import { brandCheckpointPayload } from "@adc/brandkit";
 import {
   type Asset,
   AssetManifest,
@@ -29,7 +29,6 @@ import {
   TimelineError,
   t,
 } from "@adc/shared";
-import { FORMAT_LABEL, formatsLabel } from "./labels.ts";
 
 /**
  * Збирання карток чекпоінтів і видачі з артефактів сховища.
@@ -92,35 +91,18 @@ export async function buildBrandCheckpoint(
   const kit = await readBrandkit(storage, project);
   if (!kit) throw new Error(`немає бренд-кіта для чекпоінта 1 (${project.id})`);
   const assets = await readAssets(storage, project.id);
-  const opts = { publicUrl: (k: string) => storage.publicUrl(k), formats: project.formats };
-  const payload = brandCheckpointPayload(kit, assets, opts);
-  const summary = summarizeBrandKit(kit, assets, opts);
-
-  const lines = [t("brandCheckpointIntro"), "", formatBrandSummaryText(summary), ""];
-  lines.push(`${t("askFormats")} Зараз обрано: ${formatsLabel(project.formats)}.`);
-  if (payload.languageOptions.length > 1 && project.language === null) lines.push(t("askLanguage"));
+  const payload = brandCheckpointPayload(kit, assets, {
+    publicUrl: (k: string) => storage.publicUrl(k),
+    formats: project.formats,
+  });
+  // Бренд-кіт, формати й мова — лише в панелі праворуч; у чаті — відсилка до неї.
   return [
-    { type: "message", role: "assistant", text: lines.join("\n"), buttons: ["approve", "edit"] },
+    { type: "message", role: "assistant", text: t("brandCheckpointShort"), buttons: ["approve", "edit"] },
     { type: "checkpoint", rev, checkpoint: "brand", payload },
   ];
 }
 
 // ─────────────────────────── чекпоінт 2: тексти ───────────────────────────
-
-/**
- * Рядок текстів `items` сцени для чекпоінта 2: `· текст · текст ⚠`; ⚠ — у пункті є непідтверджене
- * твердження. null — сцена без items.
- */
-export function formatSceneItems(
-  scene: Pick<Storyboard["scenes"][number], "id" | "items">,
-  unverified: ReadonlyArray<Pick<ClaimsReport["unverified"][number], "sceneId" | "field" | "itemId">>,
-): string | null {
-  if (scene.items.length === 0) return null;
-  const flagged = new Set(
-    unverified.filter((c) => c.sceneId === scene.id && c.field === "item").map((c) => c.itemId),
-  );
-  return scene.items.map((i) => `· ${i.text}${flagged.has(i.id) ? " ⚠" : ""}`).join(" ");
-}
 
 export async function buildScriptCheckpoint(
   storage: Storage,
@@ -146,28 +128,20 @@ export async function buildScriptCheckpoint(
     .map((a) => ({ assetId: a.id, url: storage.publicUrl(a.path) }));
 
   const timeline = computeTimeline(storyboard);
-  const sec = (frames: number) =>
-    (Math.round((frames / storyboard.fps) * 10) / 10).toString().replace(".", ",");
-  // ⚠ у рядку сцени — непідтверджене в headline/sub; у пунктах — біля самого пункту.
-  const flagged = new Set(claims.unverified.filter((c) => c.field !== "item").map((c) => c.sceneId));
-  const lines = [t("scriptCheckpointIntro"), "", `**${storyboard.concept}**`];
-  // Наскрізний об'єкт — під концептом: власник бачить, що несе фільм через склейки (старі розкадровки — без рядка).
-  if (storyboard.throughline) lines.push(t("scriptThroughline", { object: storyboard.throughline.object }));
-  lines.push("");
-  lines.push(t("scriptScenesHeader", { seconds: sec(timeline.totalFrames) }));
-  storyboard.scenes.forEach((scene, i) => {
-    const tl = timeline.scenes[i];
-    const span = tl ? `${sec(tl.from)}–${sec(tl.end)} с` : "";
-    const sub = scene.text.sub ? ` / ${scene.text.sub}` : "";
-    lines.push(`${i + 1}. ${span} — ${scene.text.headline}${sub}${flagged.has(scene.id) ? " ⚠" : ""}`);
-    const items = formatSceneItems(scene, claims.unverified);
-    if (items) lines.push(`   ${items}`);
-  });
-  const mb = storyboard.musicBrief;
-  lines.push("", `**Музика:** ${mb.genre}, ${mb.mood.join(", ")}, ~${mb.bpm} BPM`);
+  const seconds = (Math.round((timeline.totalFrames / storyboard.fps) * 10) / 10)
+    .toString()
+    .replace(".", ",");
+  // Витяжка без текстів сцен: концепт, сцени, музику й непідтверджені твердження малює панель (cp-script).
+  // Жанр musicBrief — англійською; musicNote — українською, коли розкадровка його має.
+  const lines = [
+    t("scriptCheckpointSummary", {
+      scenes: storyboard.scenes.length,
+      seconds,
+      music: storyboard.musicNote ?? storyboard.musicBrief.genre,
+    }),
+  ];
   if (claims.unverified.length > 0) {
-    lines.push("", t("unverifiedClaimsNote"));
-    for (const c of claims.unverified) lines.push(`- ⚠ «${c.text}»`);
+    lines.push(t("scriptUnverifiedShort", { count: claims.unverified.length }));
   }
 
   return [
@@ -190,9 +164,6 @@ export async function buildScriptCheckpoint(
 
 // ─────────────────────────── чекпоінт 3: розкадровка ───────────────────────────
 
-/** Скільки зауважень рецензента показати власнику (як і попереджень QA). */
-export const REVIEW_WARNINGS_LIMIT = 10;
-
 export type ReviewWarning = ReviewIssue & { route: ReviewRoute };
 
 /**
@@ -207,13 +178,6 @@ export function reviewWarnings(
   return review.issues
     .filter((i) => i.severity !== "minor" && (i.sceneId === null || !templates.has(i.sceneId)))
     .map((i) => ({ ...i, route: routeOf(i.kind) }));
-}
-
-/** Рядок зауваження: `- s1 → s2 [fix]: опис` (join), `- s2 [sfx]: …` (сцена), `- [music]: …` (фільм). */
-export function formatReviewWarning(w: ReviewWarning): string {
-  const where =
-    w.sceneId === null ? "" : w.nextSceneId ? `${w.sceneId} → ${w.nextSceneId} ` : `${w.sceneId} `;
-  return `- ${where}[${w.route}]: ${w.description}`;
 }
 
 /** `review.json` ревізії; зіпсований файл не ламає чекпоінт — тоді рецензії ніби не було. */
@@ -290,21 +254,24 @@ export async function buildStoryboardCheckpoint(
     if (await storage.exists(key)) music = { url: storage.publicUrl(key) };
   }
 
-  const lines = [t("storyboardCheckpointIntro")];
-  if (warnings.length > 0) {
-    lines.push("", t("qaWarnings", { count: warnings.length }));
-    for (const w of warnings.slice(0, 10)) {
-      lines.push(`- ${w.sceneId} (${FORMAT_LABEL[w.format]}): ${w.description}`);
-    }
-  }
   const review = await readReview(storage, rp.review);
   const notes = review ? reviewWarnings(review, opts.templateScenes) : [];
-  if (notes.length > 0) {
-    lines.push("", t("reviewWarnings", { count: notes.length }));
-    for (const w of notes.slice(0, REVIEW_WARNINGS_LIMIT)) lines.push(formatReviewWarning(w));
+  // Витяжка: самі зауваження, резюме рецензента й кадри — у панелі (payload нижче).
+  const shown = changed
+    ? storyboard.scenes.filter((s) => changed.has(s.id)).length
+    : storyboard.scenes.length;
+  const lines = [t("storyboardCheckpointSummary", { scenes: shown })];
+  if (warnings.length + notes.length > 0) {
+    lines.push(
+      t("storyboardIssuesShort", {
+        count: warnings.length + notes.length,
+        qa: warnings.length,
+        review: notes.length,
+      }),
+    );
   }
-  if (review) lines.push("", t("reviewScore", { score: review.score, summary: review.summary }));
-  if (templates.size > 0) lines.push("", t("templateScenesNote", { scenes: [...templates].join(", ") }));
+  if (review) lines.push(t("storyboardScoreShort", { score: review.score }));
+  if (templates.size > 0) lines.push(t("templateScenesNote", { scenes: [...templates].join(", ") }));
 
   return [
     { type: "message", role: "assistant", text: lines.join("\n"), buttons: ["approve", "edit"] },

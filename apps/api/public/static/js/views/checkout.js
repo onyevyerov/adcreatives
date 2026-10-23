@@ -12,6 +12,7 @@
  * фокус лишається на кнопці, поки чек іде pending → confirming → paid.
  */
 
+import { BRAND_NAME } from "../contracts.js";
 import { hostOf, NETWORK_MESSAGE } from "../data/api.js";
 import { h, text } from "../dom.js";
 import { creditWord, formatCredits, formatNumber } from "../lib/credits.js";
@@ -233,7 +234,7 @@ export function mount(el, ctx) {
   const home = h("a", {
     class: "wordmark",
     href: "/",
-    text: "AdCreative",
+    text: BRAND_NAME,
     onclick: (/** @type {MouseEvent} */ e) => {
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();

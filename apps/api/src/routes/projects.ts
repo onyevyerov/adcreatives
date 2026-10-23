@@ -4,14 +4,18 @@ import {
   appendEvent,
   assertPublicHttpUrl,
   classifySource,
-  type Format,
+  Format,
   InsufficientCreditsError,
+  Language,
   type LedgerEntry,
   makeCommandJobId,
   noopLogger,
+  normalizeFormats,
   normalizeInputUrl,
   type PipelineCommand,
+  type ProjectState,
   type PublicUser,
+  projectPaths,
   readCosts,
   readTrace,
   sumUsd,
@@ -34,6 +38,7 @@ import {
   projectExists,
   projectOwner,
   readIntake,
+  readOptionalJson,
   readProject,
 } from "../intake.ts";
 import { type AppEnv, requireUser } from "../session.ts";
@@ -68,6 +73,12 @@ const CommandBody = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("approve"),
     rev: z.number().int().min(1).nullable().optional(),
+    choices: z
+      .object({
+        formats: z.array(Format).min(1).optional(),
+        language: Language.optional(),
+      })
+      .optional(),
     commandId: CommandId.optional(),
   }),
   z.object({ type: z.literal("set_logo"), assetId: AssetId, commandId: CommandId.optional() }),
@@ -76,6 +87,12 @@ const CommandBody = z.discriminatedUnion("type", [
 ]);
 
 const MessageBody = z.object({ text: z.string() });
+
+type ApproveChoices = NonNullable<Extract<PipelineCommand, { type: "approve" }>["choices"]>;
+
+/** Підписи для рядка вибору ЧП1 (`uk.choicesLine`). */
+const FORMAT_TEXT: Record<Format, string> = { vertical: "9:16", square: "1:1", landscape: "16:9" };
+const LANGUAGE_TEXT: Record<Language, string> = { uk: "українська", en: "англійська" };
 
 /** Витрати кредитів по проєкту (N5 «оплачено», N12 — розбивка в кабінеті). */
 export interface ProjectCredits {
@@ -165,6 +182,27 @@ export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
 
   const echoUser = (projectId: string, text: string) =>
     appendEvent(redis, projectId, { type: "message", at: config.now().toISOString(), role: "user", text });
+
+  /**
+   * Рядок «Формати: … · Мова відео: …» для approve з `choices` на ЧП1: чого немає в `choices` —
+   * з проєкту (мова — з бренд-кіта, якщо в проєкті ще null). Поза ЧП1 машина `choices` ігнорує —
+   * тоді рядка немає (null).
+   */
+  const choicesText = async (project: ProjectState | null, choices: ApproveChoices) => {
+    if (project?.status !== "awaiting_brand") return null;
+    const formats = normalizeFormats(choices.formats ?? project.formats);
+    const kitLanguage = () =>
+      project.brandkitVersion === null
+        ? Promise.resolve(null)
+        : readOptionalJson(storage, projectPaths(project.id).brandkit(project.brandkitVersion), (v) =>
+            Language.parse((v as { identity?: { language?: unknown } } | null)?.identity?.language),
+          );
+    const language = choices.language ?? project.language ?? (await kitLanguage());
+    return t("choicesLine", {
+      formats: formats.map((f) => FORMAT_TEXT[f]).join(", "),
+      language: language ? LANGUAGE_TEXT[language] : "—",
+    });
+  };
 
   /**
    * Проєкт існує і поточний користувач його бачить. Чужий і неіснуючий — однаково false,
@@ -412,7 +450,17 @@ export function projectsRoutes(deps: ApiDeps): Hono<AppEnv> {
     let command: PipelineCommand;
     switch (body.type) {
       case "approve":
-        command = { ...base, type: "approve", rev: body.rev ?? null };
+        // Вибір з панелі ЧП1 — у стрічку як повідомлення клієнта (як /messages).
+        if (body.choices) {
+          const line = await choicesText(await readProject(storage, projectId), body.choices);
+          if (line) await echoUser(projectId, line);
+        }
+        command = {
+          ...base,
+          type: "approve",
+          rev: body.rev ?? null,
+          ...(body.choices ? { choices: body.choices } : {}),
+        };
         break;
       case "set_logo":
         command = { ...base, type: "set_logo", assetId: body.assetId };

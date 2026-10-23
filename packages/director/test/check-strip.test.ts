@@ -1,4 +1,12 @@
-import { CheckReport, type LocalStorage, type RenderStillOptions, revPaths, stripFrames } from "@adc/shared";
+import {
+  type ChatEvent,
+  CheckReport,
+  type LocalStorage,
+  type RenderStillOptions,
+  revPaths,
+  STAGE_STEPS,
+  stripFrames,
+} from "@adc/shared";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { QA_IMAGE_MAX_SIDE, stripSheetLayout } from "../src/sheets.ts";
@@ -16,6 +24,8 @@ import {
 import { codegenStage } from "../src/stages/codegen.ts";
 import { exampleSources, fileBlocks, makeCtx, PROJECT_ID, seedProject, tmpStorage } from "./helpers.ts";
 import { movingEngine, sceneIdOf } from "./strip-engine.ts";
+
+type ProgressEvent = Extract<ChatEvent, { type: "progress" }>;
 
 const ex = exampleSources();
 const CODE: Record<string, string> = { s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] };
@@ -137,6 +147,31 @@ describe("checkStage: стрічка кадрів (мок RenderEngine)", () => 
     // сцени рухаються → static_hold немає; лишається лише event_unused сцени s2
     const report = await readCheck(storage);
     expect(report.autoIssues.map((i) => i.kind)).toEqual(["event_unused", "event_unused"]);
+  });
+
+  it("прогрес: крок check (код, бандл), далі stills з лічильником; без однакових подій поспіль", async () => {
+    const storage = await generated();
+    const ctx = makeCtx(storage, "check", { sceneIds: null });
+    await createCheckStage({ engine: movingEngine() })(ctx);
+    const events = ctx.emitted.events.filter((e): e is ProgressEvent => e.type === "progress");
+    const label = (id: string) => STAGE_STEPS.directing.find((s) => s.id === id)?.label as string;
+
+    expect(events.every((e) => e.stage === "check")).toBe(true);
+    expect(events.slice(0, 2).map((e) => [e.step, e.label])).toEqual([
+      ["check", label("check")],
+      ["check", "Збираю відео-проєкт…"],
+    ]);
+    const stills = events.slice(2);
+    expect(stills.length).toBeGreaterThan(0);
+    for (const e of stills) {
+      expect(e.step).toBe("stills");
+      expect(e.label).toBe(`${label("stills")} ${e.done}/${e.total}`);
+    }
+    expect(stills.at(-1)?.done).toBe(stills.at(-1)?.total);
+    for (let i = 1; i < events.length; i++) {
+      const [a, b] = [events[i - 1] as ProgressEvent, events[i] as ProgressEvent];
+      expect(`${a.step}|${a.label}`).not.toBe(`${b.step}|${b.label}`);
+    }
   });
 
   it("після кадру 30 нічого не рухається 90 кадрів → static_hold з діапазоном кадрів у кожному форматі", async () => {

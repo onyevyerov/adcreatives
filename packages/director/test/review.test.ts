@@ -227,7 +227,9 @@ describe("reviewStage", () => {
     expect(grid.length).toBeGreaterThan(0);
     expect(system).toContain(`(\`${grid.join(", ")}\` snap to the half-beat grid`);
     expect(system).toContain("in the language of the video (uk)");
-    expect(ctx.emitted.events.some((e) => e.type === "progress")).toBe(true);
+    expect(ctx.emitted.events.filter((e) => e.type === "progress")).toEqual([
+      expect.objectContaining({ stage: "review", step: "review", label: "Рецензент дивиться ролик" }),
+    ]);
   });
 
   it("лише minor і музика → pass навіть якщо модель сказала fix; minor не тягне сцену на коло", async () => {

@@ -142,6 +142,8 @@ export const Scene = z.object({
   layoutIntent: LayoutIntent,
   /** Опис руху людською мовою для codegen. */
   motionIntent: z.string(),
+  /** Що відбувається в кадрі — 1–2 речення українською для власника (motionIntent лишається англійською для моделей). */
+  motionNote: z.string().optional(),
   transitionIn: TransitionKind,
   /**
    * @deprecated Замінено `events[].sound`: `normalize` перетворює на подію "arrive" з at = 0.
@@ -215,6 +217,8 @@ export const Storyboard = z.object({
   copyRules: CopyRules,
   /** Наскрізний об'єкт (one object that never cuts); null — старі розкадровки без нього. */
   throughline: Throughline.nullable().default(null),
+  /** Музика простими словами українською: «Сучасний tech house, впевнений і бадьорий, ~120 BPM». */
+  musicNote: z.string().optional(),
 });
 export type Storyboard = z.infer<typeof Storyboard>;
 

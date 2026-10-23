@@ -14,6 +14,7 @@ import {
   type RenderEngine,
   revPaths,
   type Scene,
+  STAGE_STEPS,
   STILL_PLAN,
   type Stage,
   type StageContext,
@@ -85,6 +86,10 @@ export const CheckMeta = z.object({
   scenes: z.record(z.string(), z.string()),
 });
 export type CheckMeta = z.infer<typeof CheckMeta>;
+
+/** Підпис кроку чекліста з `STAGE_STEPS.directing`. */
+const stepLabel = (step: "check" | "stills") =>
+  STAGE_STEPS.directing.find((s) => s.id === step)?.label ?? step;
 
 const SCENE_FILE_IN_MESSAGE = /scenes[\\/](s\d{1,2})\.tsx/g;
 const MAX_BUNDLE_ATTEMPTS = 3;
@@ -474,7 +479,7 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
     }
     const toTypecheck: Record<string, string> = {};
     for (const [id, c] of code) if (c !== null) toTypecheck[id] = c;
-    await progress(ctx, "check", "Перевіряю код сцен…");
+    await progress(ctx, "check", stepLabel("check"), null, null, "check");
     const types = typecheckScenes(toTypecheck);
     for (const e of types.errors) {
       compileErrors.push({
@@ -600,7 +605,7 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
     try {
       let serveUrl: string | null = null;
       if (renderTargets.length > 0) {
-        await progress(ctx, "check", "Збираю відео-проєкт…");
+        await progress(ctx, "check", "Збираю відео-проєкт…", null, null, "check");
         const excluded = new Set([...templates, ...compileFailed]);
         for (let attempt = 1; serveUrl === null; attempt++) {
           try {
@@ -660,7 +665,7 @@ export function createCheckStage(deps: CheckStageDeps): Stage<"check"> {
       let done = 0;
       const tick = async () => {
         done++;
-        await progress(ctx, "check", `Знімаю кадри сцен… ${done}/${total}`, done, total);
+        await progress(ctx, "check", `${stepLabel("stills")} ${done}/${total}`, done, total, "stills");
       };
       const renderOne = async (id: string, format: Format, frame: number, out: string) =>
         engine.renderStill({

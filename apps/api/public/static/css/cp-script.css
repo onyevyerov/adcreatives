@@ -30,13 +30,14 @@
   margin-top: 28px;
 }
 
+/* Концепт — рівень заголовків сцен (display-s), а не плакат: одна колонка з хуком і обмежений рядок. */
 .cs-concept {
-  max-width: 860px;
-  text-wrap: balance;
+  max-width: 720px;
+  text-wrap: pretty;
 }
 
 .cs-hook {
-  margin-top: 18px;
+  margin-top: 12px;
   max-width: 720px;
 }
 
@@ -288,28 +289,17 @@
 .cs-music__body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 6px;
   min-width: 0;
 }
 
-.cs-music__mood {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* Настрій — лише показ: без hover-реакції інтерактивного чипа. */
-.cs-chip,
-.cs-chip:hover {
-  border-color: var(--line-strong);
-  cursor: default;
+/* Музика простими словами (`musicNote`) — тим самим кеглем, що хук. */
+.cs-music__note {
+  max-width: 720px;
 }
 
 .cs-music__tech {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 20px;
-  color: var(--ink-2);
+  color: var(--muted);
 }
 
 .cs-photos__list {

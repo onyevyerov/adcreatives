@@ -350,6 +350,50 @@ describe("nextStep — checkpoints and commands", () => {
     expect(r.jobs[0]?.params).toEqual({ durationSeconds: null });
   });
 
+  it("brand approve with choices applies formats and language before approving, without answersSaved", () => {
+    const r = nextStep(
+      state("awaiting_brand", { formats: ["vertical"], language: null }),
+      cmd({ type: "approve", rev: null, choices: { formats: ["square"], language: "en" } }),
+      ctx({ brand: { language: "uk", languageVersions: 2, questions: [] } }),
+    );
+    expect(r.state.status).toBe("scripting");
+    expect(r.state.formats).toEqual(["square"]);
+    expect(r.state.language).toBe("en");
+    expect(stages(r)).toEqual(["storyboard"]);
+    expect(r.events.filter((e) => e.type === "message")).toEqual([]);
+  });
+
+  it("brand approve with choices normalizes format order; only formats keeps the brand language", () => {
+    const r = nextStep(
+      state("awaiting_brand", { formats: ["vertical"], language: null }),
+      cmd({ type: "approve", rev: null, choices: { formats: ["landscape", "vertical"] } }),
+      ctx({ brand: { language: "uk", languageVersions: 1, questions: [] } }),
+    );
+    expect(r.state.formats).toEqual(["vertical", "landscape"]);
+    expect(r.state.language).toBe("uk");
+  });
+
+  it("approve with choices outside checkpoint 1 ignores the choices", () => {
+    const r = nextStep(
+      state("awaiting_script", { formats: ["vertical"], language: "uk" }),
+      cmd({ type: "approve", rev: null, choices: { formats: ["square"], language: "en" } }),
+      ctx({ unverifiedClaims: [] }),
+    );
+    expect(r.state.status).toBe("directing");
+    expect(r.state.formats).toEqual(["vertical"]);
+    expect(r.state.language).toBe("uk");
+  });
+
+  it("approve with choices and a stale rev changes nothing", () => {
+    const r = nextStep(
+      state("awaiting_brand", { rev: 2, formats: ["vertical"] }),
+      cmd({ type: "approve", rev: 1, choices: { formats: ["square"] } }),
+      ctx({ brand: { language: "uk", languageVersions: 1, questions: [] } }),
+    );
+    expect(r.state.status).toBe("awaiting_brand");
+    expect(r.state.formats).toEqual(["vertical"]);
+  });
+
   it("approve with a stale rev is ignored with a message", () => {
     const r = nextStep(state("awaiting_script", { rev: 2 }), cmd({ type: "approve", rev: 1 }), ctx());
     expect(r.state.status).toBe("awaiting_script");

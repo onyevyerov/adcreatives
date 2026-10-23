@@ -79,7 +79,7 @@ describe("повний цикл", () => {
     expect(mail).toMatchObject({
       to: "olya@example.com",
       kind: "activate",
-      subject: "Активація акаунта AdCreative",
+      subject: "Активація акаунта Crealab",
     });
     expect(mail.link.startsWith("http://localhost:3000/?auth=activate&token=")).toBe(true);
     expect(mail.text).toContain(mail.link);
@@ -449,7 +449,7 @@ describe("forgot / reset", () => {
     expect(mail).toMatchObject({
       to: "user@example.com",
       kind: "reset",
-      subject: "Скидання пароля AdCreative",
+      subject: "Скидання пароля Crealab",
     });
     expect(mail?.link.startsWith("http://localhost:3000/?auth=reset&token=")).toBe(true);
     expect(results[1]?.mails).toEqual([]);

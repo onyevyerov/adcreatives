@@ -5,15 +5,25 @@
  * Шапка — eyebrow «0N — Сегмент» (сегмент таймлайну C3) і заголовок `display-l` з пульсуючою
  * крапкою `--accent`. Тіло — за статусом:
  * - intake — хост і рядок «готую сканування»;
- * - crawling (X5) — хост `display-m` замість заголовка, `numeral` done/total, смуга, мітка;
- * - brandkit / scripting — `stageLog`: попередні мітки з ✓, остання зі спінером;
- * - directing — дві гілки «Сцени» (codegen/check/fix/qa) і «Музика» (audio);
- * - rendering — `numeral` відсоток, смуга, «9:16 · 1080×1920 · h264 · формат N з M»;
- * - revising — «Вношу правки» + цитата останнього повідомлення клієнта + `stageLog`.
+ * - crawling (X5) — хост `display-m` замість заголовка, `numeral` done/total, смуга, мітка,
+ *   під ними чекліст підкроків;
+ * - brandkit / scripting — чекліст підкроків `STAGE_STEPS[status]`;
+ * - directing — дві гілки «Сцени» і «Музика» з чеклістом кожної, під ними спільні кроки
+ *   (звук, рецензія);
+ * - rendering — `numeral` відсоток, смуга, «9:16 · 1080×1920 · h264 · формат N з M», чекліст
+ *   форматів;
+ * - revising — «Вношу правки» + цитата останнього повідомлення клієнта + чекліст «Розбираю
+ *   правку» і кроків, що реально прийшли.
+ *
+ * Чекліст (ТЗ chat-interface-fixes, B6): ✓ виконані, спінер на поточному (+ done/total), сірі
+ * майбутні; `optional` — лише якщо почались. Крок події — `step`, інакше перший крок, у якого
+ * `stages` містить `stage` (старі події). Крок, на який перестрибнули, — ✓ без часу. Тривалість
+ * кроку — різниця `at` подій, що його почали й закінчили; у стрічці редьюсер зливає рядки одного
+ * stage, тож ці моменти чекліст бачить лише наживо (після перезавантаження — ✓ без часу).
  *
  * Тіло перебудовується лише при зміні статусу; лічильники, смуги й мітки патчаться на місці.
  */
-import { FORMAT_LABELS, FORMATS, SEGMENTS, STATUS_LABELS } from "../contracts.js";
+import { FORMAT_LABELS, FORMATS, SEGMENTS, STAGE_STEPS, STATUS_LABELS } from "../contracts.js";
 import { h, lines, text } from "../dom.js";
 import { renderFormats, timelinePosition } from "../lib/timeline.js";
 
@@ -224,6 +234,255 @@ export function lastClientMessage(state) {
   return null;
 }
 
+// ───────────── Чекліст підкроків ─────────────
+
+/** @typedef {(typeof STAGE_STEPS)["directing"][number]} StageStep */
+
+/**
+ * Рядок чекліста. `implicit` — активний без жодної події (стадія щойно почалась): спінер є, але
+ * старт кроку ще не відомий. `note` — підпис праворуч у виконаного кроку замість тривалості.
+ * @typedef {{
+ *   key: string,
+ *   label: string,
+ *   state: "done" | "active" | "pending",
+ *   implicit?: boolean,
+ *   count?: string,
+ *   note?: string
+ * }} StepRow
+ */
+
+/** Ревізія: власного списку в `STAGE_STEPS` немає, перший крок — розбір правки (stage `revise`). */
+export const REVISE_STEP = { id: "revise", label: "Розбираю правку", stages: ["revise"] };
+
+/** Усі кроки всіх стадій (id унікальні між стадіями) — для ревізії, де стадії довільні. */
+const ALL_STEPS = /** @type {readonly { id: string, label: string, stages: readonly string[] }[]} */ ([
+  REVISE_STEP,
+  ...Object.values(STAGE_STEPS).flat(),
+]);
+
+/**
+ * Крок події в переліку: `step`, якщо він там є, інакше — перший крок, у якого `stages` містить
+ * `stage` (старі події без `step`).
+ * @template {{ id: string, stages: readonly string[] }} S
+ * @param {readonly S[]} steps
+ * @param {{ stage: string, step?: string }} item
+ * @returns {S | null}
+ */
+export function stepOf(steps, item) {
+  const byId = item.step ? steps.find((s) => s.id === item.step) : undefined;
+  return byId ?? steps.find((s) => s.stages.includes(item.stage)) ?? null;
+}
+
+/**
+ * Кроки, що вже почались у поточному busy-стані. Рядки стрічки одного stage злиті (кожен знає
+ * лише останній `step`), тож доповнюємо кроками, які чекліст бачив активними наживо (`seen`).
+ * @param {readonly StageStep[]} steps
+ * @param {UiState} state
+ * @param {Iterable<string>} seen
+ * @returns {Set<string>}
+ */
+export function visitedSteps(steps, state, seen) {
+  const out = new Set(seen);
+  for (const item of currentProgressItems(state)) {
+    const s = stepOf(steps, item);
+    if (s) out.add(s.id);
+  }
+  return out;
+}
+
+/**
+ * Останній рядок стрічки поточного busy-стану, чий крок є в `steps`.
+ * @param {readonly StageStep[]} steps
+ * @param {ProgressItem[]} items
+ * @returns {{ step: StageStep, item: ProgressItem } | null}
+ */
+function lastStep(steps, items) {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    const step = item ? stepOf(steps, item) : null;
+    if (item && step) return { step, item };
+  }
+  return null;
+}
+
+/** @param {{ done: number | null, total: number | null }} p */
+const countOf = (p) => (p.done !== null && p.total !== null ? `${p.done}/${p.total}` : "");
+
+/**
+ * Лінійний чекліст: до поточного — ✓, поточний — спінер, далі — сірі (крок після поточного, що
+ * вже був, — ✓: повторна перевірка після виправлення). Без поточного перший крок — неявно
+ * активний (`implicitFirst`); `allDone` — гілку закінчено.
+ * @param {readonly StageStep[]} steps
+ * @param {{ step: StageStep, item: ProgressItem } | null} current
+ * @param {Set<string>} visited
+ * @param {{ implicitFirst?: boolean, allDone?: boolean }} [opts]
+ * @returns {StepRow[]}
+ */
+function linearRows(steps, current, visited, { implicitFirst = true, allDone = false } = {}) {
+  const cur = current ? steps.indexOf(current.step) : -1;
+  /** @type {StepRow[]} */
+  const rows = [];
+  steps.forEach((s, i) => {
+    if (s.optional && i !== cur && !visited.has(s.id)) return;
+    /** @type {StepRow["state"]} */
+    let state = "pending";
+    if (allDone || i < cur) state = "done";
+    else if (i === cur) state = "active";
+    else if (cur >= 0 && visited.has(s.id)) state = "done";
+    rows.push({
+      key: s.id,
+      label: s.label,
+      state,
+      ...(i === cur && current ? { count: countOf(current.item) } : {}),
+    });
+  });
+  const first = rows[0];
+  if (cur < 0 && !allDone && implicitFirst && first) rows[0] = { ...first, state: "active", implicit: true };
+  return rows;
+}
+
+/**
+ * Чекліст лінійної стадії (crawling / brandkit / scripting).
+ * @param {readonly StageStep[]} steps
+ * @param {UiState} state
+ * @param {Iterable<string>} [seen] кроки, які чекліст бачив активними
+ * @returns {StepRow[]}
+ */
+export function stageRows(steps, state, seen = []) {
+  return linearRows(steps, lastStep(steps, currentProgressItems(state)), visitedSteps(steps, state, seen));
+}
+
+/**
+ * Чекліст directing: гілки «Сцени» і «Музика» за `branch`, спільні кроки (звук, рецензія) — без
+ * гілки. Коли почався спільний крок, обидві гілки закінчено. Музика — за `directingBranches`
+ * (готово й за artifact music; «без змін» — у ревізії без audio).
+ * @param {UiState} state
+ * @param {Iterable<string>} [seen]
+ * @returns {{ scenes: StepRow[], music: StepRow[], shared: StepRow[] }}
+ */
+export function directingRows(state, seen = []) {
+  const all = STAGE_STEPS.directing;
+  const scenesSteps = all.filter((s) => s.branch === "scenes");
+  const musicSteps = all.filter((s) => s.branch === "music");
+  const sharedSteps = all.filter((s) => !s.branch);
+  // Крок — за всім переліком directing (не за гілкою), щоб чужий `step` не впав у гілку за stage.
+  const resolved = currentProgressItems(state).flatMap((item) => {
+    const step = stepOf(all, item);
+    return step ? [{ step, item }] : [];
+  });
+  const visited = visitedSteps(all, state, seen);
+  /** Останній рядок, чий крок належить `steps`. @param {readonly StageStep[]} steps */
+  const lastIn = (steps) => [...resolved].reverse().find((r) => steps.includes(r.step)) ?? null;
+  const shared = lastIn(sharedSteps);
+  const finished = shared !== null;
+
+  const music = directingBranches(state).music;
+  const musicStep = musicSteps[0];
+  /** @type {StepRow[]} */
+  const musicRows = musicStep
+    ? [
+        {
+          key: musicStep.id,
+          label: musicStep.label,
+          state:
+            finished || music.state === "done" || music.state === "kept"
+              ? "done"
+              : music.state === "running"
+                ? "active"
+                : "pending",
+          ...(music.state === "running" ? { count: countOf(music) } : {}),
+          ...(music.state === "kept" ? { note: "без змін" } : {}),
+        },
+      ]
+    : [];
+
+  return {
+    scenes: linearRows(scenesSteps, lastIn(scenesSteps), visited, { allDone: finished }),
+    music: musicRows,
+    shared: linearRows(sharedSteps, shared, visited, { implicitFirst: false }),
+  };
+}
+
+/**
+ * Чекліст рендеру: рядок на кожен формат (`renderFormatList`), поточний — з відсотком; формат,
+ * що дійшов до 100%, — ✓.
+ * @param {UiState} state
+ * @returns {StepRow[]}
+ */
+export function renderRows(state) {
+  const info = renderInfo(state);
+  return renderFormatList(state).map((f, i) => {
+    const done = i < info.index || (i === info.index && info.percent >= 100);
+    /** @type {StepRow["state"]} */
+    const st = done ? "done" : i === info.index ? "active" : "pending";
+    return {
+      key: `render:${f}`,
+      label: `${FORMAT_LABELS[f]} · ${FORMAT_SIZES[f]}`,
+      state: st,
+      ...(st === "active" ? { count: `${info.percent}%` } : {}),
+      ...(st === "active" && !state.progress ? { implicit: true } : {}),
+    };
+  });
+}
+
+/**
+ * Чекліст ревізії — динамічний: «Розбираю правку» (stage `revise`) і кроки тих стадій, що реально
+ * прийшли, у порядку появи; останній — поточний.
+ * @param {UiState} state
+ * @param {readonly string[]} [seen] кроки, які чекліст бачив активними, у порядку появи
+ * @returns {StepRow[]}
+ */
+export function revisingRows(state, seen = []) {
+  const items = currentProgressItems(state);
+  /** @type {{ id: string, label: string, item: ProgressItem }[]} */
+  const arrived = [];
+  for (const item of items) {
+    const s = stepOf(ALL_STEPS, item);
+    if (s) arrived.push({ id: s.id, label: s.label, item });
+  }
+  const current = arrived.at(-1);
+  if (!current) return [{ key: REVISE_STEP.id, label: REVISE_STEP.label, state: "active", implicit: true }];
+  // Злиті рядки стрічки гублять проміжні кроки — їх доповнює `seen` (спостереження наживо, у
+  // порядку появи); кроки зі стрічки, яких чекліст не бачив, були до монтування — вони першими.
+  // Поточний — завжди останній.
+  /** @type {string[]} */
+  const order = [];
+  for (const id of [...arrived.map((a) => a.id).filter((id) => !seen.includes(id)), ...seen])
+    if (id !== current.id && !order.includes(id)) order.push(id);
+  order.push(current.id);
+  return order.map((id) => {
+    const step = ALL_STEPS.find((s) => s.id === id);
+    const active = id === current.id;
+    return {
+      key: id,
+      label: step?.label ?? id,
+      state: active ? "active" : "done",
+      ...(active ? { count: countOf(current.item) } : {}),
+    };
+  });
+}
+
+/**
+ * «12 с», «1 хв 05 с».
+ * @param {number} ms
+ */
+export function formatDuration(ms) {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return `${s} с`;
+  return `${Math.floor(s / 60)} хв ${String(s % 60).padStart(2, "0")} с`;
+}
+
+/**
+ * Час останньої події progress поточного busy-стану (мс) або `null`.
+ * @param {UiState} state
+ */
+function latestProgressAt(state) {
+  const times = currentProgressItems(state)
+    .map((i) => Date.parse(i.at))
+    .filter(Number.isFinite);
+  return times.length > 0 ? Math.max(...times) : null;
+}
+
 // ───────────── Будівельні блоки ─────────────
 
 /**
@@ -317,6 +576,83 @@ function makeLog(placeholder) {
   return { el: list, update };
 }
 
+/**
+ * Чекліст кроків (`StepRow`): ✓ виконані з тривалістю, спінер на поточному з лічильником, сірі
+ * майбутні. Рядки — за ключем, вузли патчаться на місці.
+ *
+ * Тривалість = `at` події, з якою крок став виконаним, мінус `at` події, з якою він став активним.
+ * Обидва моменти чекліст ловить сам між оновленнями (перше оновлення — лише точка відліку), тож
+ * крок, на який перестрибнули або який почався до монтування, — ✓ без часу.
+ * @param {string} [cls]
+ */
+function makeChecklist(cls = "") {
+  const list = h("ol", { class: `sp-steps ${cls}`.trim(), "aria-live": "polite" });
+  /** @type {Map<string, { li: HTMLLIElement, mark: HTMLSpanElement, label: HTMLSpanElement, meta: HTMLSpanElement }>} */
+  const nodes = new Map();
+  /** Стан рядка на попередньому оновленні; неявний активний рахується як pending. */
+  /** @type {Map<string, StepRow["state"]>} */
+  const was = new Map();
+  /** @type {Map<string, number>} */
+  const startAt = new Map();
+  /** @type {Map<string, number>} */
+  const endAt = new Map();
+  /** Ключі, що бували активними (не неявно), у порядку появи. @type {Set<string>} */
+  const seen = new Set();
+  let primed = false;
+
+  /** @param {StepRow[]} rows @param {number | null} now час останньої події progress */
+  const update = (rows, now) => {
+    const keys = new Set(rows.map((r) => r.key));
+    for (const [key, node] of nodes) {
+      if (keys.has(key)) continue;
+      node.li.remove();
+      nodes.delete(key);
+    }
+    rows.forEach((row, i) => {
+      let node = nodes.get(row.key);
+      if (!node) {
+        const mark = h("span", { class: "sp-step__mark", "aria-hidden": "true" });
+        const label = h("span", { class: "sp-step__label" });
+        const meta = h("span", { class: "sp-step__meta mono" });
+        node = {
+          li: h("li", { class: "sp-step", "data-step": row.key }, mark, label, meta),
+          mark,
+          label,
+          meta,
+        };
+        nodes.set(row.key, node);
+      }
+      if (list.children[i] !== node.li) list.insertBefore(node.li, list.children[i] ?? null);
+
+      const real = row.implicit ? "pending" : row.state;
+      const before = was.get(row.key) ?? "pending";
+      if (primed && now !== null && real !== before) {
+        if (real === "active" && !startAt.has(row.key)) startAt.set(row.key, now);
+        if (real === "done" && before === "active" && !endAt.has(row.key)) endAt.set(row.key, now);
+      }
+      was.set(row.key, real);
+      if (real === "active") seen.add(row.key);
+
+      if (node.li.dataset.state !== row.state) {
+        node.li.dataset.state = row.state;
+        node.mark.className = row.state === "active" ? "sp-step__mark spinner" : "sp-step__mark";
+        text(node.mark, row.state === "done" ? "✓" : "");
+      }
+      text(node.label, row.label);
+      const start = startAt.get(row.key);
+      const end = endAt.get(row.key);
+      /** @type {string} */
+      let meta = "";
+      if (row.state === "active") meta = row.count ?? "";
+      else if (row.state === "done")
+        meta = start !== undefined && end !== undefined ? formatDuration(end - start) : (row.note ?? "");
+      text(node.meta, meta);
+    });
+    primed = true;
+  };
+  return { el: list, update, seen: () => [...seen] };
+}
+
 // ───────────── Тіла станів ─────────────
 
 /** @returns {Body} */
@@ -334,12 +670,13 @@ function intakeBody() {
   };
 }
 
-/** X5: лічильник done/total, смуга, мітка. @returns {Body} */
+/** X5: лічильник done/total, смуга, мітка; під ними — чекліст підкроків. @returns {Body} */
 function crawlingBody() {
   const numeral = makeNumeral();
   const bar = makeBar();
   const label = h("div", { class: "sp-caption mono" });
-  const el = h("div", { class: "sp-body" }, numeral.el, bar.el, label);
+  const steps = makeChecklist();
+  const el = h("div", { class: "sp-body" }, numeral.el, bar.el, label, steps.el);
   return {
     el,
     update(state) {
@@ -347,11 +684,22 @@ function crawlingBody() {
       numeral.set(String(p?.done ?? 0), p?.total !== null && p?.total !== undefined ? `/${p.total}` : "");
       bar.set(ratioOf(p));
       text(label, `${p?.label ?? "Сканую сайт…"} · ліміт ${CRAWL_LIMIT_S} с`);
+      steps.update(stageRows(STAGE_STEPS.crawling, state, steps.seen()), latestProgressAt(state));
     },
   };
 }
 
-/** brandkit / scripting і будь-який інший статус без окремого вигляду. @param {string} placeholder @returns {Body} */
+/** brandkit / scripting: чекліст підкроків стадії. @param {readonly StageStep[]} list @returns {Body} */
+function stepsBody(list) {
+  const steps = makeChecklist();
+  const el = h("div", { class: "sp-body" }, steps.el);
+  return {
+    el,
+    update: (state) => steps.update(stageRows(list, state, steps.seen()), latestProgressAt(state)),
+  };
+}
+
+/** Будь-який інший статус без окремого вигляду. @param {string} placeholder @returns {Body} */
 function logBody(placeholder) {
   const log = makeLog(placeholder);
   const el = h("div", { class: "sp-body" }, log.el);
@@ -362,7 +710,7 @@ function logBody(placeholder) {
 const BRANCH_STATUS = { pending: "очікує", running: "", done: "готово", kept: "без змін" };
 
 /**
- * Гілка directing.
+ * Гілка directing: назва, статус, смуга і чекліст кроків гілки.
  * @param {"scenes" | "music"} key
  * @param {string} name
  */
@@ -370,7 +718,7 @@ function makeBranch(key, name) {
   const status = h("span", { class: "sp-branch__status mono" });
   const spinner = h("span", { class: "spinner", "aria-hidden": "true" });
   const bar = makeBar();
-  const label = h("div", { class: "sp-caption mono" });
+  const steps = makeChecklist("sp-steps--branch");
   const el = h(
     "section",
     { class: "sp-branch", "data-branch": key },
@@ -381,42 +729,55 @@ function makeBranch(key, name) {
       h("span", { class: "sp-branch__right" }, spinner, status),
     ),
     bar.el,
-    label,
+    steps.el,
   );
-  /** @param {Branch} b */
-  const set = (b) => {
+  /** @param {Branch} b @param {StepRow[]} rows @param {number | null} now */
+  const set = (b, rows, now) => {
     if (el.dataset.state !== b.state) el.dataset.state = b.state;
     spinner.hidden = b.state !== "running";
     const counter =
       b.done !== null && b.total !== null && b.state === "running" ? `${b.done}/${b.total}` : "";
     text(status, BRANCH_STATUS[b.state] || counter);
     bar.set(b.state === "pending" ? 0 : b.ratio);
-    text(label, b.label);
+    steps.update(rows, now);
   };
-  return { el, set };
+  return { el, set, seen: steps.seen };
 }
 
-/** Дві гілки: «Сцени» і «Музика». @returns {Body} */
+/** Дві гілки: «Сцени» і «Музика»; під ними — спільні кроки (звук, рецензія). @returns {Body} */
 function directingBody() {
   const scenes = makeBranch("scenes", "Сцени");
   const music = makeBranch("music", "Музика");
-  const el = h("div", { class: "sp-body sp-branches" }, scenes.el, music.el);
+  const shared = makeChecklist();
+  const tail = h(
+    "section",
+    { class: "sp-shared" },
+    h("h2", { class: "display-s sp-shared__name", text: "Звук і рецензія" }),
+    shared.el,
+  );
+  const el = h("div", { class: "sp-body sp-branches" }, scenes.el, music.el, tail);
   return {
     el,
     update(state) {
       const b = directingBranches(state);
-      scenes.set(b.scenes);
-      music.set(b.music);
+      const rows = directingRows(state, [...scenes.seen(), ...music.seen(), ...shared.seen()]);
+      const now = latestProgressAt(state);
+      // Почались спільні кроки — гілка «Сцени» закінчена, навіть якщо останній її рядок не 100%.
+      const scenesDone = rows.scenes.length > 0 && rows.scenes.every((r) => r.state === "done");
+      scenes.set(scenesDone ? { ...b.scenes, state: "done", ratio: 1 } : b.scenes, rows.scenes, now);
+      music.set(b.music, rows.music, now);
+      shared.update(rows.shared, now);
     },
   };
 }
 
-/** Відсоток поточного формату, смуга, специфікація. @returns {Body} */
+/** Відсоток поточного формату, смуга, специфікація; під ними — чекліст форматів. @returns {Body} */
 function renderingBody() {
   const numeral = makeNumeral();
   const bar = makeBar();
   const spec = h("div", { class: "sp-caption mono" });
-  const el = h("div", { class: "sp-body" }, numeral.el, bar.el, spec);
+  const steps = makeChecklist();
+  const el = h("div", { class: "sp-body" }, numeral.el, bar.el, spec, steps.el);
   return {
     el,
     update(state) {
@@ -427,11 +788,12 @@ function renderingBody() {
         spec,
         `${FORMAT_LABELS[info.format]} · ${FORMAT_SIZES[info.format]} · ${CODEC} · формат ${info.index + 1} з ${info.count}`,
       );
+      steps.update(renderRows(state), latestProgressAt(state));
     },
   };
 }
 
-/** Цитата правки клієнта + мітки ревізії. @returns {Body} */
+/** Цитата правки клієнта + чекліст ревізії. @returns {Body} */
 function revisingBody() {
   const quoteText = h("p", { class: "sp-quote__text" });
   const quote = h(
@@ -440,8 +802,8 @@ function revisingBody() {
     h("span", { class: "label-s sp-quote__label", text: "Ваша правка" }),
     quoteText,
   );
-  const log = makeLog("Читаю правку…");
-  const el = h("div", { class: "sp-body" }, quote, log.el);
+  const steps = makeChecklist();
+  const el = h("div", { class: "sp-body" }, quote, steps.el);
   /** @type {string | null} */
   let shown = null;
   return {
@@ -453,7 +815,7 @@ function revisingBody() {
         quoteText.replaceChildren(...lines(msg ?? ""));
       }
       quote.hidden = !msg;
-      log.update(state);
+      steps.update(revisingRows(state, steps.seen()), latestProgressAt(state));
     },
   };
 }
@@ -474,6 +836,9 @@ function bodyFor(status) {
       return renderingBody();
     case "revising":
       return revisingBody();
+    case "brandkit":
+    case "scripting":
+      return stepsBody(STAGE_STEPS[status]);
     default:
       return logBody(`${capitalize(STATUS_LABELS[status] ?? status)}…`);
   }

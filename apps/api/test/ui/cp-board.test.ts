@@ -556,6 +556,75 @@ describe("cp-board · ціни (N5-A)", () => {
   });
 });
 
+// ───────────── B3 · формати-чернетка ЧП3 ─────────────
+
+describe("cp-board · формати-чернетка (B3)", () => {
+  const tile = (el: HTMLElement, f: string) =>
+    el.querySelector<HTMLButtonElement>(`.cd-formats .cb-fmt[data-format="${f}"]`);
+
+  it("тайли показують поточні формати; без чернетки «Застосувати» сховано, approve активний", () => {
+    const { el, $ } = setup(fixture("n5-cp3-paid"));
+    const pressedFormats = [...el.querySelectorAll<HTMLElement>(".cd-formats .cb-fmt")]
+      .filter((t) => t.getAttribute("aria-pressed") === "true")
+      .map((t) => t.dataset.format);
+    expect(pressedFormats).toEqual(["vertical", "square", "landscape"]);
+    expect($(".cd-formats__actions")?.hidden).toBe(true);
+    expect($(".cd-formats__hint")?.hidden).toBe(true);
+    expect($<HTMLButtonElement>(".cd-approve")?.disabled).toBe(false);
+  });
+
+  it("клік по тайлу — лише чернетка; з'являється «Застосувати формати», approve вимкнено з підказкою", () => {
+    const { el, $, store, names } = setup(fixture("n5-cp3-paid"));
+    const approve = $<HTMLButtonElement>(".cd-approve");
+    tile(el, "landscape")?.click();
+    expect(names()).toEqual(["setFormats"]);
+    expect(store.getState().ui.pendingFormats).toEqual(["vertical", "square"]);
+    expect(tile(el, "landscape")?.getAttribute("aria-pressed")).toBe("false");
+    expect($(".cd-formats__actions")?.hidden).toBe(false);
+    expect($(".cd-formats__hint")?.textContent).toBe("Спершу застосуйте або скиньте формати.");
+    expect(approve?.disabled).toBe(true);
+    expect($(".cd-approve")).toBe(approve);
+  });
+
+  it("«Застосувати формати» → applyFormats; «Скинути» → setFormats(поточні)", async () => {
+    const { el, $, store, actions, names } = setup(fixture("n5-cp3-paid"));
+    const applied: string[][] = [];
+    actions.applyFormats = async () => {
+      applied.push(store.getState().ui.pendingFormats ?? []);
+      store.setState((s) => ({ ui: { ...s.ui, pendingFormats: null } }));
+    };
+    tile(el, "square")?.click();
+    $<HTMLButtonElement>(".cd-formats__apply")?.click();
+    await vi.waitFor(() => expect(applied).toEqual([["vertical", "landscape"]]));
+    expect($(".cd-formats__actions")?.hidden).toBe(true);
+    expect($<HTMLButtonElement>(".cd-approve")?.disabled).toBe(false);
+
+    tile(el, "square")?.click();
+    $<HTMLButtonElement>(".cd-formats__reset")?.click();
+    expect(names()).not.toContain("approve");
+    expect(store.getState().ui.pendingFormats).toEqual(["vertical", "square", "landscape"]);
+    expect($(".cd-formats__actions")?.hidden).toBe(true);
+    expect($<HTMLButtonElement>(".cd-approve")?.disabled).toBe(false);
+  });
+
+  it("зняли всі — «Застосувати» вимкнено з підказкою «Оберіть хоча б один формат.»", () => {
+    const { el, $, store } = setup(fixture("awaitingStoryboard"));
+    for (const f of boardFormats(store.getState())) tile(el, f)?.click();
+    expect(store.getState().ui.pendingFormats).toEqual([]);
+    expect($<HTMLButtonElement>(".cd-formats__apply")?.disabled).toBe(true);
+    expect($(".cd-formats__hint")?.textContent).toBe("Оберіть хоча б один формат.");
+  });
+
+  it("поза awaiting_storyboard тайли вимкнені й не пишуть чернетку", () => {
+    const { el, store, names } = setup(fixture("awaitingStoryboard"));
+    store.setState({ status: "rendering" });
+    const t = tile(el, "landscape");
+    expect(t?.disabled).toBe(true);
+    t?.click();
+    expect(names()).toEqual([]);
+  });
+});
+
 // ───────────── B4 · відео-превʼю ЧП3 ─────────────
 
 describe("cp-board · відео-превʼю", () => {

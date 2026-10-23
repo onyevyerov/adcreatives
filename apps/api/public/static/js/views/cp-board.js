@@ -18,6 +18,10 @@
  * клієнта (`ui.pendingFormats`), інакше формати проєкту з payload (`primaryFormat` + аркуші).
  * Ціни — лише `account.prices`; затвердження не блокується за будь-якого балансу.
  *
+ * B3 · формати-чернетка: під шапкою ті самі тайли, що на ЧП1; клік лише пише `ui.pendingFormats`.
+ * Коли чернетка ≠ поточних форматів — «Застосувати формати» (`applyFormats()`: «Формати: …», це
+ * ревізія) і «Скинути»; «Затвердити й рендерити» тоді вимкнено з підказкою.
+ *
  * B4 · відео-превʼю: рядок «Превʼю» між вступом і стілами, якщо `entry.preview` не null —
  * `pending` (смугаста заглушка у пропорції формату), `ready` (`<video>` з нативними контролами),
  * `failed` (текст). Коли превʼю `ready` і `payload.timeline` непорожній, кожна сцена має кнопку
@@ -26,9 +30,17 @@
  * не перебудовує дошку — оновлюються рядок превʼю і кнопки сцен.
  */
 import { CHECKPOINT_STATUS, FORMAT_LABELS, FORMATS } from "../contracts.js";
+import { APPLY_FORMATS_FIRST, boardCurrentFormats, boardFormatsDirty, NEED_FORMAT } from "../data/actions.js";
 import { clear, h, text } from "../dom.js";
-import { formatCredits, formatNumber } from "../lib/credits.js";
-import { formatList, formatsCharge } from "./cp-brand.js";
+import { formatCredits, formatNumber, paidFormats } from "../lib/credits.js";
+import {
+  formatList,
+  formatsCharge,
+  formatTag,
+  formatTileEl,
+  markFormatTiles,
+  toggleFormat,
+} from "./cp-brand.js";
 import { PURPOSE_LABELS, plural, safeMediaUrl } from "./cp-script.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
@@ -258,10 +270,7 @@ function boardPayloadOf(entry) {
  */
 export function boardFormats(state) {
   if (state.ui.pendingFormats) return FORMATS.filter((f) => state.ui.pendingFormats?.includes(f));
-  const p = boardPayloadOf(state.checkpoints.storyboard);
-  if (!p) return [];
-  const list = [p.primaryFormat, ...p.sheets.map((s) => s.format)];
-  return FORMATS.filter((f) => list.includes(f));
+  return boardCurrentFormats(state);
 }
 
 /**
@@ -736,6 +745,38 @@ export function mount(el, ctx) {
   const priceTopup = h("button", { type: "button", class: "cd-price__topup", text: "поповнити" });
   const priceSep = h("span", { "aria-hidden": "true", text: "·" });
   const priceLine = h("p", { class: "cd-price", hidden: true }, priceText, priceSep, priceTopup);
+
+  // ── Формати-чернетка (B3) ──
+  /** @type {Map<Format, HTMLButtonElement>} */
+  const formatTiles = new Map(FORMATS.map((f) => [f, formatTileEl(f)]));
+  const applyBtn = h("button", {
+    type: "button",
+    class: "btn btn--primary cd-formats__apply",
+    "data-action": "apply-formats",
+    text: "Застосувати формати",
+  });
+  const resetBtn = h("button", {
+    type: "button",
+    class: "btn btn--ghost cd-formats__reset",
+    "data-action": "reset-formats",
+    text: "Скинути",
+  });
+  const formatsHint = h("p", { class: "cd-formats__hint", role: "status", hidden: true });
+  const formatsActions = h("div", { class: "cd-formats__actions", hidden: true }, applyBtn, resetBtn);
+  const formatsRow = h(
+    "section",
+    { class: "spec-row cd-formats", "aria-label": "Формати", hidden: true },
+    h("span", { class: "spec-row__label", text: "Формати" }),
+    h(
+      "div",
+      { class: "cd-row__body" },
+      h("div", { class: "cb-fmts", role: "group", "aria-label": "Формати" }, [...formatTiles.values()]),
+      formatsHint,
+      formatsActions,
+    ),
+  );
+  let applying = false;
+
   const body = h("div", { class: "cd-body" });
   const root = h(
     "section",
@@ -747,9 +788,36 @@ export function mount(el, ctx) {
       h("div", { class: "cd-actions" }, editBtn, approveBtn),
     ),
     priceLine,
+    formatsRow,
     body,
   );
   el.append(root);
+
+  for (const [format, tile] of formatTiles) {
+    tile.addEventListener("click", () => {
+      const state = ctx.store.getState();
+      if (tile.disabled || applying || !isActive(state)) return;
+      ctx.actions.setFormats(toggleFormat(boardFormats(state), format));
+    });
+  }
+  applyBtn.addEventListener("click", async () => {
+    if (applyBtn.disabled || applying || !isActive(ctx.store.getState())) return;
+    applying = true;
+    syncControls(ctx.store.getState());
+    try {
+      await ctx.actions.applyFormats?.();
+    } catch (err) {
+      console.error("[cp-board] applyFormats", err);
+    } finally {
+      applying = false;
+      if (!destroyed) syncControls(ctx.store.getState());
+    }
+  });
+  resetBtn.addEventListener("click", () => {
+    const state = ctx.store.getState();
+    if (resetBtn.disabled || applying || !isActive(state)) return;
+    ctx.actions.setFormats(boardCurrentFormats(state));
+  });
 
   priceTopup.addEventListener("click", () => ctx.actions.openTopup({ from: "ws", ctx: "cp3" }));
   editBtn.addEventListener("click", () => {
@@ -773,8 +841,28 @@ export function mount(el, ctx) {
   /** @param {UiState} state */
   function syncControls(state) {
     const active = isActive(state);
+    const dirty = boardFormatsDirty(state);
+    const chosen = boardFormats(state);
     editBtn.disabled = !active;
-    approveBtn.disabled = !active || pending;
+    approveBtn.disabled = !active || pending || applying || dirty;
+    for (const tile of formatTiles.values()) tile.disabled = !active || applying;
+    applyBtn.disabled = !active || applying || chosen.length === 0;
+    resetBtn.disabled = !active || applying;
+    formatsRow.hidden = !boardPayloadOf(state.checkpoints.storyboard);
+    formatsActions.hidden = !dirty;
+    const hint = !dirty ? null : chosen.length === 0 ? NEED_FORMAT : APPLY_FORMATS_FIRST;
+    text(formatsHint, hint ?? "");
+    formatsHint.hidden = !hint;
+    markFormatTiles(formatTiles, chosen);
+    const paid = paidFormats(state.projectCredits);
+    for (const [format, tile] of formatTiles) {
+      const tag = tile.querySelector(".cb-fmt__tag");
+      if (!(tag instanceof HTMLElement)) continue;
+      const t = formatTag(format, chosen, paid, state.account.prices);
+      text(tag, t?.text ?? "");
+      tag.hidden = !t;
+      tag.classList.toggle("cb-fmt__tag--on", t?.strong ?? false);
+    }
     const st = state.checkpoints.storyboard?.state;
     diamond.classList.toggle("diamond--open", active);
     diamond.classList.toggle("diamond--ring", active);
@@ -969,7 +1057,11 @@ export function mount(el, ctx) {
       !prev ||
       state.status !== prev.status ||
       entry?.state !== before?.state ||
-      entry?.rev !== before?.rev
+      entry?.rev !== before?.rev ||
+      entry?.payload !== before?.payload ||
+      state.ui.pendingFormats !== prev.ui.pendingFormats ||
+      state.account.prices !== prev.account.prices ||
+      state.projectCredits !== prev.projectCredits
     ) {
       syncControls(state);
     }

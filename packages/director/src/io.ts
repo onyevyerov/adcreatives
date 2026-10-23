@@ -158,9 +158,10 @@ export async function progress(
   label: string,
   done: number | null = null,
   total: number | null = null,
+  step?: string,
 ): Promise<void> {
   try {
-    await ctx.emit.progress(stage, label, done, total);
+    await ctx.emit.progress(stage, label, done, total, step);
   } catch (err) {
     ctx.logger.warn("не вдалося надіслати прогрес", { err: String(err) });
   }

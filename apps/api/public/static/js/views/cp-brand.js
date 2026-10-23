@@ -7,8 +7,12 @@
  * «Ваші рішення» (питання, формати, мова).
  *
  * Інкрементальність: секції будуються заново лише при новому payload / ревізії. Решта змін
- * (`ui.pendingFormats`, статус, стан чекпоінта) лише перемикає класи, `aria-pressed` і `disabled`,
- * тож скрол сцени й фокус не скидаються.
+ * (`ui.pendingFormats`, `ui.pendingLanguage`, статус, стан чекпоінта) лише перемикає класи,
+ * `aria-pressed` і `disabled`, тож скрол сцени й фокус не скидаються.
+ *
+ * Формати й мова — чернетка (B3): клік по тайлу чи мові лише пише `ui.pendingFormats` /
+ * `ui.pendingLanguage` (жодних повідомлень і запитів); можна зняти будь-який формат, зокрема всі —
+ * тоді «Затвердити» вимкнено й під тайлами підказка. «Затвердити» (`actions.approve()`) фіксує вибір.
  *
  * Безпека: усі тексти бренд-кіта (дані з сайтів клієнтів) — через `h()`/`textContent`/
  * `setAttribute`; кольори проходять `hexColor`, URL зображень — `mediaUrl`, посилання — `linkUrl`,
@@ -19,6 +23,7 @@
  * формати — `paidFormats(projectCredits)`. Нічого не блокується — нестача лише підписується.
  */
 import { FORMAT_LABELS, FORMATS } from "../contracts.js";
+import { brandLanguage, NEED_FORMAT } from "../data/actions.js";
 import { clear, h, text } from "../dom.js";
 import { extraFormatsCharge, formatNumber, paidFormats } from "../lib/credits.js";
 
@@ -67,7 +72,6 @@ const FORMALITY = { formal: "офіційний", neutral: "нейтральни
 export const LANGUAGE_NAMES = { uk: "Українська", en: "English" };
 
 export const NEED_MORE_PHOTOS = "Придатних фото замало — додайте, будь ласка, ще.";
-const ONE_FORMAT = "Потрібен хоча б один формат";
 const PHOTO_ACCEPT = "image/*,.heic,.heif";
 const FONTS_CSS = "https://fonts.googleapis.com/css2";
 
@@ -248,14 +252,52 @@ export function selectedFormats(state, payload) {
 }
 
 /**
- * Перемикає формат; останній обраний зняти не можна (повертає null).
+ * Перемикає формат у чернетці; зняти можна будь-який, зокрема останній (тоді `[]`).
  * @param {readonly Format[]} current
  * @param {Format} format
- * @returns {Format[] | null}
+ * @returns {Format[]} у канонічному порядку
  */
 export function toggleFormat(current, format) {
   const next = current.includes(format) ? current.filter((f) => f !== format) : [...current, format];
-  return next.length === 0 ? null : FORMATS.filter((f) => next.includes(f));
+  return FORMATS.filter((f) => next.includes(f));
+}
+
+/**
+ * Мова відео на екрані: чернетка клієнта, інакше мова бренд-кіта (див. `brandLanguage`).
+ * @param {Pick<UiState, "ui" | "checkpoints">} state
+ * @returns {string | null}
+ */
+export function selectedLanguage(state) {
+  return state.ui.pendingLanguage ?? brandLanguage(state);
+}
+
+/**
+ * Тайл формату (C6) без обробника: гліф, пропорція, назва, тег ціни (ЧП1 і ЧП3).
+ * @param {Format} format
+ * @returns {HTMLButtonElement}
+ */
+export function formatTileEl(format) {
+  return h(
+    "button",
+    { type: "button", class: "cb-fmt", "data-format": format, "aria-pressed": "false" },
+    h("span", { class: `cb-fmt__glyph cb-fmt__glyph--${format}`, "aria-hidden": "true" }),
+    h("span", { class: "cb-fmt__ratio", text: FORMAT_LABELS[format] }),
+    h("span", { class: "cb-fmt__name", text: FORMAT_NAMES[format] }),
+    h("span", { class: "cb-fmt__tag", hidden: true }),
+  );
+}
+
+/**
+ * Позначає обрані тайли (`is-on`, `aria-pressed`).
+ * @param {ReadonlyMap<Format, HTMLElement>} tiles
+ * @param {readonly Format[]} chosen
+ */
+export function markFormatTiles(tiles, chosen) {
+  for (const [format, tile] of tiles) {
+    const on = chosen.includes(format);
+    tile.classList.toggle("is-on", on);
+    tile.setAttribute("aria-pressed", String(on));
+  }
 }
 
 // ───────────── Ціни (N5-A) ─────────────
@@ -319,9 +361,13 @@ export function mount(el, ctx) {
   const pending = new Set();
   let active = false;
 
+  /** Контроли, вимкнені, поки не обрано жодного формату («Затвердити»). @type {Set<Control>} */
+  const needFormats = new Set();
+  let noFormats = false;
+
   /** @param {Control} c */
   const applyDisabled = (c) => {
-    const off = !active || pending.has(c);
+    const off = !active || pending.has(c) || (noFormats && needFormats.has(c));
     if (c.disabled !== off) c.disabled = off;
   };
   const applyActive = () => {
@@ -373,6 +419,7 @@ export function mount(el, ctx) {
     ),
     () => actions.approve(),
   );
+  needFormats.add(approveBtn);
   const head = h(
     "header",
     { class: "cb-head" },
@@ -389,13 +436,15 @@ export function mount(el, ctx) {
 
   /** Рядок доплати під тайлами (N5-A). */
   const priceNote = h("p", { class: "cb-price", hidden: true });
+  /** Підказка, коли зняли всі формати. */
+  const formatsHint = h("p", { class: "cb-hint", role: "status", text: NEED_FORMAT, hidden: true });
 
   /** Тайли форматів для патчу без перебудови. @type {Map<Format, HTMLButtonElement>} */
   const formatTiles = new Map();
-  /** @type {string | null} */
-  let language = null;
+  /** Кнопки мови для патчу без перебудови. @type {HTMLButtonElement[]} */
+  let langButtons = [];
 
-  /** @type {{ payload: BrandCheckpointPayload | null, rev: number | null, formats: string, cpState: string | null, price: string } | null} */
+  /** @type {{ payload: BrandCheckpointPayload | null, rev: number | null, formats: string, language: string | null, cpState: string | null, price: string } | null} */
   let shown = null;
 
   /** @param {BrandCheckpointPayload} payload */
@@ -737,31 +786,22 @@ export function mount(el, ctx) {
 
   /** @param {Format} format */
   function formatTile(format) {
-    const tile = h(
-      "button",
-      { type: "button", class: "cb-fmt", "data-format": format, "aria-pressed": "false" },
-      h("span", { class: `cb-fmt__glyph cb-fmt__glyph--${format}`, "aria-hidden": "true" }),
-      h("span", { class: "cb-fmt__ratio", text: FORMAT_LABELS[format] }),
-      h("span", { class: "cb-fmt__name", text: FORMAT_NAMES[format] }),
-      h("span", { class: "cb-fmt__tag", hidden: true }),
-    );
-    return control(tile, () => {
+    return control(formatTileEl(format), () => {
       const state = ctx.store.getState();
-      const next = toggleFormat(selectedFormats(state, brandPayloadOf(state)), format);
-      if (next) actions.setFormats(next);
+      actions.setFormats(toggleFormat(selectedFormats(state, brandPayloadOf(state)), format));
     });
   }
 
   /** @param {readonly Format[]} chosen */
   function markFormats(chosen) {
-    for (const [format, tile] of formatTiles) {
-      const on = chosen.includes(format);
-      const last = on && chosen.length === 1;
-      tile.classList.toggle("is-on", on);
-      tile.setAttribute("aria-pressed", String(on));
-      if (last) tile.title = ONE_FORMAT;
-      else tile.removeAttribute("title");
-    }
+    markFormatTiles(formatTiles, chosen);
+    noFormats = chosen.length === 0;
+    formatsHint.hidden = !noFormats;
+  }
+
+  /** @param {string | null} current */
+  function markLanguage(current) {
+    for (const b of langButtons) b.setAttribute("aria-pressed", String(b.dataset.lang === current));
   }
 
   /**
@@ -801,36 +841,36 @@ export function mount(el, ctx) {
     }
   }
 
-  /** @param {BrandCheckpointPayload} payload */
-  function languageGroup(payload) {
+  /**
+   * Сегмент мови: `aria-pressed` — зі стору (`selectedLanguage`), клік лише пише чернетку.
+   * @param {BrandCheckpointPayload} payload
+   * @param {UiState} state
+   */
+  function languageGroup(payload, state) {
     const options = payload.languageOptions;
+    langButtons = [];
     if (options.length <= 1) return null;
-    const langs = options.map((o) => o.lang);
-    const kitLang = payload.brandkit.identity.language;
-    const current = language ?? (langs.includes(kitLang) ? kitLang : (langs[0] ?? null));
-    const buttons = options.map((o) =>
+    langButtons = options.map((o) =>
       control(
         h("button", {
           type: "button",
           class: "seg__opt cb-lang",
           "data-lang": o.lang,
-          "aria-pressed": String(o.lang === current),
+          "aria-pressed": "false",
           text: LANGUAGE_NAMES[o.lang] ?? o.lang.toUpperCase(),
         }),
         () => {
-          const was = language ?? current;
-          if (was === o.lang) return;
-          language = o.lang;
-          for (const b of buttons) b.setAttribute("aria-pressed", String(b.dataset.lang === o.lang));
+          if (selectedLanguage(ctx.store.getState()) === o.lang) return;
           actions.setLanguage(o.lang);
         },
       ),
     );
+    markLanguage(selectedLanguage(state));
     return h(
       "div",
       { class: "cb-group", "data-group": "language" },
       h("p", { class: "label-s", text: "Мова відео" }),
-      h("div", { class: "seg cb-seg", role: "group", "aria-label": "Мова відео" }, buttons),
+      h("div", { class: "seg cb-seg", role: "group", "aria-label": "Мова відео" }, langButtons),
     );
   }
 
@@ -848,9 +888,10 @@ export function mount(el, ctx) {
         { class: "cb-group", "data-group": "formats" },
         h("p", { class: "label-s", text: "Формати" }),
         h("div", { class: "cb-fmts", role: "group", "aria-label": "Формати" }, [...formatTiles.values()]),
+        formatsHint,
         priceNote,
       ),
-      languageGroup(payload),
+      languageGroup(payload, state),
     );
   }
 
@@ -866,6 +907,7 @@ export function mount(el, ctx) {
     const rev = entry?.rev ?? null;
     const chosen = selectedFormats(state, payload);
     const formatsKey = chosen.join(",");
+    const language = selectedLanguage(state);
     const cpState = entry?.state ?? null;
     const { prices, me } = state.account;
     const priceKey = [
@@ -877,7 +919,6 @@ export function mount(el, ctx) {
 
     if (!shown || shown.payload !== payload || shown.rev !== rev) {
       rebuilt = true;
-      if (!shown || shown.rev !== rev) language = null;
       active = isActive(state);
       empty.hidden = payload !== null;
       for (const node of [hero, specs, decisions]) node.hidden = payload === null;
@@ -890,11 +931,13 @@ export function mount(el, ctx) {
         clear(specs);
         clear(decisions);
         formatTiles.clear();
+        langButtons = [];
       }
       pruneControls();
       text(eyebrowText, `Чекпоінт 1 / 3 · Бренд-кіт${rev !== null ? ` · ревізія ${rev}` : ""}`);
-    } else if (shown.formats !== formatsKey) {
-      markFormats(chosen);
+    } else {
+      if (shown.formats !== formatsKey) markFormats(chosen);
+      if (shown.language !== language) markLanguage(language);
     }
     if (payload && (rebuilt || shown?.formats !== formatsKey || shown?.price !== priceKey)) {
       markPrices(state, chosen);
@@ -915,7 +958,7 @@ export function mount(el, ctx) {
       root.classList.toggle("is-active", active);
     }
     applyActive();
-    shown = { payload, rev, formats: formatsKey, cpState, price: priceKey };
+    shown = { payload, rev, formats: formatsKey, language, cpState, price: priceKey };
   }
 
   render(ctx.store.getState());

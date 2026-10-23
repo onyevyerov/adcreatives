@@ -697,7 +697,7 @@ describe("views/admin.js", () => {
     expect(visible(".adm-panel")).toBe(false);
     const rows = all(".adm-mail");
     expect(rows).toHaveLength(2);
-    expect(rows[0]?.querySelector(".adm-mail__subject")?.textContent).toBe("Активація акаунта AdCreative");
+    expect(rows[0]?.querySelector(".adm-mail__subject")?.textContent).toBe("Активація акаунта Crealab");
     expect(rows[0]?.querySelector(".adm-mail__kind")?.textContent).toBe("активація");
     expect(rows[1]?.querySelector(".adm-mail__kind")?.textContent).toBe("скидання");
     expect(rows[0]?.querySelector(".adm-mail__link")?.getAttribute("title")).toBe(OUTBOX[0]?.link);

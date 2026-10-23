@@ -40,6 +40,16 @@ describe("events stream", () => {
     expect(await readEvents(redis, "p1")).toEqual([]);
   });
 
+  it("progress зі step; старі події без step валідні", async () => {
+    const redis = await newRedis();
+    const emitter = createEmitter(redis, "p1");
+    await emitter.progress("storyboard", "Пишу концепт і сцени", null, null, "write");
+    await emitter.progress("crawl", "Сканую сайт…");
+    const [withStep, without] = await readEvents(redis, "p1");
+    expect(withStep?.event).toMatchObject({ type: "progress", stage: "storyboard", step: "write" });
+    expect(without?.event).not.toHaveProperty("step");
+  });
+
   it("compares stream ids numerically", () => {
     expect(compareStreamIds("10-0", "9-5")).toBeGreaterThan(0);
     expect(compareStreamIds("5-2", "5-10")).toBeLessThan(0);
