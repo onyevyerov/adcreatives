@@ -86,6 +86,24 @@ function closeProgress(feed) {
 }
 
 /**
+ * Чи подія progress оновлює останній рядок стрічки `last`, а не додає новий:
+ * - той самий stage і крок у рядку, що триває (лічильник, нова мітка; подія без `step` — крок
+ *   рядка);
+ * - той самий stage і та сама мітка, поки проєкт у busy — навіть якщо рядок закрила state-подія
+ *   між ними. Так приходить пара машина + стадія: драйвер ставить job у чергу до emit подій кроку,
+ *   і стадія може надіслати свій «Пишу сценарій…» раніше за state(scripting) і такий самий рядок
+ *   машини — без цього в чаті «✓ Пишу сценарій… / ○ Пишу сценарій…».
+ * @param {FeedItem | undefined} last
+ * @param {EventOf<"progress">} ev
+ * @param {UiState} s
+ */
+function continuesRow(last, ev, s) {
+  if (last?.kind !== "progress" || last.stage !== ev.stage) return false;
+  if (last.running && (ev.step === undefined || ev.step === last.step)) return true;
+  return last.label === ev.label && (last.running || BUSY.includes(s.status));
+}
+
+/**
  * @param {UiState} s
  * @param {EventOf<"progress">} ev
  * @param {string} id
@@ -97,9 +115,8 @@ function onProgress(s, ev, id) {
   const last = s.feed.at(-1);
   /** @type {FeedItem[]} */
   let feed;
-  if (last?.kind === "progress" && last.running && last.stage === ev.stage) {
-    const { step: _prevStep, ...prev } = last;
-    feed = [...s.feed.slice(0, -1), { ...prev, ...item, ...step, at: ev.at }];
+  if (last?.kind === "progress" && continuesRow(last, ev, s)) {
+    feed = [...s.feed.slice(0, -1), { ...last, ...item, ...step, at: ev.at, running: true }];
   } else {
     if (hasFeedId(s.feed, id)) return s;
     feed = [...closeProgress(s.feed), { kind: "progress", id, at: ev.at, ...item, ...step, running: true }];

@@ -4,13 +4,16 @@ import { createDevActions } from "../../public/static/dev/dev-actions.js";
 import { fixtureStates } from "../../public/static/dev/fixture-states.js";
 import { workspaceFixture } from "../../public/static/dev/fixtures/_base.js";
 import type { FeedItem, UiState } from "../../public/static/js/contracts.js";
+import { reduceAll } from "../../public/static/js/data/reduce.js";
 import { createStore } from "../../public/static/js/store.js";
 import {
   cardState,
+  chatFeed,
   clock,
   liveOwners,
   liveRefusal,
   mount,
+  PROGRESS_DONE,
   richText,
   storyboardCharge,
 } from "../../public/static/js/views/chat.js";
@@ -80,13 +83,19 @@ describe("chat · заголовок і з'єднання", () => {
 
 describe("chat · елементи стрічки (C4, X1)", () => {
   it.each(Object.keys(fixtureStates).filter((n) => n !== "start"))(
-    "%s: кожен FeedItem має рядок у порядку стрічки",
+    "%s: кожен FeedItem має рядок у порядку стрічки (busy-відрізок — один рядок)",
     (name) => {
       const state = fixture(name);
       const { el } = setup(state);
       const rows = rowsOf(el);
-      expect(rows.map((r) => r.dataset.id)).toEqual(state.feed.map((i: Item) => i.id));
-      expect(rows.map((r) => r.dataset.kind)).toEqual(state.feed.map((i: Item) => i.kind));
+      const items = chatFeed(state.feed);
+      expect(rows.map((r) => r.dataset.id)).toEqual(items.map((i: Item) => i.id));
+      expect(rows.map((r) => r.dataset.kind)).toEqual(items.map((i: Item) => i.kind));
+      expect(items.filter((i) => i.kind !== "progress")).toEqual(
+        state.feed.filter((i) => i.kind !== "progress"),
+      );
+      const kinds = rows.map((r) => r.dataset.kind);
+      expect(kinds.some((k, i) => k === "progress" && kinds[i + 1] === "progress")).toBe(false);
     },
   );
 
@@ -171,6 +180,15 @@ describe("chat · елементи стрічки (C4, X1)", () => {
         running: false,
       },
     ];
+    // Окремі busy-відрізки (між ними — повідомлення), інакше в чаті це один рядок.
+    feed.splice(1, 0, {
+      kind: "message",
+      id: "m-1",
+      at: base.feed[0]?.at ?? "",
+      role: "assistant",
+      text: "…",
+      buttons: [],
+    });
     const { $ } = setup({ ...base, feed });
     const c1 = $('[data-id="p-1"] .ch-progress__count') as HTMLElement;
     expect(c1.textContent).toBe("3/9");
@@ -400,11 +418,14 @@ describe("chat · інкрементальне оновлення", () => {
     const { el, store } = setup(s);
     const last = s.feed.at(-1) as Item;
     expect(last.kind).toBe("progress");
-    const node = el.querySelector(`[data-id="${last.id}"]`);
+    // Рядок відрізка ключується id першого progress відрізка.
+    const rowId = chatFeed(s.feed).at(-1)?.id;
+    const node = el.querySelector(`[data-id="${rowId}"]`);
+    expect(node).not.toBeNull();
     store.setState((st) => ({
       feed: [...st.feed.slice(0, -1), { ...last, label: "Генерую сцени… 3/3", done: 3, running: false }],
     }));
-    const same = el.querySelector(`[data-id="${last.id}"]`);
+    const same = el.querySelector(`[data-id="${rowId}"]`);
     expect(same).toBe(node);
     expect(same?.textContent).toContain("3/3");
     expect(same?.getAttribute("data-state")).toBe("done");
@@ -753,5 +774,110 @@ describe("chat · порожній чат системного стану (B12)"
     session.emptyChatText.mockReturnValue("текст");
     const { $ } = setup(fixture("n7-fmt-short"));
     expect(($(".ch-empty") as HTMLElement).hidden).toBe(true);
+  });
+});
+
+describe("chat · прогрес без дублів (B4)", () => {
+  let n = 0;
+  /** Події після останньої в стрічці фікстури (ID і час — далі). */
+  const after = (s: UiState, drafts: Record<string, unknown>[]) => {
+    let t = Date.parse(s.feed.at(-1)?.at ?? "2026-10-07T10:00:00.000Z");
+    return reduceAll(
+      s,
+      drafts.map((d) => {
+        t += 1_000;
+        return { id: `${t}-${++n}`, event: { ...d, at: new Date(t).toISOString() } as never };
+      }),
+    );
+  };
+  const progress = (
+    stage: string,
+    label: string,
+    step?: string,
+    done: number | null = null,
+    total: number | null = null,
+  ) => ({ type: "progress", stage, label, done, total, ...(step ? { step } : {}) });
+  const toScripting = { type: "state", status: "scripting", prev: "awaiting_brand", rev: 1 };
+  const progressRows = (el: HTMLElement) => rowsOf(el).filter((r) => r.dataset.kind === "progress");
+  const lastProgress = (el: HTMLElement) => progressRows(el).at(-1) as HTMLElement;
+  const labelOf = (r: HTMLElement | undefined) => r?.querySelector(".ch-progress__label")?.textContent;
+
+  it("scripting з 4 кроками: у чаті 1 рядок — поточний крок зі спінером", () => {
+    const brand = fixture("awaitingBrand");
+    const s = after(brand, [
+      toScripting,
+      progress("storyboard", "Читаю бренд-кіт і сайт", "brief"),
+      progress("storyboard", "Пишу концепт і сцени", "write"),
+      progress("storyboard", "Підганяю тексти під екран", "fit"),
+      progress("storyboard", "Звіряю цифри з сайтом", "claims", 1, 3),
+    ]);
+    // У стрічці — усі 4 кроки (їх читає центральна панель).
+    expect(s.feed.filter((i) => i.kind === "progress" && i.stage === "storyboard")).toHaveLength(4);
+    const { el } = setup(s);
+    expect(progressRows(el)).toHaveLength(
+      chatFeed(brand.feed).filter((i) => i.kind === "progress").length + 1,
+    );
+    const row = lastProgress(el);
+    expect(row.dataset.state).toBe("running");
+    expect(row.querySelector(".spinner")).not.toBeNull();
+    expect(labelOf(row)).toBe("Звіряю цифри з сайтом");
+    expect(row.querySelector(".ch-progress__count")?.textContent).toBe("1/3");
+  });
+
+  it("новий крок оновлює той самий вузол, після чекпоінта — ✓ «Сценарій написано»", () => {
+    const s = after(fixture("awaitingBrand"), [
+      toScripting,
+      progress("storyboard", "Читаю бренд-кіт і сайт", "brief"),
+    ]);
+    const { el, store } = setup(s);
+    const node = lastProgress(el);
+    const count = progressRows(el).length;
+    store.setState((st) => after(st, [progress("storyboard", "Пишу концепт і сцени", "write")]));
+    expect(lastProgress(el)).toBe(node);
+    expect(progressRows(el)).toHaveLength(count);
+    expect(labelOf(node)).toBe("Пишу концепт і сцени");
+    store.setState((st) =>
+      after(st, [
+        { type: "state", status: "awaiting_script", prev: "scripting", rev: 1 },
+        { type: "message", role: "assistant", text: "Сценарій готовий.", buttons: ["approve", "edit"] },
+        {
+          type: "checkpoint",
+          rev: 1,
+          checkpoint: "script",
+          payload: fixture("awaitingScript").checkpoints.script?.payload,
+        },
+      ]),
+    );
+    expect(lastProgress(el)).toBe(node);
+    expect(node.dataset.state).toBe("done");
+    expect(node.querySelector(".ch-progress__mark")?.textContent).toBe("✓");
+    expect(labelOf(node)).toBe(PROGRESS_DONE.script);
+  });
+
+  it("гонка машина+стадія («✓ Пишу сценарій… / ○ Пишу сценарій…») не відтворюється", () => {
+    const s = after(fixture("awaitingBrand"), [
+      progress("storyboard", "Пишу сценарій…"),
+      toScripting,
+      progress("storyboard", "Пишу сценарій…", "brief"),
+    ]);
+    const { el } = setup(s);
+    expect(progressRows(el).filter((r) => labelOf(r) === "Пишу сценарій…")).toHaveLength(1);
+    expect(lastProgress(el).dataset.state).toBe("running");
+  });
+
+  it("збій після прогресу: ✓ з останньою міткою, без підсумку чекпоінта", () => {
+    const { el } = setup(fixture("failed"));
+    const rows = rowsOf(el);
+    const prev = rows[rows.findIndex((r) => r.dataset.kind === "error") - 1];
+    expect(prev?.dataset.kind).toBe("progress");
+    expect(labelOf(prev)).toBe("Генерую сцени… 1/3");
+  });
+
+  it("старі фікстури без step: підсумок перед чекпоінтом, рядок відрізка — id першого progress", () => {
+    const state = fixture("awaitingScript");
+    const { el } = setup(state);
+    expect(progressRows(el).map(labelOf)).toEqual([PROGRESS_DONE.brand, PROGRESS_DONE.script]);
+    const firstCrawl = state.feed.find((i) => i.kind === "progress" && i.stage === "crawl");
+    expect(progressRows(el)[0]?.dataset.id).toBe(firstCrawl?.id);
   });
 });

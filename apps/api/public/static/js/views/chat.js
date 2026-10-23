@@ -25,6 +25,11 @@
  * Активна картка ЧП3 з доплатою за формати — «Затвердити · N кредитів»; до першої видачі під
  * кнопками активної картки — «правки до видачі — безкоштовно» (Референс показує на кожній).
  * Ціни — лише `account.prices`, оплачені формати — `paidFormats(projectCredits)`.
+ *
+ * Прогрес (`chatFeed`): рядки progress поспіль — один busy-відрізок — у чаті один рядок з id
+ * першого: поточний крок зі спінером, після завершення — ✓ з підсумком чекпоінта, що за ним
+ * («Сценарій написано»), або з останньою міткою. Детальний чекліст підкроків — у центральній
+ * панелі (stage-progress.js), вона читає `state.feed` як є.
  */
 import {
   AWAITING,
@@ -57,7 +62,7 @@ import { shortageCard } from "./shortage.js";
  * Локальна копія `FeedItem` з contracts.js: там багаторядковий `@typedef {` + `| …` tsc
  * розбирає як `any`, тож варіанти звужуємо тут (форма — та сама, заморожена).
  * @typedef {{ kind: "message", id: string, at: string, role: "user" | "assistant" | "system", text: string, buttons: Button[] }} MessageItem
- * @typedef {{ kind: "progress", id: string, at: string, stage: string, label: string, done: number | null, total: number | null, running: boolean }} ProgressItem
+ * @typedef {{ kind: "progress", id: string, at: string, stage: string, label: string, done: number | null, total: number | null, running: boolean, step?: string }} ProgressItem
  * @typedef {{ kind: "checkpoint", id: string, at: string, checkpoint: Checkpoint, rev: number }} CheckpointItem
  * @typedef {{ kind: "error", id: string, at: string, stage: string | null, message: string, retryable: boolean }} ErrorItem
  * @typedef {MessageItem | ProgressItem | CheckpointItem | ErrorItem} FeedItem
@@ -102,6 +107,65 @@ const CHECKPOINT_HINTS = {
   script: "Тексти сцен і музика — праворуч.",
   storyboard: "Кадри кожної сцени і музика — праворуч.",
 };
+
+/** Підпис завершеного прогресу, за яким іде картка чекпоінта. @type {Record<Checkpoint, string>} */
+export const PROGRESS_DONE = {
+  brand: "Бренд-кіт готовий",
+  script: "Сценарій написано",
+  storyboard: "Розкадровку зібрано",
+};
+
+/**
+ * Підсумок завершеного відрізка: картка чекпоінта, що йде за ним (повідомлення між ними — текст
+ * чекпоінта), інакше null — лишається остання мітка (збій, видача, кінець стрічки).
+ * @param {readonly FeedItem[]} feed
+ * @param {number} from індекс першого елемента після відрізка
+ * @returns {string | null}
+ */
+function progressDoneLabel(feed, from) {
+  for (let i = from; i < feed.length; i++) {
+    const it = feed[i];
+    if (it?.kind === "message") continue;
+    return it?.kind === "checkpoint" ? (PROGRESS_DONE[it.checkpoint] ?? null) : null;
+  }
+  return null;
+}
+
+/**
+ * Стрічка для чату: кожен busy-відрізок (рядки progress поспіль) — один рядок progress з id
+ * першого (вузол не перебудовується, коли приходять нові кроки) і даними останнього.
+ * @param {readonly FeedItem[]} feed
+ * @returns {FeedItem[]}
+ */
+export function chatFeed(feed) {
+  /** @type {FeedItem[]} */
+  const out = [];
+  for (let i = 0; i < feed.length; i++) {
+    const first = feed[i];
+    if (!first) continue;
+    if (first.kind !== "progress") {
+      out.push(first);
+      continue;
+    }
+    let end = i;
+    let running = first.running;
+    for (let next = feed[end + 1]; next?.kind === "progress"; next = feed[end + 1]) {
+      running ||= next.running;
+      end++;
+    }
+    const last = /** @type {ProgressItem} */ (feed[end]);
+    const done = running ? null : progressDoneLabel(feed, end + 1);
+    out.push(
+      done
+        ? { ...last, id: first.id, label: done, done: null, total: null, running }
+        : end === i
+          ? first
+          : { ...last, id: first.id, running },
+    );
+    i = end;
+  }
+  return out;
+}
 
 /**
  * Стан картки чекпоінта: активна — лише поточна ревізія відкритого чекпоінта в його статусі.
@@ -721,7 +785,7 @@ export function mount(el, ctx) {
     let added = false;
     /** @type {ChildNode | null} */
     let cursor = list.firstChild;
-    for (const item of /** @type {FeedItem[]} */ (state.feed)) {
+    for (const item of chatFeed(/** @type {FeedItem[]} */ (state.feed))) {
       seen.add(item.id);
       let row = rows.get(item.id);
       if (!row || row.item.kind !== item.kind) {
