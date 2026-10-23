@@ -209,6 +209,7 @@ describe("views/account-controls.js", () => {
         "Профіль",
         "Вийти",
       ]);
+      expect(host.querySelector('a[href="/stats"]')).toBeNull();
       expect(menu()?.textContent).not.toContain("Статистика");
       // перший пункт — у фокусі; пункти поза Tab-порядком
       expect(document.activeElement).toBe(items()[0]);
@@ -219,7 +220,7 @@ describe("views/account-controls.js", () => {
       view.destroy();
     });
 
-    it("адмін: «адмін» перед колом, «роль · адміністратор», «Адмінка», «Статистика» → вкладка usage", () => {
+    it("адмін: «адмін» перед колом, «роль · адміністратор», «Адмінка»; «Статистики» немає", () => {
       const { calls, view } = mountWith(state(ADMIN_ME));
       expect(q(".ac-role")?.hidden).toBe(false);
       expect(q(".ac-role")?.textContent).toBe("адмін");
@@ -232,16 +233,13 @@ describe("views/account-controls.js", () => {
         "Історія",
         "Профіль",
         "Адмінка",
-        "Статистика",
         "Вийти",
       ]);
-      expect(items()[5]?.tagName).toBe("BUTTON");
+      expect(host.querySelector("a")).toBeNull();
+      expect(menu()?.textContent).not.toContain("Статистика");
       items()[4]?.click();
       expect(calls("navigate")[0]?.args).toEqual([{ route: "admin", tab: "users" }]);
       expect(menu()).toBeNull();
-      trigger().click();
-      items()[5]?.click();
-      expect(calls("navigate")[1]?.args).toEqual([{ route: "admin", tab: "usage" }]);
       view.destroy();
     });
 
@@ -444,9 +442,9 @@ describe("views/account-controls.js", () => {
     expect(menuItems(false, 4).map((i) => i.label)).toEqual(["Кабінет", "Мої проєкти", "Історія", "Профіль"]);
     expect(menuItems(true, 1250)[1]?.meta).toBe(`1${NBSP}250`);
     expect(menuItems(true, null).at(-1)).toEqual({
-      label: "Статистика",
+      label: "Адмінка",
       meta: "",
-      route: { route: "admin", tab: "usage" },
+      route: { route: "admin", tab: "users" },
     });
   });
 });

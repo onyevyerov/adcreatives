@@ -136,22 +136,17 @@ describe("stats — лише для адміністратора", () => {
   });
 });
 
-describe("/stats — сторінка застосунку (вкладка «Використання» адмінки)", () => {
-  it("віддає index.html кожному: доступ перевіряє клієнт, дані — /api/admin/usage/* під requireAdmin", async () => {
+describe("/stats — сторінки немає (витрати — у вкладці адмінки «Використання»)", () => {
+  it("звичайний 404 для всіх, без даних", async () => {
     const env = await seedStats();
     const plain = await seedUser(env, { email: "plain@example.com" });
-    const index = await (await env.request("/")).text();
     for (const [who, res] of [
       ["admin", await env.request("/stats")],
       ["не-admin", await plain.request("/stats")],
       ["анонім", await env.app.request("/stats")],
     ] as const) {
-      expect(res.status, who).toBe(200);
-      expect(res.headers.get("content-type"), who).toContain("text/html");
-      const html = await res.text();
-      expect(html, who).toBe(index);
-      expect(html, who).not.toContain("pricey");
+      expect(res.status, who).toBe(404);
+      expect(await res.json(), who).toEqual({ error: "not_found", message: "Не знайдено." });
     }
-    expect((await plain.request("/api/admin/usage/summary")).status).toBe(403);
   });
 });

@@ -4,7 +4,7 @@
  *
  * - `place: "page"` — у топбарі (C2): корінь `display: contents`, частини стають у ряд
  *   `.tb-right`; між пілюлею і колом — порожній `.ac-slot`, куди сторінка кладе свої кнопки
- *   («Новий проєкт», «Статистика»), щоб порядок Tab збігався з видимим; меню — від правого краю
+ *   («Новий проєкт»), щоб порядок Tab збігався з видимим; меню — від правого краю
  *   топбару. Корінь не ховається (слот має лишатись видимим) — ховаються частини;
  * - `place: "start"` — у шапці старту (B2): компактний ряд 32px, меню під колом.
  *
@@ -45,8 +45,7 @@ export function initials(name) {
 }
 
 /**
- * Пункти меню: Кабінет · Мої проєкти {N} · Історія · Профіль · [Адмінка · Статистика].
- * `route` — перехід через `navigate` («Статистика» — вкладка «Використання» адмінки, `/stats`).
+ * Пункти меню: Кабінет · Мої проєкти {N} · Історія · Профіль · [Адмінка]; кожен — перехід через `navigate`.
  * @param {boolean} isAdmin
  * @param {number | null} projectCount
  * @returns {{ label: string, meta: string, route: Route }[]}
@@ -63,10 +62,7 @@ export function menuItems(isAdmin, projectCount) {
     { label: "Історія", meta: "", route: { route: "cabinet", section: "history" } },
     { label: "Профіль", meta: "", route: { route: "cabinet", section: "profile" } },
   ];
-  if (isAdmin) {
-    items.push({ label: "Адмінка", meta: "", route: { route: "admin", tab: "users" } });
-    items.push({ label: "Статистика", meta: "", route: { route: "admin", tab: "usage" } });
-  }
+  if (isAdmin) items.push({ label: "Адмінка", meta: "", route: { route: "admin", tab: "users" } });
   return items;
 }
 

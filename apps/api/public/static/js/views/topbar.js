@@ -2,12 +2,11 @@
 /**
  * B3 · Топбар (C2, N4-B): вордмарк → новий проєкт, «/», хост-слот (project — хост, cabinet —
  * «Кабінет», admin — «Адмінка»); праворуч статус (лише project), пілюля балансу, «Новий проєкт»,
- * коло акаунта (account-controls.js). «Витрачено $» і «Статистика» — лише адміну.
+ * коло акаунта (account-controls.js). «Витрачено $» — лише адміну.
  * DOM будується один раз, `update` патчить змінене.
  */
 import { AWAITING, BUSY, STATUS_LABELS } from "../contracts.js";
 import { h, text } from "../dom.js";
-import { STATS_PATH } from "../router.js";
 import * as accountControls from "./account-controls.js";
 
 /** @typedef {import("../contracts.js").UiState} UiState */
@@ -58,7 +57,7 @@ export function hostSlot(state) {
 const isAdmin = (state) => state.account.meStatus === "ready" && !!state.account.me?.user.isAdmin;
 
 /** Клік без модифікаторів (інакше даємо браузеру відкрити посилання як завжди). @param {MouseEvent} e */
-export const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 
 /** @type {import("../contracts.js").MountFn} */
 export function mount(el, ctx) {
@@ -78,17 +77,6 @@ export function mount(el, ctx) {
   const status = h("span", { class: "tb-status", role: "status" }, dot, label);
   const sum = h("b", { class: "tb-cost__sum" });
   const cost = h("span", { class: "tb-cost mono" }, "Витрачено ", sum);
-  /** «Статистика» — вкладка «Використання» адмінки (`/stats`): перехід роутером, без перезавантаження. */
-  const stats = h("a", {
-    class: "tb-stats",
-    href: STATS_PATH,
-    text: "Статистика",
-    onclick: (/** @type {MouseEvent} */ e) => {
-      if (!plainClick(e)) return;
-      e.preventDefault();
-      ctx.actions.navigate({ route: "admin", tab: "usage" });
-    },
-  });
   const acct = h("div", { class: "tb-acct" });
 
   const root = h(
@@ -104,7 +92,7 @@ export function mount(el, ctx) {
     h("div", { class: "tb-right" }, status, cost, acct),
   );
   el.append(root);
-  // «Новий проєкт» і «Статистика» — у слот контролів, між пілюлею і колом (порядок Tab = видимий).
+  // «Новий проєкт» — у слот контролів, між пілюлею і колом (порядок Tab = видимий).
   const account = accountControls.mount(acct, ctx, { place: "page" });
   const newBtn = h("button", {
     class: "btn btn--ghost tb-new",
@@ -112,7 +100,7 @@ export function mount(el, ctx) {
     onclick: onNew,
     text: "Новий проєкт",
   });
-  (acct.querySelector(".ac-slot") ?? acct).append(newBtn, stats);
+  (acct.querySelector(".ac-slot") ?? acct).append(newBtn);
 
   /** @param {UiState} state @param {UiState | null} prev */
   function render(state, prev) {
@@ -126,9 +114,7 @@ export function mount(el, ctx) {
       status.hidden = state.route !== "project";
     }
     if (!prev || state.account !== prev.account) {
-      const admin = isAdmin(state);
-      cost.hidden = !admin;
-      stats.hidden = !admin;
+      cost.hidden = !isAdmin(state);
     }
     if (!prev || state.status !== prev.status) {
       const kind = statusKind(state.status);

@@ -10,7 +10,6 @@ describe("HTTP Basic (APP_PASSWORD)", () => {
     const env = await setup({ appPassword: "" }, ADMIN);
     expect((await env.request("/api/projects")).status).toBe(200);
     expect((await env.request("/api/stats")).status).toBe(200);
-    expect((await env.request("/stats")).status).toBe(200);
     // Без сесії — 401 від requireUser, а не від Basic.
     const anon = await env.app.request("/api/projects");
     expect(anon.status).toBe(401);
@@ -19,7 +18,7 @@ describe("HTTP Basic (APP_PASSWORD)", () => {
 
   it("з паролем: 401 без заголовка і з неправильним паролем, 200 з правильним (ім'я будь-яке)", async () => {
     const env = await setup({ appPassword: "s3cret" }, ADMIN);
-    for (const route of ["/", "/api/projects", "/api/stats", "/api/stats.csv", "/stats", "/files/x.png"]) {
+    for (const route of ["/", "/api/projects", "/api/stats", "/api/stats.csv", "/files/x.png"]) {
       // Навіть із валідною сесією Basic-gate стоїть поверх усього.
       const res = await env.request(route);
       expect(res.status, route).toBe(401);
@@ -36,9 +35,6 @@ describe("HTTP Basic (APP_PASSWORD)", () => {
     const page = await env.app.request("/", { headers: { Authorization: basic("s3cret") } });
     expect(page.status).toBe(200);
     expect(await page.text()).toContain('<div id="app"');
-    const stats = await env.app.request("/stats", { headers: { Authorization: basic("s3cret") } });
-    expect(stats.status).toBe(200);
-    expect(await stats.text()).toContain('<div id="app"');
     expect((await env.app.request("/static/js/app.js")).status).toBe(401);
     const js = await env.app.request("/static/js/app.js", { headers: { Authorization: basic("s3cret") } });
     expect(js.status).toBe(200);

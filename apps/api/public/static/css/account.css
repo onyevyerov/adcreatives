@@ -204,7 +204,6 @@
   color: var(--ink);
   font: 500 13.5px / 1 var(--f-ui);
   text-align: left;
-  text-decoration: none;
   cursor: pointer;
 }
 

@@ -49,17 +49,6 @@
   opacity: 0.7;
 }
 
-.adm-stats {
-  color: var(--ink-2);
-  font: 500 13px / 1 var(--f-ui);
-  text-decoration: none;
-  transition: color var(--t-hover);
-}
-
-.adm-stats:hover {
-  color: var(--accent);
-}
-
 /* ───────────── Колонки ───────────── */
 
 .adm-body {
