@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   ChatEvent,
+  type ChatEventInput,
   CheckpointPayload,
   type ClaimsReport,
   type FilmReview,
@@ -16,107 +17,155 @@ import {
   type Storyboard,
   t,
 } from "@adc/shared";
-import { fixtureProject, fixtureStoryboard } from "@adc/shared/fixtures";
+import { fixtureBrandKitFile, fixtureProject, fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
 import {
+  buildBrandCheckpoint,
   buildPreviewEvent,
   buildScriptCheckpoint,
   buildStoryboardCheckpoint,
-  formatReviewWarning,
-  formatSceneItems,
   reviewWarnings,
 } from "../src/checkpoints.ts";
 
 const NOW = "2026-10-06T10:00:00.000Z";
 
-function claim(over: Partial<ClaimsReport["unverified"][number]>): ClaimsReport["unverified"][number] {
+/** Повідомлення і payload чекпоінта: payload — через схему події, як його пише емітер. */
+function split(events: ChatEventInput[]) {
+  const [message, checkpoint] = events;
+  if (message?.type !== "message") throw new Error("немає повідомлення чекпоінта");
+  if (checkpoint?.type !== "checkpoint") throw new Error("немає події чекпоінта");
+  const lines = message.text.split("\n");
+  // Витяжка без порожніх рядків-розділювачів.
+  expect(lines.every((l) => l.trim() !== "")).toBe(true);
   return {
-    sceneId: "s2",
-    field: "headline",
-    itemId: null,
-    text: "-10%",
-    kind: "percent",
-    factId: null,
-    matchedContact: false,
-    matchedSite: false,
-    ...over,
+    text: message.text,
+    lines,
+    buttons: message.buttons,
+    payload: CheckpointPayload.parse(checkpoint.payload),
   };
 }
 
-async function scriptMessage(
-  unverified: ClaimsReport["unverified"],
-  storyboard: Storyboard = fixtureStoryboard,
-) {
-  const storage = new LocalStorage(mkdtempSync(path.join(tmpdir(), "adc-checkpoints-")));
-  const project = fixtureProject({ status: "awaiting_script", brandkitVersion: 1 });
-  const rp = projectPaths(project.id).rev(1);
-  await storage.writeJson(rp.storyboard, storyboard);
-  const claims: ClaimsReport = { checkedAt: NOW, brandkitVersion: 1, verified: [], unverified };
-  await storage.writeJson(rp.claims, claims);
-  const events = await buildScriptCheckpoint(storage, project, 1, NOW);
-  const message = events[0];
-  if (message?.type !== "message") throw new Error("немає повідомлення чекпоінта 2");
-  return { text: message.text, events };
-}
-
-describe("чекпоінт 2: тексти items", () => {
-  it("під рядком сцени — тексти items; непідтверджене в пункті позначене ⚠ біля пункту", async () => {
-    const { text, events } = await scriptMessage([claim({ field: "item", itemId: "t3" })]);
-    const lines = text.split("\n");
-    const s2 = lines.findIndex((l) => l.startsWith("2. "));
-    expect(lines[s2]).toContain("Капучино — 75 грн / -10% на каву з собою до 10:00");
-    expect(lines[s2]).not.toContain("⚠");
-    expect(lines[s2 + 1]).toBe("   · Спешелті еспресо з молоком · 75 грн · -10% ⚠");
-    // Сцени без items — без додаткового рядка.
-    const s1 = lines.findIndex((l) => l.startsWith("1. "));
-    expect(lines[s1 + 1]?.startsWith("2. ")).toBe(true);
-    expect(text).toContain("- ⚠ «-10%»");
-    const checkpoint = events[1];
-    expect(checkpoint?.type === "checkpoint" && checkpoint.payload.checkpoint === "script").toBe(true);
-  });
-
-  it("непідтверджене в headline/sub — ⚠ у рядку сцени, пункти без позначок", async () => {
-    const { text } = await scriptMessage([claim({ field: "sub" })]);
-    const lines = text.split("\n");
-    const s2 = lines.findIndex((l) => l.startsWith("2. "));
-    expect(lines[s2]?.endsWith(" ⚠")).toBe(true);
-    expect(lines[s2 + 1]).toBe("   · Спешелті еспресо з молоком · 75 грн · -10%");
-  });
-
-  it("formatSceneItems: null без items; старі claims без itemId не позначають пункти", () => {
-    expect(formatSceneItems({ id: "s1", items: [] }, [])).toBeNull();
-    const scene = fixtureStoryboard.scenes[1] as (typeof fixtureStoryboard.scenes)[number];
-    expect(formatSceneItems(scene, [claim({})])).toBe("· Спешелті еспресо з молоком · 75 грн · -10%");
+describe("чекпоінт 1: бренд", () => {
+  it("у чаті — один рядок-відсилка до панелі; бренд-кіт, формати й мови — у payload", async () => {
+    const storage = new LocalStorage(mkdtempSync(path.join(tmpdir(), "adc-checkpoints-")));
+    const project = fixtureProject({
+      status: "awaiting_brand",
+      brandkitVersion: 1,
+      formats: ["vertical", "square"],
+    });
+    await storage.writeJson(projectPaths(project.id).brandkit(1), fixtureBrandKitFile);
+    const { lines, buttons, payload } = split(await buildBrandCheckpoint(storage, project, 1));
+    expect(lines).toEqual([t("brandCheckpointShort")]);
+    expect(buttons).toEqual(["approve", "edit"]);
+    if (payload.checkpoint !== "brand") throw new Error("не чекпоінт 1");
+    expect(payload.brandkit).toEqual(fixtureBrandKitFile);
+    expect(payload.formats).toEqual(["vertical", "square"]);
+    expect(payload.languageOptions.length).toBeGreaterThan(0);
   });
 });
 
-describe("чекпоінт 2: наскрізний об'єкт", () => {
-  it("рядок «Наскрізний об'єкт: …» одразу під концептом, коли throughline є", async () => {
+describe("чекпоінт 2: витяжка сценарію", () => {
+  function claim(over: Partial<ClaimsReport["unverified"][number]>): ClaimsReport["unverified"][number] {
+    return {
+      sceneId: "s2",
+      field: "headline",
+      itemId: null,
+      text: "-10%",
+      kind: "percent",
+      factId: null,
+      matchedContact: false,
+      matchedSite: false,
+      ...over,
+    };
+  }
+  async function scriptCheckpoint(
+    unverified: ClaimsReport["unverified"],
+    storyboard: Storyboard = fixtureStoryboard,
+  ) {
+    const storage = new LocalStorage(mkdtempSync(path.join(tmpdir(), "adc-checkpoints-")));
+    const project = fixtureProject({ status: "awaiting_script", brandkitVersion: 1 });
+    const rp = projectPaths(project.id).rev(1);
+    await storage.writeJson(rp.storyboard, storyboard);
+    const claims: ClaimsReport = { checkedAt: NOW, brandkitVersion: 1, verified: [], unverified };
+    await storage.writeJson(rp.claims, claims);
+    const out = split(await buildScriptCheckpoint(storage, project, 1, NOW));
+    if (out.payload.checkpoint !== "script") throw new Error("не чекпоінт 2");
+    return { ...out, payload: out.payload };
+  }
+
+  it("усе підтверджено — один рядок: сцени, тривалість, жанр музики", async () => {
+    const { lines, buttons } = await scriptCheckpoint([]);
+    // 150 + 165 + 165 − 15 − 15 = 450 кадрів = 15 с.
+    expect(lines).toEqual([
+      t("scriptCheckpointSummary", { scenes: 3, seconds: "15", music: "lo-fi hip hop" }),
+    ]);
+    expect(buttons).toEqual(["approve", "edit"]);
+  });
+
+  it("musicNote (українською) замість жанру; дробова тривалість — з комою", async () => {
     const storyboard: Storyboard = {
       ...fixtureStoryboard,
+      musicNote: "Теплий lo-fi, спокійний ранковий настрій",
+      scenes: fixtureStoryboard.scenes.map((s) => (s.id === "s3" ? { ...s, durationFrames: 180 } : s)),
+    };
+    const { lines } = await scriptCheckpoint([], storyboard);
+    expect(lines[0]).toBe(
+      t("scriptCheckpointSummary", {
+        scenes: 3,
+        seconds: "15,5",
+        music: "Теплий lo-fi, спокійний ранковий настрій",
+      }),
+    );
+  });
+
+  it("непідтверджені — другим рядком лічильник, без самих тверджень (вони в payload)", async () => {
+    const unverified = [claim({ field: "item", itemId: "t3" }), claim({ field: "sub", text: "до 10:00" })];
+    const { text, lines, payload } = await scriptCheckpoint(unverified);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe(t("scriptUnverifiedShort", { count: 2 }));
+    expect(text).not.toContain("«-10%»");
+    expect(text).not.toContain("до 10:00");
+    expect(payload.claims.unverified).toEqual(unverified);
+  });
+
+  it("без концепту, headline, items, URL і наскрізного об'єкта в чаті — усе це в payload", async () => {
+    const storyboard: Storyboard = {
+      ...fixtureStoryboard,
+      scenes: fixtureStoryboard.scenes.map((s, i) => ({
+        ...s,
+        text: { ...s.text, headline: `Roasted in-house ${i + 1}`, sub: "https://zerno.example.com/menu" },
+      })),
       throughline: {
         object: "the teal dot",
         states: fixtureStoryboard.scenes.map((s) => ({ sceneId: s.id, state: "The dot carries over." })),
       },
     };
-    const { text } = await scriptMessage([], storyboard);
-    const lines = text.split("\n");
-    const concept = lines.indexOf(`**${fixtureStoryboard.concept}**`);
-    expect(concept).toBeGreaterThan(0);
-    expect(lines[concept + 1]).toBe("Наскрізний об'єкт: the teal dot");
-    expect(lines[concept + 2]).toBe("");
-  });
-
-  it("без throughline (старі розкадровки) — рядка немає", async () => {
-    const { text } = await scriptMessage([], { ...fixtureStoryboard, throughline: null });
-    const lines = text.split("\n");
-    const concept = lines.indexOf(`**${fixtureStoryboard.concept}**`);
-    expect(lines[concept + 1]).toBe("");
-    expect(text).not.toContain("Наскрізний об'єкт");
+    const { text, lines, payload } = await scriptCheckpoint([claim({})], storyboard);
+    expect(lines.length).toBeLessThanOrEqual(4);
+    for (const gone of [
+      "Roasted in-house",
+      "http",
+      fixtureStoryboard.concept,
+      "Спешелті еспресо",
+      "the teal dot",
+      "BPM",
+    ]) {
+      expect(text).not.toContain(gone);
+    }
+    expect(payload.storyboard.concept).toBe(fixtureStoryboard.concept);
+    expect(payload.storyboard.throughline?.object).toBe("the teal dot");
+    expect(payload.storyboard.scenes.map((s) => s.text.headline)).toEqual([
+      "Roasted in-house 1",
+      "Roasted in-house 2",
+      "Roasted in-house 3",
+    ]);
+    expect(payload.storyboard.scenes[1]?.items.map((i) => i.text)).toContain("Спешелті еспресо з молоком");
+    expect(payload.musicBrief).toEqual(fixtureStoryboard.musicBrief);
+    expect(payload.durationSeconds).toBe(15);
   });
 });
 
-describe("чекпоінт 3: зауваження рецензента", () => {
+describe("чекпоінт 3: витяжка розкадровки", () => {
   function issue(over: Partial<ReviewIssue>): ReviewIssue {
     return {
       scope: "scene",
@@ -144,44 +193,37 @@ describe("чекпоінт 3: зауваження рецензента", () => 
       routes: { fix: [], sfx: [], music: 0 },
     };
   }
-  async function storyboardMessage(review: FilmReview | string | null, templateScenes: string[] = []) {
+  const QA_ISSUE: QaReport["issues"][number] = {
+    sceneId: "s1",
+    format: "vertical",
+    severity: "minor",
+    kind: "low_contrast",
+    description: "блідий підзаголовок",
+    fix: "темніше",
+  };
+  async function storyboardCheckpoint(
+    review: FilmReview | string | null,
+    opts: { templateScenes?: string[]; changedScenes?: string[] | null; qa?: QaReport["issues"] } = {},
+  ) {
     const storage = new LocalStorage(mkdtempSync(path.join(tmpdir(), "adc-checkpoints-")));
     const project = fixtureProject({ status: "awaiting_storyboard" });
     const rp = projectPaths(project.id).rev(1);
     await storage.writeJson(rp.storyboard, fixtureStoryboard);
-    const qa: QaReport = {
-      verdict: "pass",
-      summary: "ok",
-      issues: [
-        {
-          sceneId: "s1",
-          format: "vertical",
-          severity: "minor",
-          kind: "low_contrast",
-          description: "блідий підзаголовок",
-          fix: "темніше",
-        },
-      ],
-    };
+    const qa: QaReport = { verdict: "pass", summary: "ok", issues: opts.qa ?? [QA_ISSUE] };
     await storage.writeJson(rp.qa, qa);
     if (typeof review === "string") await storage.write(rp.review, review);
     else if (review) await storage.writeJson(rp.review, review);
     const events = await buildStoryboardCheckpoint(storage, project, 1, {
-      templateScenes,
-      changedScenes: null,
+      templateScenes: opts.templateScenes ?? [],
+      changedScenes: opts.changedScenes ?? null,
       preview: null,
     });
-    const message = events[0];
-    if (message?.type !== "message") throw new Error("немає повідомлення чекпоінта 3");
-    const checkpoint = events[1];
-    if (checkpoint?.type !== "checkpoint") throw new Error("немає події чекпоінта 3");
-    // Через схему події: payload.review має пережити ChatEvent.parse емітера.
-    const payload = CheckpointPayload.parse(checkpoint.payload);
-    if (payload.checkpoint !== "storyboard") throw new Error("не чекпоінт 3");
-    return { text: message.text, payload };
+    const out = split(events);
+    if (out.payload.checkpoint !== "storyboard") throw new Error("не чекпоінт 3");
+    return { ...out, payload: out.payload };
   }
 
-  it("major/critical з маршрутом, без minor і template-сцен; рядок оцінки; після попереджень QA", async () => {
+  it("підсумок, лічильник зауважень (QA + рецензент), оцінка, шаблонні сцени — без переліку", async () => {
     const review = filmReview([
       issue({ sceneId: "s1", kind: "low_contrast", description: "заголовок зливається з фоном" }),
       issue({
@@ -197,61 +239,81 @@ describe("чекпоінт 3: зауваження рецензента", () => 
       issue({ sceneId: "s1", severity: "minor", description: "дрібниця" }),
       issue({ sceneId: "s3", kind: "sfx_level", description: "на template-сцені" }),
     ]);
-    const { text, payload } = await storyboardMessage(review, ["s3"]);
-    const lines = text.split("\n");
-    const qaAt = lines.indexOf(t("qaWarnings", { count: 1 }));
-    const header = lines.indexOf(t("reviewWarnings", { count: 4 }));
-    expect(qaAt).toBeGreaterThan(0);
-    expect(header).toBeGreaterThan(qaAt);
-    expect(lines.slice(header + 1, header + 5)).toEqual([
-      "- s1 [fix]: заголовок зливається з фоном",
-      "- s2 → s3 [fix]: крапка зникає на склейці",
-      "- s2 [sfx]: удар без звуку",
-      "- [music]: трек млявий для бренду",
+    const { text, lines, buttons, payload } = await storyboardCheckpoint(review, { templateScenes: ["s3"] });
+    expect(lines).toEqual([
+      t("storyboardCheckpointSummary", { scenes: 3 }),
+      t("storyboardIssuesShort", { count: 5, qa: 1, review: 4 }),
+      t("storyboardScoreShort", { score: 7 }),
+      t("templateScenesNote", { scenes: "s3" }),
     ]);
-    expect(text).not.toContain("дрібниця");
-    expect(text).not.toContain("на template-сцені");
-    expect(lines).toContain(t("reviewScore", { score: 7, summary: review.summary }));
-    expect(text).toContain(t("templateScenesNote", { scenes: "s3" }));
+    expect(buttons).toEqual(["approve", "edit"]);
+    for (const gone of [
+      "заголовок зливається",
+      "крапка зникає",
+      "удар без звуку",
+      "трек млявий",
+      "блідий підзаголовок",
+      review.summary,
+    ]) {
+      expect(text).not.toContain(gone);
+    }
+    // Прибране з чату — у payload: зауваження з маршрутом, резюме рецензента, попередження QA.
     expect(payload.review?.score).toBe(7);
     expect(payload.review?.summary).toBe(review.summary);
-    expect(payload.review?.issues.map((i) => [i.sceneId, i.route])).toEqual([
-      ["s1", "fix"],
-      ["s2", "fix"],
-      ["s2", "sfx"],
-      [null, "music"],
+    expect(payload.review?.issues.map((i) => [i.sceneId, i.route, i.description])).toEqual([
+      ["s1", "fix", "заголовок зливається з фоном"],
+      ["s2", "fix", "крапка зникає на склейці"],
+      ["s2", "sfx", "удар без звуку"],
+      [null, "music", "трек млявий для бренду"],
     ]);
-    expect(payload.warnings).toHaveLength(1);
+    expect(payload.warnings.map((w) => w.description)).toEqual(["блідий підзаголовок"]);
+    expect(payload.templateScenes).toEqual(["s3"]);
   });
 
-  it("не більше 10 зауважень у тексті; лічильник — усі", async () => {
+  it("лічильник — усі зауваження, у payload — усі без обрізання", async () => {
     const many = Array.from({ length: 12 }, (_, i) => issue({ description: `зауваження ${i + 1}` }));
-    const { text } = await storyboardMessage(filmReview(many));
-    expect(text).toContain(t("reviewWarnings", { count: 12 }));
-    expect(text).toContain("зауваження 10");
-    expect(text).not.toContain("зауваження 11");
+    const { lines, text, payload } = await storyboardCheckpoint(filmReview(many), { qa: [] });
+    expect(lines[1]).toBe(t("storyboardIssuesShort", { count: 12, qa: 0, review: 12 }));
+    expect(text).not.toContain("зауваження 1");
+    expect(payload.review?.issues).toHaveLength(12);
   });
 
-  it("pass без зауважень — лише рядок оцінки; без review.json чи з битим — як раніше", async () => {
-    const clean = await storyboardMessage({ ...filmReview([]), verdict: "pass", score: 9 });
-    expect(clean.text).not.toContain(t("reviewWarnings", { count: 0 }));
-    expect(clean.text).toContain("Оцінка рецензента: 9/10");
+  it("без зауважень — підсумок і оцінка; без review.json чи з битим — лише підсумок", async () => {
+    const clean = await storyboardCheckpoint({ ...filmReview([]), verdict: "pass", score: 9 }, { qa: [] });
+    expect(clean.lines).toEqual([
+      t("storyboardCheckpointSummary", { scenes: 3 }),
+      t("storyboardScoreShort", { score: 9 }),
+    ]);
     expect(clean.payload.review).toEqual({ score: 9, summary: expect.any(String), issues: [] });
     for (const review of [null, "{не json"]) {
-      const { text, payload } = await storyboardMessage(review);
+      const { lines, payload } = await storyboardCheckpoint(review, { qa: [] });
       expect(payload.review).toBeNull();
-      expect(text).not.toContain("Оцінка рецензента");
-      expect(text).not.toContain("Зауваження рецензента");
+      expect(lines).toEqual([t("storyboardCheckpointSummary", { scenes: 3 })]);
     }
   });
 
-  it("reviewWarnings/formatReviewWarning: маршрут за типом, фільм без сцени", () => {
+  it("після правки — кількість змінених сцен (кадри лише їх)", async () => {
+    const { lines, payload } = await storyboardCheckpoint(null, { changedScenes: ["s2"], qa: [] });
+    expect(lines).toEqual([t("storyboardCheckpointSummary", { scenes: 1 })]);
+    expect(payload.changedScenes).toEqual(["s2"]);
+  });
+
+  it("reviewWarnings: маршрут за типом, без minor і template-сцен", () => {
     const ws = reviewWarnings(
-      { issues: [issue({ kind: "pace" }), issue({ kind: "music_level", sceneId: null, scope: "film" })] },
-      [],
+      {
+        issues: [
+          issue({ kind: "pace" }),
+          issue({ kind: "music_level", sceneId: null, scope: "film" }),
+          issue({ severity: "minor" }),
+          issue({ sceneId: "s3" }),
+        ],
+      },
+      ["s3"],
     );
-    expect(ws.map((w) => w.route)).toEqual(["fix", "music"]);
-    expect(ws.map(formatReviewWarning)).toEqual(["- s1 [fix]: опис", "- [music]: опис"]);
+    expect(ws.map((w) => [w.sceneId, w.route])).toEqual([
+      ["s1", "fix"],
+      [null, "music"],
+    ]);
   });
 });
 
