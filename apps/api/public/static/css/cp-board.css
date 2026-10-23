@@ -349,7 +349,7 @@
 
 /* Сцена, що зараз грає у превʼю. */
 .cd-scene--playing .cd-still {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--edge-strong);
   outline-offset: -2px;
 }
 

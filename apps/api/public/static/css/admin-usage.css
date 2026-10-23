@@ -77,7 +77,7 @@
 
 .adu-date__input:hover,
 .adu-date__input:focus {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .adu-date__input[aria-invalid="true"] {
@@ -156,7 +156,7 @@
 
 .adu-card__num {
   font: 300 30px / 1.05 var(--f-display);
-  letter-spacing: -0.04em;
+  letter-spacing: calc(-0.04em + var(--trk-display));
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -222,7 +222,7 @@
 
 .adu-search__input:hover,
 .adu-search__input:focus {
-  border-color: var(--ink);
+  border-color: var(--edge-strong);
 }
 
 .adu-csv {
@@ -258,9 +258,9 @@
   text-align: right;
 }
 
-/* Лінія під заголовками — --ink, між рядками — --line (у collapse верхня перемагає). */
+/* Лінія під заголовками — --edge-strong, між рядками — --line (у collapse верхня перемагає). */
 .adu-th {
-  border-bottom: 1px solid var(--ink);
+  border-bottom: 1px solid var(--edge-strong);
   color: var(--muted);
   font: 500 10.5px / 1.2 var(--f-mono);
   letter-spacing: 0.08em;
