@@ -662,7 +662,12 @@ class FakeServer {
         return ok({ commandId: this.nextId("c_"), messageId: this.nextId("msg_"), eventId: "0-0" }, 202);
       }
       if (action === "/commands" && method === "POST") {
-        if (b.type === "approve") this.onApprove(project);
+        if (b.type === "approve") {
+          // ЧП1: вибір форматів приходить разом з approve (`choices`), а не окремим повідомленням.
+          const choices = b.choices as { formats?: Format[] } | undefined;
+          if (choices?.formats) project.formats = choices.formats;
+          this.onApprove(project);
+        }
         return ok({ commandId: this.nextId("c_") }, 202);
       }
     }
@@ -1018,11 +1023,14 @@ describe("F2 · Нестача на ЧП3 (баланс 1 · 9:16 + 1:1)", () =>
     // 01 · n5-cp1-short — 9:16 + 1:1: тег ціни на тайлі і рядок «спишу на ЧП3».
     await click("Квадрат", "#stage");
     expect(screenText("#stage")).toContain("+2 за 1:1 спишу на ЧП3");
-    // Вибір іде на сервер повідомленням «Формати: …» після FORMATS_DEBOUNCE_MS.
+    // Вибір — чернетка: на сервер нічого не йде, доки не натиснули «Затвердити».
     await settle(1_000);
-    expect(server.log).toContain(`POST /api/projects/${p.id}/messages`);
-    expect(server.projects.get(p.id)?.formats).toEqual(["vertical", "square"]);
+    expect(server.log).not.toContain(`POST /api/projects/${p.id}/messages`);
+    expect(server.projects.get(p.id)?.formats).toEqual(["vertical"]);
     await click(/^Затвердити/, "#stage");
+    // «Затвердити» несе формати в `choices` команди approve.
+    expect(server.log).toContain(`POST /api/projects/${p.id}/commands`);
+    expect(server.projects.get(p.id)?.formats).toEqual(["vertical", "square"]);
 
     // 02 · n5-cp3-short — ЧП2 → ЧП3: «Затвердити й рендерити · 2 кредити».
     await until((s) => s.status === "awaiting_script", "ЧП2");
