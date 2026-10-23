@@ -303,10 +303,10 @@ describe("views/stage-progress.js", () => {
       view.destroy();
     });
 
-    it("злиті рядки стрічки: пройдені кроки — з того, що чекліст бачив наживо", () => {
+    it("рядки стрічки по кроках (B4): пройдені кроки видно і без живого чекліста", () => {
       const s = fixture("scripting");
-      expect(s.feed.filter((i) => i.kind === "progress" && i.stage === "storyboard")).toHaveLength(1);
-      expect([...sp.visitedSteps(STAGE_STEPS.scripting, s, [])]).toEqual(["fit"]);
+      expect(s.feed.filter((i) => i.kind === "progress" && i.stage === "storyboard")).toHaveLength(3);
+      expect([...sp.visitedSteps(STAGE_STEPS.scripting, s, [])]).toEqual(["brief", "write", "fit"]);
       expect([...sp.visitedSteps(STAGE_STEPS.scripting, s, ["brief", "write"])]).toEqual([
         "brief",
         "write",

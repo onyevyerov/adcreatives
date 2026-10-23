@@ -40,7 +40,9 @@ describe("driver — happy path through three checkpoints", () => {
     const brand = h.checkpoints().at(-1);
     expect(brand?.checkpoint).toBe("brand");
     expect(brand?.payload.checkpoint === "brand" && brand.payload.formats).toEqual(["vertical"]);
-    expect(h.messages().at(-1)).toContain("Зерно");
+    // У чаті — лише коротка витяжка (B1); бренд-кіт — у payload для панелі.
+    expect(h.messages().at(-1)).toBe(t("brandCheckpointShort"));
+    expect(brand?.payload.checkpoint === "brand" && JSON.stringify(brand.payload)).toContain("Зерно");
 
     // Формати з кнопок сторінки — без LLM.
     await h.say("Формати: 9:16, 1:1");
@@ -68,9 +70,9 @@ describe("driver — happy path through three checkpoints", () => {
         { assetId: "a01", url: "/files/projects/p1/crawl/assets/a01.jpg" },
       ]);
     }
+    // У чаті — витяжка з ⚠ (B1); тексти сцен — лише в payload.
     expect(h.messages().at(-1)).toContain("⚠");
-    // Тексти items сцени — під її рядком.
-    expect(h.messages().at(-1)).toContain("· Спешелті еспресо з молоком · 75 грн · -10%");
+    expect(h.messages().at(-1)).not.toContain("Спешелті еспресо");
 
     // «Затвердити» записує непідтверджене як факт клієнта.
     await h.approve(1);

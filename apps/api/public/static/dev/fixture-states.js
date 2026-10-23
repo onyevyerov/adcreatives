@@ -71,13 +71,18 @@ function apply(s, { id, event: ev }) {
     case "progress": {
       const last = s.feed.at(-1);
       const item = { stage: ev.stage, label: ev.label, done: ev.done, total: ev.total };
-      // `step` рядка — останньої події (без step — поле зникає), як у редьюсері.
+      // Як `continuesRow` у редьюсері: новий крок того самого stage — новий рядок; подія без step
+      // лишає крок рядка; та сама мітка в busy продовжує рядок, навіть закритий state-подією.
       const step = ev.step === undefined ? {} : { step: ev.step };
+      const continues =
+        last?.kind === "progress" &&
+        last.stage === ev.stage &&
+        ((last.running && (ev.step === undefined || ev.step === last.step)) ||
+          (last.label === ev.label && (last.running || BUSY.includes(s.status))));
       /** @type {FeedItem[]} */
       let feed;
-      if (last?.kind === "progress" && last.running && last.stage === ev.stage) {
-        const { step: _prevStep, ...prev } = last;
-        feed = [...s.feed.slice(0, -1), { ...prev, ...item, ...step, at: ev.at }];
+      if (continues) {
+        feed = [...s.feed.slice(0, -1), { ...last, ...item, ...step, at: ev.at, running: true }];
       } else {
         feed = [
           ...closeProgress(s.feed),

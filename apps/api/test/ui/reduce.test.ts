@@ -444,7 +444,12 @@ describe("reduce: прогрес без дублів (B4)", () => {
   });
 
   it("старі події без step — як раніше: той самий stage оновлює один рядок", () => {
-    const s = reduceAll(base(), eventsOf(PATHS.brand));
+    // Фікстура вже з step (B6) — знімаємо його, щоб відтворити старі події.
+    const legacy = eventsOf(PATHS.brand).map((e) => {
+      const { step: _step, ...event } = e.event as ChatEvent & { step?: string };
+      return { ...e, event: event as ChatEvent };
+    });
+    const s = reduceAll(base(), legacy);
     const items = progressItems(s);
     expect(items.every((i) => !("step" in i))).toBe(true);
     expect(items.map((i) => i.kind === "progress" && i.stage)).toEqual(["crawl", "brandkit"]);
