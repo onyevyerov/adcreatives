@@ -95,6 +95,9 @@ import { createMockAnthropic } from "@adc/shared/llm";     // мок Anthropic �
 | Змінна | Дефолт | Що робить |
 |---|---|---|
 | `ADC_STORYBOARD_PREVIEW` | `on` | `off` — на ЧП3 без відео-превʼю (лише стіли) |
+| `ADC_FIX_EFFORT` | — (frontmatter `code-fix.md`) | effort fix для `reason: qa/review`; для `check` — `ADC_FIX_CHECK_EFFORT` (B3, [аналіз вартості](docs/analysis/cost-optimization.md)) |
+| `ADC_FIX_OUTPUT` | `file` | `patch` — fix повертає блоки правок `<edits>` замість повного файлу сцени (B4, [аналіз вартості](docs/analysis/cost-optimization.md)) |
+| `ADC_FIX_CHECK_CONTEXT` | `film` | `own` — fix(check) лише зі своїм кодом, коли в колі тільки помилки компіляції / AST-guard (B5, [аналіз вартості](docs/analysis/cost-optimization.md)) |
 
 **Агентний режим генерації** (`ADC_GENERATION_MODE=agent`, дефолт `pipeline`). Замість codegen сцени пише
 стадія `author` (`packages/author`, промпт `prompts/author.md`): один агент пише кожну сцену інструментом
@@ -146,6 +149,8 @@ storyboard → ЧП2 → codegen|author → check ↔ fix → qa ↔ fix → sfx
 | `ADC_SFX_MODE` | `designer` | `storyboard` — звук із розкадровки, стадії `sfx` немає, `audio` однією фазою `full` (як до ТЗ) |
 | `ADC_FILM_REVIEW` | `on` | `off` — без рецензента, після зведення одразу ЧП3 (у режимі `storyboard` рецензії немає завжди) |
 | `ADC_REVIEW_MAX_ROUNDS` | `1` (0–2) | скільки кіл правок за рецензією; `0` — лише оцінка на ЧП3 |
+| `ADC_REVIEW_JOIN_SIDE` | `both` | `one` — зауваження до склейки правлять лише сцену `fixSceneId`, а не обидві (B1, [аналіз вартості](docs/analysis/cost-optimization.md)) |
+| `ADC_SFX_MODEL` | — (frontmatter `sfx-design.md`) | модель `sfx` (B7, [аналіз вартості](docs/analysis/cost-optimization.md)) |
 
 Відкат без деплою: `ADC_SFX_MODE=storyboard ADC_FILM_REVIEW=off`. Режим фіксується на старті ревізії.
 Бюджет (оцінка за токенами, не замір): `sfx` ≈ $0.5–1 на ролик, `review` ≈ $1.5–3 на коло — разом +$2–4 і

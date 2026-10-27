@@ -222,6 +222,8 @@ ${extra}---
         throughline: null,
         scene: {},
         readonlyScenes: "-",
+        filmScenes: "-",
+        outputFormat: "-",
         code: "-",
         problems: "-",
         language: "uk",

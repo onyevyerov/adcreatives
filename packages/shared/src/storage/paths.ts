@@ -47,6 +47,10 @@ export function revPaths(projectId: string, rev: number) {
     sfxPlan: join(root, "sfx-plan.json"),
     soundSheet: join(root, "sound-sheet.json"),
     review: join(root, "review.json"),
+    /** Знімок qa.json після запуску qa з цим attempt (A0). */
+    qaHistory: (attempt: number) => join(root, "history", `qa-a${attempt}.json`),
+    /** Знімок review.json після кола рецензії (A0). */
+    reviewHistory: (round: number) => join(root, "history", `review-r${round}.json`),
     /** Аркуш моментів сцени (кадри ±2 навколо подій і склейки), один формат. */
     momentSheet: (format: Format, sceneId: string) => join(root, "moments", format, `${sceneId}.jpg`),
     render: (format: Format) => join(root, "renders", `${format}.mp4`),

@@ -257,6 +257,39 @@ describe("llm wrapper", () => {
       ]);
     });
 
+    it("imagesAfterCache: [userCached, ...зображення, хвіст]; без нього — зображення першими; перший блок = прогрів", async () => {
+      const images = [
+        { mediaType: "image/png" as const, data: "AAA" },
+        { mediaType: "image/jpeg" as const, data: "BBB" },
+      ];
+      const imageBlocks = [
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "AAA" } },
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "BBB" } },
+      ];
+      const cached = {
+        type: "text",
+        text: "Спільне: бренд і розкадровка",
+        cache_control: { type: "ephemeral" },
+      };
+      const tail = { type: "text", text: "Сцена: s2" };
+      const { llm, client } = setup([{ text: "код" }, { text: "код" }, { text: "код" }]);
+
+      await llm.warm("scene", vars);
+      await llm.stream("scene", vars, { images, imagesAfterCache: true });
+      await llm.stream("scene", vars, { images });
+      await llm.stream("pick", { brand: "Зерно" }, { images, imagesAfterCache: true });
+
+      const [w, after, before, noCached] = client.calls.map(
+        (c) => (c.params as Anthropic.MessageStreamParams).messages[0]?.content as unknown[],
+      );
+      expect(after).toEqual([cached, ...imageBlocks, tail]);
+      expect(before).toEqual([...imageBlocks, cached, tail]);
+      // Без userCached перемикач ігнорується.
+      expect(noCached).toEqual([...imageBlocks, { type: "text", text: "Бренд: Зерно" }]);
+      expect(w).toEqual([cached]);
+      expect(after?.[0]).toEqual(w?.[0]);
+    });
+
     it("taskBudget → output_config.task_budget і beta-заголовок; менше 20 000 — помилка", async () => {
       const { llm, client } = setup([{ text: "код" }]);
       await llm.stream("scene", vars, { taskBudget: 25_000, effort: "medium" });

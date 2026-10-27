@@ -85,6 +85,8 @@ describe("paths", () => {
     expect(r.still("square", "s2", "b")).toBe("projects/abc/rev/3/stills/square/s2-b.png");
     expect(r.render("landscape")).toBe("projects/abc/rev/3/renders/landscape.mp4");
     expect(r.scenesIndex).toBe("projects/abc/rev/3/video/scenes/index.ts");
+    expect(r.qaHistory(2)).toBe("projects/abc/rev/3/history/qa-a2.json");
+    expect(r.reviewHistory(0)).toBe("projects/abc/rev/3/history/review-r0.json");
     expect(projectPaths("abc").brandkit(2)).toBe("projects/abc/brandkit/v2.json");
   });
 });

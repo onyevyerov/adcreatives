@@ -38,6 +38,8 @@ export const ReviewIssue = z.object({
   description: z.string(),
   /** Точна інструкція виконавцю (fix або sfx). */
   fix: z.string(),
+  /** Для scope join — сцена, чий код змінює `fix` (sceneId або nextSceneId); scene/film — null. */
+  fixSceneId: z.string().nullable().default(null),
 });
 export type ReviewIssue = z.infer<typeof ReviewIssue>;
 
@@ -60,6 +62,8 @@ export const FilmReview = FilmReviewDraft.extend({
     sfx: z.array(z.string()),
     music: z.number().int(),
   }),
+  /** Режим маршруту склейок, з яким рахувались routes (Tuning.reviewJoinSide на момент рецензії). */
+  joinSide: z.enum(["both", "one"]).default("both"),
 });
 export type FilmReview = z.infer<typeof FilmReview>;
 

@@ -69,6 +69,7 @@ const issue = (over: Partial<ReviewIssue> & Pick<ReviewIssue, "kind" | "descript
   format: null,
   severity: "major",
   fix: `${over.kind}: інструкція`,
+  fixSceneId: null,
   ...over,
 });
 
