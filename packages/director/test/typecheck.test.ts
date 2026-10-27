@@ -10,6 +10,30 @@ describe("typecheckScenes", () => {
     expect(res.ok).toBe(true);
   });
 
+  it('Headline і Body приймають by="line" (як у стадії check)', () => {
+    const scene = `import type { SceneProps } from "@adc/motion-kit";
+import { Body, Headline, SafeArea } from "@adc/motion-kit";
+export default function Scene(props: SceneProps) {
+  return (
+    <SafeArea>
+      <Headline text={props.scene.text.headline} by="line" preset="rise" />
+      <Body text={props.scene.text.sub ?? ""} by="line" preset="fade" />
+    </SafeArea>
+  );
+}
+`;
+    const res = typecheckScenes({ s1: scene });
+    expect(res.errors).toEqual([]);
+    expect(res.ok).toBe(true);
+    const bad = typecheckScenes({
+      s1: scene.replace(
+        '<Body text={props.scene.text.sub ?? ""} by="line"',
+        '<Body text={props.scene.text.title} by="row"',
+      ),
+    });
+    expect(bad.ok).toBe(false);
+  });
+
   it("групує помилки по сценах", () => {
     const ex = exampleSources();
     const bad = `import type { SceneProps } from "@adc/motion-kit";

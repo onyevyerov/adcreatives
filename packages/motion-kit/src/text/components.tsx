@@ -63,6 +63,8 @@ export function Headline(props: {
   emphasis?: string[];
   /** Без preset — статичний. */
   preset?: TextPreset;
+  /** Дефолт "word"; "line" — швидка поява довгого тексту. */
+  by?: "word" | "line";
   startFrame?: number;
   /** Дефолт 3. */
   maxLines?: number;
@@ -91,6 +93,8 @@ export function Headline(props: {
 export function Body(props: {
   text: string;
   preset?: TextPreset;
+  /** З preset дефолт "line", без нього "word"; "line" — швидка поява довгого тексту. */
+  by?: "word" | "line";
   startFrame?: number;
   /** Дефолт 3. */
   maxLines?: number;
@@ -108,7 +112,7 @@ export function Body(props: {
     <TextBlock
       {...props}
       font="body"
-      by={props.preset ? "line" : "word"}
+      by={props.by ?? (props.preset ? "line" : "word")}
       maxLines={props.maxLines ?? 3}
       maxFontSize={Math.round(max * unit)}
       minFontSize={Math.round(min * unit)}
