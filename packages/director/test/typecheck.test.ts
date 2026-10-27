@@ -28,7 +28,7 @@ export default function Scene(props: SceneProps) {
     const bad = typecheckScenes({
       s1: scene.replace(
         '<Body text={props.scene.text.sub ?? ""} by="line"',
-        '<Body text={props.scene.text.title} by="row"',
+        '<Body text={props.scene.text.sub ?? ""} by="row"',
       ),
     });
     expect(bad.ok).toBe(false);
