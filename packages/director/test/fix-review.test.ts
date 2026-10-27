@@ -28,8 +28,9 @@ const ex = exampleSources();
 const CODE: Record<string, string> = { s1: ex["hook-photo"], s2: ex["offer-price"], s3: ex["cta-logo"] };
 
 type Params = {
+  max_tokens: number;
   output_config?: { effort?: string };
-  messages: Array<{ content: Array<{ type: string; text?: string }> }>;
+  messages: Array<{ content: Array<{ type: string; text?: string; cache_control?: unknown }> }>;
 };
 const sceneOf = (params: unknown) => /Repair scene (\w+) /.exec(userText(params))?.[1];
 const images = (p: unknown) => ((p as Params).messages[0]?.content ?? []).filter((b) => b.type === "image");
@@ -177,6 +178,28 @@ describe("fixStage: reason review", () => {
     expect(s2.indexOf("Image 1:")).toBeLessThan(s2.indexOf("Film reviewer's remarks"));
   });
 
+  it("ADC_FIX_EFFORT=medium: прогрів і виклики review — medium; [film-блок з кешем, кадри, хвіст]", async () => {
+    const storage = await checked();
+    await writeReview(storage);
+    const ctx = makeCtx(storage, "fix", { sceneIds: ["s1", "s2"], reason: "review" }, byScene(["s1", "s2"]));
+    await createFixStage({
+      tuning: () => readTuning({ ADC_FIX_EFFORT: "medium", ADC_FIX_CHECK_EFFORT: "low" }),
+    })(ctx);
+    const [warm, ...rest] = ctx.anthropic.calls.map((c) => c.params as Params);
+    expect(warm?.max_tokens).toBe(0);
+    expect(warm?.output_config?.effort).toBe("medium");
+    const film = warm?.messages[0]?.content[0];
+    expect(film?.cache_control).toEqual({ type: "ephemeral" });
+    expect(film?.text).toContain('<film>\n<file name="s1.tsx">');
+    expect(rest).toHaveLength(2);
+    for (const p of rest) {
+      expect(p.output_config?.effort).toBe("medium");
+      const content = p.messages[0]?.content ?? [];
+      expect(content.map((b) => b.type)).toEqual(["text", "image", "image", "text"]);
+      expect(content[0]).toEqual(film);
+    }
+  });
+
   it("без review.json — попередження в лог, фікс лише за автоперевірками", async () => {
     const storage = await checked();
     const ctx = makeCtx(storage, "fix", { sceneIds: ["s3"], reason: "review" }, byScene(["s3"]));
@@ -206,6 +229,7 @@ describe("зауваження рецензента для fix", () => {
   it("describeProblems: зауваження рецензента лише для reason review; склейка з останньої сцени — без хвоста", () => {
     const review = {
       issues: [issue({ scope: "join", sceneId: "s3", kind: "join_break", description: "фінал обривається" })],
+      joinSide: "both" as const,
     };
     const base = { sceneId: "s3", check: null, qa: null, review, guardViolations: [] };
     expect(describeProblems({ ...base, reason: "review" })).toBe(

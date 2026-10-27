@@ -12,6 +12,7 @@ import { fixtureBrandKitFile } from "@adc/shared/fixtures";
 import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GuardOptions } from "../src/guard.ts";
+import { addVersion, readLedger, writeLedger } from "../src/ledger.ts";
 import { stripSheetLayout } from "../src/sheets.ts";
 import { createCheckStage } from "../src/stages/check.ts";
 import { codegenStage } from "../src/stages/codegen.ts";
@@ -125,13 +126,20 @@ async function writeQa(storage: LocalStorage, sceneIds: readonly string[]): Prom
 }
 
 const images = (p: Params) => (p.messages[0]?.content ?? []).filter((b) => b.type === "image");
+/** Типи блоків user-повідомлення; `text+cache` — текст з `cache_control`. */
+const shape = (p: Params) =>
+  (p.messages[0]?.content ?? []).map((b) => (b.type === "text" && b.cache_control ? "text+cache" : b.type));
+/** Перший блок user-повідомлення — бренд, концепт і код фільму (`<film>`). */
+const filmBlock = (p: Params) => p.messages[0]?.content[0]?.text ?? "";
+const filmOf = (text: string) => /<film>\n([\s\S]*?)\n<\/film>/.exec(text)?.[1] ?? "";
+const codeOf = (text: string) => (/<code>\n([\s\S]*?)\n<\/code>/.exec(text)?.[1] ?? "").trim();
 
 describe("fixStage: кадри для qa, прогрів, effort", () => {
   beforeEach(() => {
     guardCalls.length = 0;
   });
 
-  it("qa: аркуші стрічки обраних форматів (що є в check.json) перед текстом, JPEG ≤ 1568, легенда; warm перед паралельними", async () => {
+  it("qa: [film-блок з кешем, аркуші стрічки обраних форматів (що є в check.json), хвіст], JPEG ≤ 1568, легенда; warm перед паралельними", async () => {
     const storage = await checked();
     // s2 без стілів square — лише одне зображення
     const rp = revPaths(PROJECT_ID, 1);
@@ -153,16 +161,22 @@ describe("fixStage: кадри для qa, прогрів, effort", () => {
     expect(calls).toHaveLength(3);
     const [warm, ...rest] = calls as [Params, ...Params[]];
     expect(warm.max_tokens).toBe(0);
-    expect(images(warm)).toHaveLength(0);
+    expect(shape(warm)).toEqual(["text+cache"]);
+    const film = filmBlock(warm);
+    expect(warm.messages[0]?.content[0]?.cache_control).toEqual({ type: "ephemeral" });
+    // film-блок: код усіх сцен фільму, зі своєю і сусідами
+    for (const id of ["s1", "s2", "s3"]) expect(filmOf(film)).toContain(`<file name="${id}.tsx">`);
 
     const bySceneId = Object.fromEntries(rest.map((p) => [sceneOf(p), p]));
     const expected: Record<string, string[]> = { s1: ["vertical", "square"], s2: ["vertical"] };
     for (const [id, formats] of Object.entries(expected)) {
       const p = bySceneId[id] as Params;
       const content = p.messages[0]?.content ?? [];
-      // зображення — перші блоки, далі лише текст
-      expect(content.slice(0, formats.length).map((b) => b.type)).toEqual(formats.map(() => "image"));
-      expect(content.slice(formats.length).every((b) => b.type === "text")).toBe(true);
+      // film-блок (той самий, що в прогріві, з cache_control 5m), далі кадри, далі хвіст
+      expect(shape(p)).toEqual(["text+cache", ...formats.map(() => "image"), "text"]);
+      expect(content[0]).toEqual(warm.messages[0]?.content[0]);
+      expect(content.at(-1)?.text?.startsWith("<scene>")).toBe(true);
+      expect(codeOf(userText(p))).toBe(`(the current code of this scene is the file ${id}.tsx in <film>)`);
       for (const img of images(p)) {
         expect(img.source?.media_type).toBe("image/jpeg");
         const meta = await sharp(Buffer.from(img.source?.data ?? "", "base64")).metadata();
@@ -185,11 +199,10 @@ describe("fixStage: кадри для qa, прогрів, effort", () => {
       expect(text).toContain("The frames show the actual state; the remarks below say what to change.");
       expect(text).toContain(`заголовок ${id} обрізано`);
       expect(text.indexOf("Image 1:")).toBeLessThan(text.indexOf("Art director's remarks"));
-      // effort — frontmatter, ті самі model / system, що в прогріві; userCached без cache_control
+      // effort — frontmatter (ADC_FIX_EFFORT не задано), ті самі model / system, що в прогріві
       expect(p.output_config?.effort).toBe("high");
       expect(p.model).toBe(warm.model);
       expect(p.system).toEqual(warm.system);
-      expect(content.find((b) => b.type === "text")?.cache_control).toBeUndefined();
     }
     expect(warm.output_config?.effort).toBe("high");
 
@@ -220,8 +233,15 @@ describe("fixStage: кадри для qa, прогрів, effort", () => {
     expect(cached?.cache_control).toEqual({ type: "ephemeral" });
     expect(cached?.text).toContain("<brand>");
     expect(cached?.text).not.toContain("<code>");
+    // код фільму в порядку розкадровки — у кешованому блоці
+    const film = filmOf(cached?.text ?? "");
+    const at = ["s1", "s2", "s3"].map((id) => film.indexOf(`<file name="${id}.tsx">`));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(film).toContain(CODE.s3?.trim().slice(0, 200));
     for (const p of rest) {
-      expect(images(p)).toHaveLength(0);
+      expect(shape(p)).toEqual(["text+cache", "text"]);
+      expect(p.model).toBe(warm.model);
       expect(p.output_config?.effort).toBe("medium");
       expect(p.system).toEqual(warm.system);
       expect(p.messages[0]?.content[0]).toEqual(cached);
@@ -231,7 +251,7 @@ describe("fixStage: кадри для qa, прогрів, effort", () => {
     }
   });
 
-  it("check без fixCheckEffort → effort із frontmatter; одна ціль → без прогріву", async () => {
+  it("check без fixCheckEffort → effort із frontmatter; одна ціль → без прогріву і без cache_control на film-блоці", async () => {
     const storage = await checked();
     const ctx = makeCtx(storage, "fix", { sceneIds: ["s2"], reason: "check" }, byScene(["s2"]));
     const log = traceLlm(ctx);
@@ -242,9 +262,35 @@ describe("fixStage: кадри для qa, прогрів, effort", () => {
     expect(calls[0]?.max_tokens).toBe(64000);
     expect(calls[0]?.output_config?.effort).toBe("high");
     expect(calls[0]?.messages[0]?.content[0]?.cache_control).toBeUndefined();
+    expect(calls[0] && shape(calls[0])).toEqual(["text", "text"]);
+    expect(filmOf(calls[0] ? filmBlock(calls[0]) : "")).toContain('<file name="s2.tsx">');
   });
 
-  it("qa з однією ціллю: кадри без прогріву", async () => {
+  it("ADC_FIX_EFFORT: qa бере його в прогріві й викликах; check — fixCheckEffort, без нього — frontmatter", async () => {
+    const effortsOf = async (reason: "qa" | "check", env: Record<string, string>) => {
+      const storage = await checked();
+      await writeQa(storage, ["s1", "s2"]);
+      const ctx = makeCtx(storage, "fix", { sceneIds: ["s1", "s2"], reason }, byScene(["s1", "s2"]));
+      await stageWith(env)(ctx);
+      const calls = ctx.anthropic.calls.map((c) => paramsOf(c.params));
+      expect(calls[0]?.max_tokens).toBe(0);
+      expect(calls).toHaveLength(3);
+      return calls.map((p) => p.output_config?.effort);
+    };
+    expect(await effortsOf("qa", { ADC_FIX_EFFORT: "medium", ADC_FIX_CHECK_EFFORT: "low" })).toEqual([
+      "medium",
+      "medium",
+      "medium",
+    ]);
+    expect(await effortsOf("check", { ADC_FIX_EFFORT: "medium", ADC_FIX_CHECK_EFFORT: "low" })).toEqual([
+      "low",
+      "low",
+      "low",
+    ]);
+    expect(await effortsOf("check", { ADC_FIX_EFFORT: "medium" })).toEqual(["high", "high", "high"]);
+  });
+
+  it("qa з однією ціллю: кадри після film-блоку, без прогріву і без cache_control", async () => {
     const storage = await checked();
     await writeQa(storage, ["s3"]);
     const ctx = makeCtx(storage, "fix", { sceneIds: ["s3"], reason: "qa" }, byScene(["s3"]));
@@ -252,11 +298,12 @@ describe("fixStage: кадри для qa, прогрів, effort", () => {
     await stageWith()(ctx);
     expect(log).toEqual(["text:s3"]);
     const [call] = ctx.anthropic.calls.map((c) => paramsOf(c.params));
-    expect(call && images(call)).toHaveLength(2);
+    expect(call && shape(call)).toEqual(["text", "image", "image", "text"]);
+    expect(call?.messages[0]?.content[0]?.text).toContain("<film>");
     expect(userText(call)).toContain("Image 2: scene s3, format square, strip of 11 frames");
   });
 
-  it("fix бачить код усіх інших сцен фільму (без своєї і шаблонних); guard — з allowedScreenTexts", async () => {
+  it("film-блок: код усіх сцен, зі своєю, без шаблонних і відхилених guard'ом; відхилена своя — у <code>; guard — з allowedScreenTexts", async () => {
     const storage = await checked();
     await storage.writeJson(revPaths(PROJECT_ID, 1).pipeline, {
       attempts: {},
@@ -265,23 +312,35 @@ describe("fixStage: кадри для qa, прогрів, effort", () => {
       templateScenes: ["s3"],
       dirtyScenes: [],
     });
+    // поточна версія s2 відхилена guard'ом
+    const rejected = CODE.s2?.replace(
+      "export default",
+      "const year = new Date().getFullYear();\nexport default",
+    );
+    const ledger = await readLedger(storage, PROJECT_ID, 1);
+    await addVersion(storage, PROJECT_ID, 1, ledger, "s2", {
+      origin: "fix",
+      code: rejected ?? null,
+      guardOk: false,
+      violations: ["Date заборонено"],
+      now: new Date("2026-10-27T10:00:00.000Z"),
+    });
+    await writeLedger(storage, PROJECT_ID, 1, ledger);
     await writeQa(storage, ["s1", "s2"]);
     const ctx = makeCtx(storage, "fix", { sceneIds: ["s1", "s2"], reason: "qa" }, byScene(["s1", "s2"]));
     guardCalls.length = 0;
     await stageWith()(ctx);
-    const prompts = Object.fromEntries(
-      ctx.anthropic.calls.slice(1).map((c) => [sceneOf(c.params), userText(c.params)]),
-    );
-    const readonlyOf = (text: string) =>
-      /<readonly_scenes>\n([\s\S]*?)\n<\/readonly_scenes>/.exec(text)?.[1] ?? "";
-    const s1 = readonlyOf(prompts.s1 ?? "");
-    expect(s1).toContain('<file name="s2.tsx">');
-    expect(s1).toContain(CODE.s2?.trim().slice(0, 200));
-    expect(s1).not.toContain('<file name="s1.tsx">');
-    expect(s1).not.toContain('<file name="s3.tsx">'); // шаблонна сцена — без коду
-    const s2 = readonlyOf(prompts.s2 ?? "");
-    expect(s2).toContain('<file name="s1.tsx">');
-    expect(s2).not.toContain('<file name="s2.tsx">');
+    const calls = ctx.anthropic.calls.map((c) => paramsOf(c.params));
+    const [warm, ...rest] = calls as [Params, ...Params[]];
+    const film = filmOf(filmBlock(warm));
+    expect(film).toContain('<file name="s1.tsx">');
+    expect(film).toContain(CODE.s1?.trim().slice(0, 200));
+    expect(film).not.toContain('<file name="s2.tsx">'); // відхилена guard'ом
+    expect(film).not.toContain('<file name="s3.tsx">'); // шаблонна сцена — без коду
+    for (const p of rest) expect(filmBlock(p)).toBe(filmBlock(warm));
+    const prompts = Object.fromEntries(rest.map((p) => [sceneOf(p), userText(p)]));
+    expect(codeOf(prompts.s1 ?? "")).toBe("(the current code of this scene is the file s1.tsx in <film>)");
+    expect(codeOf(prompts.s2 ?? "")).toBe(rejected?.trim());
 
     // guard нової версії — з дозволеними текстами сцени (headline, sub, items, CTA)
     expect(guardCalls.map((c) => c.opts.fileName).sort()).toEqual(["s1.tsx", "s2.tsx"]);
