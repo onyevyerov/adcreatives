@@ -60,6 +60,41 @@ ADC_SFX_MODE=storyboard ADC_FILM_REVIEW=off LIVE=1 pnpm eval
 `--from audio` ставить `audio{music}` у режимі `designer` (далі зведення за наявним `sfx-plan.json`) і
 `audio{full}` у режимі `storyboard`.
 
+## Вартість ролика: перемикачі, кола рецензії й QA, fix
+
+Для покрокової перевірки (`docs/analysis/cost-optimization.md`, §5) eval бере з env перемикачі вартості:
+`ADC_FIX_EFFORT`, `ADC_FIX_OUTPUT`, `ADC_REVIEW_JOIN_SIDE`, `ADC_FIX_CHECK_CONTEXT`, `ADC_FIX_CHECK_EFFORT`,
+`ADC_SFX_MODEL` (значення — `README.md`). Невалідне значення — код 2 до старту. Перемикачі друкуються в
+рядку старту (`eval: перемикачі …`), у заголовку `report.md` прогону («Перемикачі: …»), у рядку «Перемикачі»
+`eval/out/<кейс>/report.md` і в полі `switches` обох `report.json`; «—» — frontmatter промпту.
+
+Стадії пишуть знімки по колах у `rev/<n>/history/` (`data/` прогону):
+
+| Файл | Хто пише | Що це |
+|---|---|---|
+| `history/review-r<коло>.json` | `review` | `review.json` після кола рецензії (і перевикористаного теж) |
+| `history/qa-a<attempt>.json` | `qa` | `qa.json` після запуску qa з цим attempt (і перевикористаного теж) |
+
+Нові поля `report.json` (сайт у `sites[]` і звіт кейсу):
+
+| Поле | Звідки |
+|---|---|
+| `review.rounds[]` = `{ round, score, verdict, major, critical, joinBreaks }` | `history/review-r*.json` до кола `review.json` включно (`--from` починає кола з 0, тож старші знімки базового прогону не йдуть у звіт). Немає історії — один елемент з `review.json` |
+| `qa.rounds[]` = `{ attempt, verdict, serious, minor }` | `history/qa-a<attempt>.json` для запусків qa цього прогону (attempt з `trace.jsonl` після старту; лічильник спроб у `--from` продовжується). Немає історії — `[]` |
+| `fix` = `{ calls, fileFallbacks, input, cacheRead, output }` | `costs.jsonl` цього прогону, стадія `fix`: виклики `scene:*` разом із `scene:*:file-fallback` (прогрів `warm` не лічиться); `fileFallbacks` — лише запасні виклики після невдалого патча. null — fix не викликався |
+| `switches` | перемикачі вартості з env |
+
+У `report.md` таблиця «Звук і рецензія» має колонку «score по колах» («6 → 7»; «… → 7» — ранніх кіл в історії
+немає), а таблиця «Fix» — QA по запусках («fix 2/1 → pass 0/1»: вердикт, серйозні/minor) і лічильники fix.
+Старі прогони без історії не падають: одне коло з `review.json`, у «Fix» — «—». $ за етапами
+(«Витрати за етапами») рахується, як і раніше, лише з витрат цього прогону.
+
+Приклад кроку перевірки на імпортованому прод-проєкті:
+
+```bash
+ADC_FIX_OUTPUT=patch LIVE=1 pnpm eval --from check --run <прогін>
+```
+
 ## Тест Epidemic Sound
 
 Порівняння каталогу Epidemic Sound з генерацією ElevenLabs на тій самій картинці (два сайти з

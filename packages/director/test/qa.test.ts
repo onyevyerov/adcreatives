@@ -1,8 +1,10 @@
-import { rmSync } from "node:fs";
+import { cpSync, rmSync } from "node:fs";
 import {
   CheckReport,
   createPromptLoader,
   type LocalStorage,
+  ProjectState,
+  projectPaths,
   type QaIssue,
   QaReport,
   revPaths,
@@ -391,6 +393,55 @@ describe("qaStage", () => {
     expect(out[0]).toBe(plain);
     expect(out[1]).toMatchObject({ sceneId: "s1", format: "square", kind: "off_brief", severity: "major" });
     expect(out[2]).toMatchObject({ sceneId: "s2", kind: "placeholder", severity: "critical" });
+  });
+
+  it("A0: кожен запуск пише history/qa-a<attempt>.json — і свіжий, і перевикористаний", async () => {
+    const storage = await checked();
+    const rp = revPaths(PROJECT_ID, 1);
+    await qaStage(
+      makeCtx(
+        storage,
+        "qa",
+        { sceneIds: null },
+        [{ json: { verdict: "fix", issues: [issue("s2", "major")], summary: "a1" } }],
+        { attempt: 1 },
+      ),
+    );
+    await qaStage(
+      makeCtx(
+        storage,
+        "qa",
+        { sceneIds: ["s2"] },
+        [{ json: { verdict: "pass", issues: [issue("s2", "minor")], summary: "a2" } }],
+        { attempt: 2 },
+      ),
+    );
+    const a1 = await storage.readJson(rp.qaHistory(1), (v) => QaReport.parse(v));
+    const a2 = await storage.readJson(rp.qaHistory(2), (v) => QaReport.parse(v));
+    expect(a1.verdict).toBe("fix");
+    expect(a1.issues.map((i) => [i.sceneId, i.severity])).toEqual([["s2", "major"]]);
+    expect(a2.verdict).toBe("pass");
+    expect(a2.summary).toBe("a2");
+    // знімок останнього запуску = qa.json
+    expect(await storage.readJson(rp.qa, (v) => QaReport.parse(v))).toEqual(a2);
+
+    // Ревізія 2 на тих самих стілах: qa перевикористано з ревізії 1 — історія теж пишеться.
+    cpSync(storage.absPath(rp.root), storage.absPath(revPaths(PROJECT_ID, 2).root), { recursive: true });
+    const rp2 = revPaths(PROJECT_ID, 2);
+    rmSync(storage.absPath(rp2.qa));
+    rmSync(storage.absPath(revPaths(PROJECT_ID, 2).qaHistory(1)), { force: true });
+    rmSync(storage.absPath(revPaths(PROJECT_ID, 2).qaHistory(2)), { force: true });
+    const project = await storage.readJson(projectPaths(PROJECT_ID).project, (v) => ProjectState.parse(v));
+    await storage.writeJson(projectPaths(PROJECT_ID).project, {
+      ...project,
+      rev: 2,
+      revisions: [...project.revisions, { ...project.revisions[0], n: 2, basedOn: 1, reason: "edit" }],
+    });
+    const ctx = makeCtx(storage, "qa", { sceneIds: ["s2"] }, [], { rev: 2, attempt: 1 });
+    const reused = await qaStage(ctx);
+    expect(reused.reused).toBe(true);
+    expect(ctx.anthropic.calls).toHaveLength(0);
+    expect(await storage.readJson(rp2.qaHistory(1), (v) => QaReport.parse(v))).toEqual(a2);
   });
 
   it("без check.json — помилка стадії", async () => {

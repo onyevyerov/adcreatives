@@ -94,6 +94,10 @@ import { autoApprove, createHarness, FORMAT_LABEL, type Harness, newProjectId } 
  * Режим звуку — з env, як решта `ADC_*` (воркер eval працює в цьому ж процесі): `ADC_SFX_MODE`
  * (`designer` — звукорежисер, `storyboard` — звук розкадровки) і `ADC_FILM_REVIEW` (`on`/`off`). Звіти
  * пишуть режим і з `sound-sheet.json`/`review.json` — оцінку рецензента, промахи повз долю і вимкнені події.
+ *
+ * Перемикачі вартості (`ADC_FIX_EFFORT`, `ADC_FIX_OUTPUT`, `ADC_REVIEW_JOIN_SIDE`, `ADC_FIX_CHECK_CONTEXT`,
+ * `ADC_FIX_CHECK_EFFORT`, `ADC_SFX_MODEL`) — теж з env і теж у заголовку звітів. Для A/B звіти пишуть рецензію
+ * по колах (`history/review-r*.json`), QA по запусках (`history/qa-a*.json`) і лічильники fix з `costs.jsonl`.
  */
 
 // ───────────────────────────── сайти ─────────────────────────────
@@ -243,7 +247,9 @@ export const EVAL_USAGE = `Використання:
   --only               лише цей етап, без подальших
   --parallel <n>       скільки сайтів одночасно (дефолт 1)
   --timeout <хв>       ліміт на сайт (дефолт 60)
-Режим звуку — з env: ADC_SFX_MODE=designer|storyboard, ADC_FILM_REVIEW=on|off, ADC_REVIEW_MAX_ROUNDS=0..2`;
+Режим звуку — з env: ADC_SFX_MODE=designer|storyboard, ADC_FILM_REVIEW=on|off, ADC_REVIEW_MAX_ROUNDS=0..2
+Перемикачі вартості — з env: ADC_FIX_EFFORT, ADC_FIX_OUTPUT=file|patch, ADC_REVIEW_JOIN_SIDE=both|one,
+  ADC_FIX_CHECK_CONTEXT=film|own, ADC_FIX_CHECK_EFFORT, ADC_SFX_MODEL (див. README.md)`;
 
 export function parseEvalArgs(argv: readonly string[], root: string = findRepoRoot()): EvalArgs {
   const args: EvalArgs = {
@@ -405,6 +411,34 @@ export function currentSoundTuning(env: NodeJS.ProcessEnv = process.env): SoundT
 function currentProviders(): SoundProviders {
   const t = currentSoundTuning();
   return { music: t.musicProvider, sfx: t.sfxProvider };
+}
+
+/**
+ * Перемикачі вартості воркера eval (A/B за `docs/analysis/cost-optimization.md`): `ADC_FIX_EFFORT`,
+ * `ADC_FIX_OUTPUT`, `ADC_REVIEW_JOIN_SIDE`, `ADC_FIX_CHECK_CONTEXT`, `ADC_FIX_CHECK_EFFORT`, `ADC_SFX_MODEL`.
+ * null — frontmatter промпту.
+ */
+export type CostSwitches = Pick<
+  Tuning,
+  "fixEffort" | "fixOutput" | "reviewJoinSide" | "fixCheckContext" | "fixCheckEffort" | "sfxModel"
+>;
+
+/** Перемикачі вартості, з якими реально працюватиме воркер (невалідний env — дефолти). */
+export function currentCostSwitches(env: NodeJS.ProcessEnv = process.env): CostSwitches {
+  let t: Tuning;
+  try {
+    t = readTuning(env);
+  } catch {
+    t = Tuning.parse({});
+  }
+  return {
+    fixEffort: t.fixEffort,
+    fixOutput: t.fixOutput,
+    reviewJoinSide: t.reviewJoinSide,
+    fixCheckContext: t.fixCheckContext,
+    fixCheckEffort: t.fixCheckEffort,
+    sfxModel: t.sfxModel,
+  };
 }
 
 /** Режим генерації, з яким реально працюватиме воркер (невалідний env — дефолт `pipeline`). */
@@ -644,6 +678,10 @@ export interface SiteReport {
   review: CaseReview | null;
   /** Звукова відомість (`sound-sheet.json`); null — зведення без відомості (старі дані). */
   sound: CaseSound | null;
+  /** Запуски qa цього прогону (`history/qa-a<attempt>.json`). */
+  qa: CaseQa;
+  /** Виклики fix цього прогону (`costs.jsonl`); null — fix не викликався. */
+  fix: CaseFix | null;
   usd: number;
   usdByStage: Array<{ key: string; usd: number }>;
   usdByProvider: Array<{ key: string; usd: number }>;
@@ -686,6 +724,8 @@ export interface EvalReport {
   mode: GenerationMode;
   /** Режим звуку воркера eval (`ADC_SFX_MODE`, `ADC_FILM_REVIEW`, `ADC_REVIEW_MAX_ROUNDS`). */
   soundMode: SoundTuning;
+  /** Перемикачі вартості воркера eval (`ADC_FIX_*`, `ADC_REVIEW_JOIN_SIDE`, `ADC_SFX_MODEL`). */
+  switches: CostSwitches;
   from: RerunStage | null;
   baseRun: string | null;
   only: boolean;
@@ -738,6 +778,45 @@ export interface CaseReview {
   /** Зауваження за маршрутом (`routeOf`) і за серйозністю. */
   byRoute: { fix: number; sfx: number; music: number; none: number };
   bySeverity: { critical: number; major: number; minor: number };
+  /** Кола рецензії за порядком (`history/review-r*.json`); без історії — один елемент з `review.json`. */
+  rounds: ReviewRound[];
+}
+
+/** Коло рецензії (A0). */
+export interface ReviewRound {
+  round: number;
+  score: number;
+  verdict: FilmReview["verdict"];
+  major: number;
+  critical: number;
+  /** Зауважень `join_break` (будь-якої серйозності). */
+  joinBreaks: number;
+}
+
+/** Запуск qa (A0): знімок `qa.json` після запуску з цим attempt. */
+export interface QaRound {
+  attempt: number;
+  verdict: QaReport["verdict"];
+  /** major + critical. */
+  serious: number;
+  minor: number;
+}
+
+export interface CaseQa {
+  /** Запуски qa цього прогону за порядком; [] — qa не запускався або історії немає (старі дані). */
+  rounds: QaRound[];
+}
+
+/** Виклики стадії fix цього прогону (`costDetail` `scene:*`, без прогріву `warm`). */
+export interface CaseFix {
+  /** Викликів `scene:*`, разом із запасними. */
+  calls: number;
+  /** З них запасних `scene:*:file-fallback` (патч не застосувався). */
+  fileFallbacks: number;
+  /** Токени цих викликів: некешований input, читання кешу, output. */
+  input: number;
+  cacheRead: number;
+  output: number;
 }
 
 export interface CaseSound {
@@ -755,13 +834,35 @@ export interface CaseSound {
   sceneStartsOffBar: number;
 }
 
-export function reviewStats(review: FilmReview): CaseReview {
+/** Коло рецензії з одного знімка: оцінка, вердикт, major/critical і `join_break`. */
+export function reviewRound(review: FilmReview): ReviewRound {
+  const count = (pred: (i: FilmReview["issues"][number]) => boolean) => review.issues.filter(pred).length;
+  return {
+    round: review.round,
+    score: review.score,
+    verdict: review.verdict,
+    major: count((i) => i.severity === "major"),
+    critical: count((i) => i.severity === "critical"),
+    joinBreaks: count((i) => i.kind === "join_break"),
+  };
+}
+
+/**
+ * Статистика `review.json`; `history` — знімки кіл. Кола беруться до `review.round` включно: кола йдуть з 0, тож
+ * знімки з більшим номером — від попереднього прогону (`--from` скидає коло рецензії на 0). Без історії — одне
+ * коло з самого `review.json`.
+ */
+export function reviewStats(review: FilmReview, history: readonly FilmReview[] = []): CaseReview {
   const byRoute = { fix: 0, sfx: 0, music: 0, none: 0 };
   const bySeverity = { critical: 0, major: 0, minor: 0 };
   for (const issue of review.issues) {
     byRoute[routeOf(issue.kind)] += 1;
     bySeverity[issue.severity] += 1;
   }
+  const rounds = history
+    .filter((h) => h.round <= review.round)
+    .sort((a, b) => a.round - b.round)
+    .map(reviewRound);
   return {
     score: review.score,
     verdict: review.verdict,
@@ -770,6 +871,7 @@ export function reviewStats(review: FilmReview): CaseReview {
     issues: review.issues.length,
     byRoute,
     bySeverity,
+    rounds: rounds.length > 0 ? rounds : [reviewRound(review)],
   };
 }
 
@@ -797,7 +899,70 @@ export async function readReviewAndSound(
   const revPaths = projectPaths(projectId).rev(rev);
   const review = await readOptional(storage, revPaths.review, (v) => FilmReview.parse(v));
   const sheet = await readOptional(storage, revPaths.soundSheet, (v) => SoundSheet.parse(v));
-  return { review: review ? reviewStats(review) : null, sound: sheet ? soundSheetStats(sheet) : null };
+  const history: FilmReview[] = [];
+  if (review) {
+    for (const n of await historyNumbers(storage, revPaths.root, "review-r")) {
+      const h = await readOptional(storage, revPaths.reviewHistory(n), (v) => FilmReview.parse(v));
+      // Коло — за іменем файлу (`reviewHistory(round)`), а не за полем знімка.
+      if (h) history.push({ ...h, round: n });
+    }
+  }
+  return {
+    review: review ? reviewStats(review, history) : null,
+    sound: sheet ? soundSheetStats(sheet) : null,
+  };
+}
+
+/** Номери знімків `history/<prefix><n>.json` ревізії (за зростанням); теки немає — []. */
+async function historyNumbers(storage: Storage, revRoot: string, prefix: string): Promise<number[]> {
+  const re = new RegExp(`/history/${prefix}(\\d+)\\.json$`);
+  return (await storage.list(`${revRoot}/history`))
+    .flatMap((key) => {
+      const m = re.exec(key);
+      return m ? [Number(m[1])] : [];
+    })
+    .sort((a, b) => a - b);
+}
+
+/**
+ * Запуски qa цього прогону: знімки `history/qa-a<attempt>.json` для attempt, що є в `trace` прогону (лічильник
+ * спроб у `--from` продовжується, тож знімки попереднього прогону мають інші номери). Немає знімка (старі дані) —
+ * запуск пропускається.
+ */
+export async function readQaRounds(
+  storage: Storage,
+  projectId: string,
+  rev: number,
+  trace: readonly TraceEntry[],
+): Promise<CaseQa> {
+  const revPaths = projectPaths(projectId).rev(rev);
+  const attempts = [
+    ...new Set(trace.filter((t) => t.stage === "qa" && t.rev === rev).map((t) => t.attempt)),
+  ].sort((a, b) => a - b);
+  const rounds: QaRound[] = [];
+  for (const attempt of attempts) {
+    const qa = await readOptional(storage, revPaths.qaHistory(attempt), (v) => QaReport.parse(v));
+    if (!qa) continue;
+    const minor = qa.issues.filter((i) => i.severity === "minor").length;
+    rounds.push({ attempt, verdict: qa.verdict, serious: qa.issues.length - minor, minor });
+  }
+  return { rounds };
+}
+
+/** Виклики fix за `costs.jsonl` прогону: `scene:*` (з `:file-fallback`); null — витрат fix немає. */
+export function fixStats(costs: readonly CostEvent[]): CaseFix | null {
+  const all = costs.filter((e) => e.stage === "fix" && isTokens(e.units));
+  if (all.length === 0) return null;
+  const fix: CaseFix = { calls: 0, fileFallbacks: 0, input: 0, cacheRead: 0, output: 0 };
+  for (const e of all) {
+    if (!e.detail?.startsWith("scene:") || !isTokens(e.units)) continue;
+    fix.calls += 1;
+    if (e.detail.endsWith(":file-fallback")) fix.fileFallbacks += 1;
+    fix.input += e.units.input;
+    fix.cacheRead += e.units.cacheRead;
+    fix.output += e.units.output;
+  }
+  return fix;
 }
 
 /**
@@ -869,6 +1034,7 @@ export async function buildSiteReport(
   const { review, sound } = project
     ? await readReviewAndSound(storage, projectId, project.rev)
     : { review: null, sound: null };
+  const qaRounds = project ? await readQaRounds(storage, projectId, project.rev, trace) : { rounds: [] };
   const audio = await readSiteAudio(storage, projectId, project?.rev ?? 1);
 
   const delivered = project?.status === "delivered";
@@ -889,6 +1055,8 @@ export async function buildSiteReport(
     qaWarnings: warnings,
     review,
     sound,
+    qa: qaRounds,
+    fix: fixStats(costs),
     usd: round(sumUsd(costs)),
     usdByStage: groupUsd(costs, (e) => e.stage).map((g) => ({ key: g.key, usd: round(g.usd) })),
     usdByProvider: groupUsd(costs, (e) => e.provider).map((g) => ({ key: g.key, usd: round(g.usd) })),
@@ -936,6 +1104,12 @@ const dashOr = <T>(v: T | null | undefined, f: (v: T) => string | number) =>
   v === null || v === undefined ? "—" : String(f(v));
 /** «music=epidemic, sfx=elevenlabs». */
 const providersStr = (m: SoundTuning) => `music=${m.musicProvider}, sfx=${m.sfxProvider}`;
+/** «ADC_FIX_EFFORT=medium, ADC_FIX_OUTPUT=file, …»; null — «—» (frontmatter промпту). */
+export const switchesStr = (m: CostSwitches) =>
+  (["fixEffort", "fixOutput", "reviewJoinSide", "fixCheckContext", "fixCheckEffort", "sfxModel"] as const)
+    .map((k) => `${TUNING_ENV[k]}=${m[k] ?? "—"}`)
+    .join(", ");
+const SWITCHES_NOTE = "«—» — frontmatter промпту";
 
 /** Старі звіти без `audio` — як дані без провайдерів. */
 const ELEVENLABS_AUDIO: SiteAudio = {
@@ -960,11 +1134,20 @@ export function epidemicSummaryLine(downloads: number, used: number | null): str
   return `Завантажень Epidemic за прогін: ${downloads} (лічильник: ${used ?? "—"} з ${EPIDEMIC_DOWNLOAD_LIMIT})`;
 }
 
+/** «6 → 7» за `review.rounds`; перше коло не 0 (історії немає) — «… → 7». Старі звіти без `rounds` — «—». */
+function roundScores(review: CaseReview): string {
+  const rounds = review.rounds ?? [];
+  if (rounds.length === 0) return "—";
+  const scores = rounds.map((r) => String(r.score));
+  return (rounds[0]?.round ?? 0) > 0 ? ["…", ...scores].join(" → ") : scores.join(" → ");
+}
+
 /** Рядок таблиці «Звук і рецензія» (по кейсу): score, offBeat, muted і решта лічильників. */
 function soundReviewRow(name: string, review: CaseReview | null, sound: CaseSound | null): string {
   return [
     name,
     dashOr(review, (r) => r.score),
+    dashOr(review, roundScores),
     dashOr(review, (r) => r.verdict),
     dashOr(sound, (x) => x.offBeat),
     dashOr(sound, (x) => x.muted),
@@ -977,12 +1160,40 @@ function soundReviewRow(name: string, review: CaseReview | null, sound: CaseSoun
 }
 
 const SOUND_REVIEW_HEAD = [
-  "| Кейс | score | Вердикт | offBeat | muted | Подій | Важкі удари | Старти поза тактом | Зауваження fix/sfx/music | critical/major/minor |",
-  "|---|---|---|---|---|---|---|---|---|---|",
+  "| Кейс | score | score по колах | Вердикт | offBeat | muted | Подій | Важкі удари | Старти поза тактом | Зауваження fix/sfx/music | critical/major/minor |",
+  "|---|---|---|---|---|---|---|---|---|---|---|",
 ];
 const SOUND_REVIEW_NOTE =
-  `score — оцінка рецензента 1–10 (\`review.json\`); offBeat — події, що звучать, з |зсувом до долі| ≥ ${OFF_BEAT_MS} мс ` +
+  `score — оцінка рецензента 1–10 (\`review.json\`); score по колах — з \`history/review-r*.json\` («… →» — ранніх кіл ` +
+  `в історії немає); offBeat — події, що звучать, з |зсувом до долі| ≥ ${OFF_BEAT_MS} мс ` +
   "(крім grid-cue); muted — вимкнені звукорежисером (`sound-sheet.json`). «—» — файлу немає (режим без стадії або старі дані).";
+
+/** «fix 2/1 → pass 0/1» (вердикт serious/minor по запусках qa); запусків немає — «—». */
+function qaRoundsCell(qa: CaseQa | null | undefined): string {
+  const rounds = qa?.rounds ?? [];
+  return rounds.length > 0 ? rounds.map((r) => `${r.verdict} ${r.serious}/${r.minor}`).join(" → ") : "—";
+}
+
+/** Рядок таблиці «Fix»: QA по запусках і лічильники викликів fix. */
+function fixRow(name: string, qa: CaseQa | null | undefined, fix: CaseFix | null | undefined): string {
+  return [
+    name,
+    qaRoundsCell(qa),
+    dashOr(fix, (f) => f.calls),
+    dashOr(fix, (f) => f.fileFallbacks),
+    dashOr(fix, (f) => f.input),
+    dashOr(fix, (f) => f.cacheRead),
+    dashOr(fix, (f) => f.output),
+  ].join(" | ");
+}
+
+const FIX_HEAD = [
+  "| Кейс | QA по запусках | Викликів fix | з них file-fallback | input | cache read | output |",
+  "|---|---|---|---|---|---|---|",
+];
+const FIX_NOTE =
+  "QA по запусках — вердикт і серйозні/minor з `history/qa-a*.json`; виклики fix — `scene:*` у `costs.jsonl` " +
+  "(без прогріву), токени — їхні. «—» — qa/fix у прогоні не було або історії немає (старі дані).";
 
 export function reportMarkdown(report: EvalReport): string {
   const s = report.summary;
@@ -994,6 +1205,7 @@ export function reportMarkdown(report: EvalReport): string {
       (report.from
         ? ` Перезапуск з етапу «${report.from}» прогону ${report.baseRun}${report.only ? " (лише цей етап)" : ""}.`
         : ""),
+    ...(report.switches ? ["", `Перемикачі: ${switchesStr(report.switches)} (${SWITCHES_NOTE}).`] : []),
     "",
     "## Підсумок",
     "",
@@ -1034,6 +1246,13 @@ export function reportMarkdown(report: EvalReport): string {
     ...report.sites.map((r) => `| ${soundReviewRow(r.name, r.review ?? null, r.sound ?? null)} |`),
     "",
     SOUND_REVIEW_NOTE,
+    "",
+    "## Fix",
+    "",
+    ...FIX_HEAD,
+    ...report.sites.map((r) => `| ${fixRow(r.name, r.qa, r.fix)} |`),
+    "",
+    FIX_NOTE,
     "",
   ];
   return lines.join("\n");
@@ -1258,6 +1477,8 @@ export interface CaseReport {
   mode: GenerationMode;
   /** Режим звуку воркера eval — щоб порівнювати designer і storyboard на тих самих сайтах. */
   soundMode: SoundTuning;
+  /** Перемикачі вартості воркера eval (A/B). */
+  switches: CostSwitches;
   site: string;
   projectId: string;
   status: string;
@@ -1287,6 +1508,10 @@ export interface CaseReport {
   review: CaseReview | null;
   /** `sound-sheet.json` ревізії; null — відомості немає. */
   sound: CaseSound | null;
+  /** Запуски qa цього прогону (з `SiteReport.qa`). */
+  qa: CaseQa;
+  /** Виклики fix цього прогону (з `SiteReport.fix`). */
+  fix: CaseFix | null;
   /** Провайдери звуку ревізії і що взято з Epidemic (з `SiteReport.audio`). */
   providers: SiteAudio;
   criteria: CaseCriterion[];
@@ -1730,6 +1955,8 @@ export async function buildCaseReport(
     mode: GenerationMode;
     /** Дефолт — `currentSoundTuning()` (env). */
     soundMode?: SoundTuning;
+    /** Дефолт — `currentCostSwitches()` (env). */
+    switches?: CostSwitches;
     now?: Date;
   } & CaseAudioDeps,
 ): Promise<CaseReport> {
@@ -1773,6 +2000,7 @@ export async function buildCaseReport(
     generatedAt: (meta.now ?? new Date()).toISOString(),
     mode: meta.mode,
     soundMode: meta.soundMode ?? currentSoundTuning(),
+    switches: meta.switches ?? currentCostSwitches(),
     site: s.site,
     projectId,
     status: s.status,
@@ -1798,6 +2026,8 @@ export async function buildCaseReport(
     audio,
     review,
     sound,
+    qa: s.qa ?? { rounds: [] },
+    fix: s.fix ?? null,
     providers: s.audio ?? ELEVENLABS_AUDIO,
     criteria: caseCriteria(audio, music, sb),
     files: s.files,
@@ -1824,6 +2054,7 @@ export function caseReportMarkdown(r: CaseReport): string {
     "|---|---|",
     `| Режим генерації | ${r.mode} |`,
     `| Режим звуку | ${soundModeStr(r.soundMode)} |`,
+    `| Перемикачі | ${r.switches ? `${switchesStr(r.switches)} (${SWITCHES_NOTE})` : "—"} |`,
     `| Музика | ${(r.providers ?? ELEVENLABS_AUDIO).musicProvider} |`,
     `| SFX | ${(r.providers ?? ELEVENLABS_AUDIO).sfxProvider} |`,
     `| Epidemic: трек / семплів / завантажень | ${epidemicCell(r.providers ?? ELEVENLABS_AUDIO)} |`,
@@ -1852,6 +2083,13 @@ export function caseReportMarkdown(r: CaseReport): string {
     ...(r.review
       ? ["", `Рецензент (коло ${r.review.round}): ${r.review.summary.replaceAll("\n", " ") || "—"}`]
       : []),
+    "",
+    "## Fix",
+    "",
+    ...FIX_HEAD,
+    `| ${fixRow(r.case, r.qa, r.fix)} |`,
+    "",
+    FIX_NOTE,
     "",
     "## Критерії паритету",
     "",
@@ -1930,6 +2168,7 @@ async function writeCaseReport(
     run: string;
     mode: GenerationMode;
     soundMode: SoundTuning;
+    switches: CostSwitches;
     decode?: DecodeAudio;
   },
 ): Promise<void> {
@@ -1941,6 +2180,7 @@ async function writeCaseReport(
       site: o.site,
       mode: o.mode,
       soundMode: o.soundMode,
+      switches: o.switches,
       now: o.now(),
       ...(o.decode ? { decode: o.decode } : {}),
     });
@@ -1965,7 +2205,13 @@ async function runTargets(
   runDir: string,
   print: (line: string) => void,
   now: () => Date,
-  cases: { run: string; mode: GenerationMode; soundMode: SoundTuning; decode?: DecodeAudio },
+  cases: {
+    run: string;
+    mode: GenerationMode;
+    soundMode: SoundTuning;
+    switches: CostSwitches;
+    decode?: DecodeAudio;
+  },
 ): Promise<SiteReport[]> {
   const reports: SiteReport[] = new Array(targets.length);
   let cursor = 0;
@@ -2141,6 +2387,9 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
   const soundMode = currentSoundTuning();
   print(`eval: звук ${soundModeStr(soundMode)}`);
   print(`eval: провайдери ${providersStr(soundMode)}`);
+  // Перемикачі вартості (A/B) — так само з env воркера.
+  const switches = currentCostSwitches();
+  print(`eval: перемикачі ${switchesStr(switches)}`);
   if (process.env.ADC_EPIDEMIC_CACHE_ONLY === "1") {
     print("eval: Epidemic — лише кеш (ADC_EPIDEMIC_CACHE_ONLY=1): нових завантажень не буде");
   }
@@ -2236,6 +2485,7 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
       run,
       mode,
       soundMode,
+      switches,
       ...(deps.decode ? { decode: deps.decode } : {}),
     });
     await harness.close();
@@ -2249,6 +2499,7 @@ export async function runEvalCli(argv: readonly string[], deps: EvalDeps = {}): 
     finishedAt: now().toISOString(),
     mode,
     soundMode,
+    switches,
     from: args.from,
     baseRun: args.run,
     only: args.only,
