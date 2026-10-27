@@ -14,6 +14,7 @@ import {
   primaryFormat,
   QaReport,
   type ReviewIssue,
+  readTuning,
   revPaths,
   routeOf,
   SfxPlan,
@@ -26,6 +27,7 @@ import {
   type Storage,
   type Storyboard,
   sha256,
+  type Tuning,
 } from "@adc/shared";
 import {
   baseRevOf,
@@ -42,7 +44,10 @@ import { qaSceneImages, qaStoryboard, toQaJpeg } from "./qa.ts";
 
 export const REVIEW_PROMPT = "review";
 
-export type ReviewStageDeps = Record<string, never>;
+export interface ReviewStageDeps {
+  /** Перемикачі генерації; дефолт — `readTuning()` з env на кожен запуск стадії. */
+  tuning?: () => Tuning;
+}
 
 /** Текст замість відомості, коли зведення її не написало: звук не судити. */
 export const NO_SOUND_SHEET = "(no sound sheet: do not judge sound)";
@@ -185,7 +190,8 @@ export interface DroppedIssue {
 /**
  * Дисципліна кодом після відповіді моделі: невідомі сцени й template-сцени відкидаються; без
  * відомості звуку `sfx_*`/`music_*` відкидаються; `nextSceneId` для `join` — наступна сцена розкадровки
- * (що б не сказала модель); кадр поза сценою → null. Вхід не мутується.
+ * (що б не сказала модель); кадр поза сценою → null. `fixSceneId` — лише сторона склейки (template-сторона →
+ * інша сторона), інакше null. Вхід не мутується.
  */
 export function sanitizeIssues(
   sb: Storyboard,
@@ -203,7 +209,7 @@ export function sanitizeIssues(
       continue;
     }
     if (issue.scope === "film") {
-      kept.push({ ...issue, sceneId: null, nextSceneId: null, frame: null });
+      kept.push({ ...issue, sceneId: null, nextSceneId: null, frame: null, fixSceneId: null });
       continue;
     }
     const index = issue.sceneId === null ? -1 : ids.indexOf(issue.sceneId);
@@ -218,6 +224,7 @@ export function sanitizeIssues(
       dropped.push({ issue: raw, why: "template_scene" });
       continue;
     }
+    issue.fixSceneId = issue.scope === "join" ? fixSideOf(issue, templates) : null;
     const duration = sb.scenes[index]?.durationFrames ?? 0;
     if (issue.frame !== null && (issue.frame < 0 || issue.frame >= duration)) issue.frame = null;
     kept.push(issue);
@@ -226,20 +233,36 @@ export function sanitizeIssues(
 }
 
 /**
+ * Сторона склейки, чий код править fix: `fixSceneId` моделі, якщо це `sceneId` або (вже нормалізований)
+ * `nextSceneId`; template-сторона → інша сторона; інше → null.
+ */
+function fixSideOf(issue: ReviewIssue, templates: ReadonlySet<string>): string | null {
+  const sides = [issue.sceneId, issue.nextSceneId];
+  if (issue.fixSceneId === null || !sides.includes(issue.fixSceneId)) return null;
+  if (!templates.has(issue.fixSceneId)) return issue.fixSceneId;
+  return sides.find((s) => s !== null && s !== issue.fixSceneId && !templates.has(s)) ?? null;
+}
+
+/**
  * Маршрути за типом зауваження (`routeOf`): `fix`/`sfx` — сцени з major/critical зауваженнями (як у
  * `effectiveVerdict`: minor не тягне сцену на коло) в порядку розкадровки, для `join` — обидві сторони
  * склейки, без template-сцен; `music` — кількість усіх музичних зауважень. Зауваження на весь фільм
- * (`scope: film`) сцени не додають.
+ * (`scope: film`) сцени не додають. `joinSide: "one"` — склейку з `fixSceneId` у `fix` несе лише ця сцена.
  */
 export function routesOf(
   sb: Pick<Storyboard, "scenes">,
   issues: readonly ReviewIssue[],
   templates: ReadonlySet<string>,
+  joinSide: FilmReview["joinSide"] = "both",
 ): FilmReview["routes"] {
   const scenesOf = (route: "fix" | "sfx") => {
     const set = new Set<string>();
     for (const i of issues) {
       if (i.severity === "minor" || routeOf(i.kind) !== route) continue;
+      if (route === "fix" && i.scope === "join" && joinSide === "one" && i.fixSceneId !== null) {
+        set.add(i.fixSceneId);
+        continue;
+      }
       if (i.sceneId !== null) set.add(i.sceneId);
       if (i.scope === "join" && i.nextSceneId !== null) set.add(i.nextSceneId);
     }
@@ -256,14 +279,22 @@ export function routesOf(
  * Стадія `review` (рецензент фільму): стрічки й аркуші моментів усіх сцен у головному форматі, загальні
  * аркуші інших форматів, звукова відомість (`sound-sheet.json`, необов'язкова), нотатки звукорежисера,
  * відкриті зауваження QA, розкадровка з ефективним звуком → `rev/<n>/review.json`.
- * Вердикт і маршрути ставить код (`effectiveVerdict`, `routesOf`); вердикт моделі — дорадчий. Пропуск за
- * хешем входів (зображення, відомість, розкадровка, коло, нотатки, QA, промпт) — у цій ревізії або в основі.
+ * Вердикт і маршрути ставить код (`effectiveVerdict`, `routesOf` з `Tuning.reviewJoinSide`); вердикт моделі —
+ * дорадчий. Пропуск за хешем входів (зображення, відомість, розкадровка, коло, нотатки, QA, промпт, режим
+ * склейок) — у цій ревізії або в основі. Кожне коло (і перевикористане) лишає знімок `history/review-r<n>.json`.
  */
-export function createReviewStage(_deps: ReviewStageDeps = {}): Stage<"review"> {
+export function createReviewStage(deps: ReviewStageDeps = {}): Stage<"review"> {
+  const getTuning = deps.tuning ?? (() => readTuning());
   return async (ctx: StageContext<"review">) => {
     const { storage, projectId, rev, logger } = ctx;
     const roundNo = ctx.params.round;
+    const joinSide = getTuning().reviewJoinSide;
     const rp = revPaths(projectId, rev);
+    /** review.json кола + знімок у історію (A0). */
+    const writeReview = async (review: FilmReview) => {
+      await storage.writeJson(rp.review, review);
+      await storage.writeJson(rp.reviewHistory(roundNo), review);
+    };
     const project = await readProject(storage, projectId);
     const brandFile = await readCurrentBrandKit(storage, projectId, project);
     const draftStoryboard = await readStoryboard(storage, projectId, rev);
@@ -325,6 +356,8 @@ export function createReviewStage(_deps: ReviewStageDeps = {}): Stage<"review"> 
       // тож у хеш не входить: інакше повтор того самого кола не був би `reused`.
       vars: { ...vars, storyboard: null, soundSheet: null, sheetsLegend: null, previousReview: null },
       prompt: promptHash,
+      // Маршрути залежать від режиму склейок; "both" у хеш не пишеться — хеш як до перемикача.
+      ...(joinSide === "both" ? {} : { joinSide }),
     });
 
     // Пропуск за хешем: рецензія цієї ревізії або ревізії-основи з тими самими входами.
@@ -335,7 +368,8 @@ export function createReviewStage(_deps: ReviewStageDeps = {}): Stage<"review"> 
         : null;
     for (const prev of [ownReview, baseReview]) {
       if (prev?.inputsHash !== hash) continue;
-      if (prev !== ownReview) await storage.writeJson(rp.review, prev);
+      if (prev !== ownReview) await writeReview(prev);
+      else await storage.writeJson(rp.reviewHistory(roundNo), prev);
       return {
         artifacts: [rp.review],
         outputs: { verdict: prev.verdict, score: prev.score, routes: prev.routes },
@@ -377,9 +411,10 @@ export function createReviewStage(_deps: ReviewStageDeps = {}): Stage<"review"> 
       score: draft.score,
       issues: kept,
       summary: draft.summary,
-      routes: routesOf(storyboard, kept, templates),
+      routes: routesOf(storyboard, kept, templates, joinSide),
+      joinSide,
     });
-    await storage.writeJson(rp.review, review);
+    await writeReview(review);
     return {
       artifacts: [rp.review],
       outputs: { verdict: review.verdict, score: review.score, routes: review.routes },
