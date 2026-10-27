@@ -64,6 +64,12 @@ export interface LlmCallOptions {
    * Дефолт true.
    */
   cacheUserPrefix?: boolean;
+  /**
+   * true — зображення йдуть ПІСЛЯ блоку userCached (між ним і хвостом), щоб спільний userCached кешувався у
+   * паралельних викликах із різними картинками. Дефолт false — зображення першими (як зараз). Без userCached
+   * ігнорується.
+   */
+  imagesAfterCache?: boolean;
 }
 
 export type LlmWarmOptions = Pick<LlmCallOptions, "model" | "effort" | "signal" | "costDetail">;
@@ -395,11 +401,12 @@ export function createLlm(options: CreateLlmOptions): Llm {
       const format =
         jsonSchema && !schemaInPrompt ? { type: "json_schema" as const, schema: jsonSchema } : null;
       const tail = [baseUser, extra].filter(Boolean).join("\n\n");
-      const content: ContentBlockParam[] = [
-        ...(opts.images ?? []).map(imageBlock),
-        ...(cachedBlock ? [cachedBlock] : []),
-        ...(tail ? [{ type: "text" as const, text: tail }] : []),
-      ];
+      const images = (opts.images ?? []).map(imageBlock);
+      const tailBlocks = tail ? [{ type: "text" as const, text: tail }] : [];
+      const content: ContentBlockParam[] =
+        opts.imagesAfterCache && cachedBlock
+          ? [cachedBlock, ...images, ...tailBlocks]
+          : [...images, ...(cachedBlock ? [cachedBlock] : []), ...tailBlocks];
       const taskBudget =
         opts.taskBudget !== undefined ? { task_budget: { type: "tokens", total: opts.taskBudget } } : {};
       return {

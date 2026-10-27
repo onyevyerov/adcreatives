@@ -178,6 +178,7 @@ describe("чекпоінт 3: витяжка розкадровки", () => {
       kind: "low_contrast",
       description: "опис",
       fix: "інструкція",
+      fixSceneId: null,
       ...over,
     };
   }
@@ -191,6 +192,7 @@ describe("чекпоінт 3: витяжка розкадровки", () => {
       issues,
       summary: "Історія читається, склейка 2→3 рве рух.",
       routes: { fix: [], sfx: [], music: 0 },
+      joinSide: "both",
     };
   }
   const QA_ISSUE: QaReport["issues"][number] = {

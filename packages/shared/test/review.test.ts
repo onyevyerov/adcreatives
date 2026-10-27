@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   effectiveVerdict,
+  FilmReview,
   FilmReviewDraft,
   QaIssueKind,
   ReviewIssue,
@@ -46,6 +47,61 @@ describe("FilmReviewDraft", () => {
     });
     expect(r.issues[0]).toMatchObject({ nextSceneId: null, eventId: null, frame: null, format: null });
     expect(() => FilmReviewDraft.parse({ verdict: "pass", score: 11, issues: [], summary: "" })).toThrow();
+  });
+});
+
+describe("FilmReview", () => {
+  it("старий review.json без нових полів читається: fixSceneId null, joinSide both", () => {
+    const old = {
+      version: 1,
+      round: 0,
+      inputsHash: "h",
+      verdict: "fix",
+      score: 6,
+      summary: "s",
+      issues: [
+        {
+          scope: "join",
+          sceneId: "s1",
+          nextSceneId: "s2",
+          severity: "major",
+          kind: "join_break",
+          description: "d",
+          fix: "f",
+        },
+      ],
+      routes: { fix: ["s1", "s2"], sfx: [], music: 0 },
+    };
+    const r = FilmReview.parse(old);
+    expect(r.joinSide).toBe("both");
+    expect(r.issues[0]?.fixSceneId).toBeNull();
+  });
+
+  it("fixSceneId і joinSide зберігаються", () => {
+    const issue = ReviewIssue.parse({
+      scope: "join",
+      sceneId: "s1",
+      nextSceneId: "s2",
+      fixSceneId: "s2",
+      severity: "major",
+      kind: "join_break",
+      description: "d",
+      fix: "f",
+    });
+    expect(issue.fixSceneId).toBe("s2");
+    const r = FilmReview.parse({
+      version: 1,
+      round: 1,
+      inputsHash: "h",
+      verdict: "fix",
+      score: 6,
+      summary: "s",
+      issues: [issue],
+      routes: { fix: ["s2"], sfx: [], music: 0 },
+      joinSide: "one",
+    });
+    expect(r.joinSide).toBe("one");
+    expect(() => FilmReview.parse({ ...r, joinSide: "left" })).toThrow();
   });
 });
 

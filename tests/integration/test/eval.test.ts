@@ -946,6 +946,7 @@ const reviewIssue = (kind: ReviewIssue["kind"], severity: ReviewIssue["severity"
   kind,
   description: "d",
   fix: "f",
+  fixSceneId: null,
 });
 
 const fixtureReview: FilmReview = {
@@ -962,6 +963,7 @@ const fixtureReview: FilmReview = {
     reviewIssue("music_level", "minor"),
   ],
   routes: { fix: ["s2", "s3"], sfx: ["s2"], music: 1 },
+  joinSide: "both",
 };
 
 describe("звук і рецензія у звітах", () => {

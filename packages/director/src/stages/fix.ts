@@ -6,10 +6,8 @@ import {
   type ImageInput,
   type LlmCallOptions,
   QaReport,
-  type ReviewIssue,
   readTuning,
   revPaths,
-  routeOf,
   type Stage,
   type StageContext,
   StageError,
@@ -42,9 +40,12 @@ import {
   type SceneLedger,
   writeLedger,
 } from "../ledger.ts";
+import { reviewProblemLines } from "../review-issues.ts";
 import { brandForCode } from "./codegen.ts";
 import { qaSceneImages } from "./qa.ts";
 import { assetsForPrompt } from "./storyboard.ts";
+
+export { reviewIssuesFor } from "../review-issues.ts";
 
 export const FIX_PROMPT = "code-fix";
 
@@ -119,36 +120,6 @@ export async function readonlyScenesFor(args: {
   return blocks.join("\n\n") || "(немає)";
 }
 
-/**
- * Зауваження рецензента фільму для сцени: маршрут `fix` (`routeOf`), сцена — `sceneId`, а для `join` —
- * і `nextSceneId` (правити склейку може будь-яка зі сторін).
- */
-export function reviewIssuesFor(review: Pick<FilmReview, "issues"> | null, sceneId: string): ReviewIssue[] {
-  return (review?.issues ?? []).filter(
-    (i) =>
-      routeOf(i.kind) === "fix" &&
-      (i.sceneId === sceneId || (i.scope === "join" && i.nextSceneId === sceneId)),
-  );
-}
-
-/** Рядок зауваження рецензента для `<problems>`: де, що, інструкція; для склейки — що з чим зшити. */
-function reviewLine(i: ReviewIssue, sceneId: string): string {
-  const own = i.sceneId === sceneId;
-  const where = [
-    i.format,
-    i.eventId ? `event ${i.eventId}` : null,
-    i.frame !== null ? (own ? `frame ${i.frame}` : `frame ${i.frame} of ${i.sceneId}`) : null,
-  ].filter(Boolean);
-  const head = `- [${[i.severity, ...where, i.kind].join(", ")}] ${i.description} → fix: ${i.fix}`;
-  if (i.scope !== "join") return head;
-  if (own) {
-    return i.nextSceneId
-      ? `${head} At the join with ${i.nextSceneId}: last state of this scene must become first state of the next.`
-      : head;
-  }
-  return `${head} At the join with ${i.sceneId} (it comes before this scene): first state of this scene must continue the last state of ${i.sceneId}.`;
-}
-
 /** Опис проблем сцени для промпта: помилки check (guard, типи, runtime), зауваження QA або рецензента + autoIssues. */
 export function describeProblems(args: {
   sceneId: string;
@@ -185,15 +156,7 @@ export function describeProblems(args: {
         lines.push(`- [${i.severity}, ${i.format}, ${i.kind}] ${i.description} → fix: ${i.fix}`);
     }
   }
-  if (reason === "review") {
-    const issues = reviewIssuesFor(args.review ?? null, sceneId);
-    if (issues.length) {
-      lines.push(
-        "Film reviewer's remarks (from watching the whole film, frames are local to the scene named):",
-      );
-      for (const i of issues) lines.push(reviewLine(i, sceneId));
-    }
-  }
+  if (reason === "review") lines.push(...reviewProblemLines(args.review ?? null, sceneId));
   const auto = check?.autoIssues.filter((i) => i.sceneId === sceneId) ?? [];
   if (auto.length) {
     lines.push("Automatic checks (motion-kit QA logs, the frame strip, the scene code):");

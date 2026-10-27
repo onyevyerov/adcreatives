@@ -24,7 +24,41 @@ describe("readTuning", () => {
       reviewMaxRounds: 1,
       musicProvider: "elevenlabs",
       sfxProvider: "elevenlabs",
+      fixEffort: null,
+      fixOutput: "file",
+      reviewJoinSide: "both",
+      fixCheckContext: "film",
+      sfxModel: null,
     } satisfies Tuning);
+  });
+
+  it("перемикачі вартості fix, рецензії й sfx — дефолт поточна поведінка, вмикаються через env", () => {
+    expect(readTuning({})).toMatchObject({
+      fixEffort: null,
+      fixOutput: "file",
+      reviewJoinSide: "both",
+      fixCheckContext: "film",
+      sfxModel: null,
+    });
+    expect(
+      readTuning({
+        ADC_FIX_EFFORT: "medium",
+        ADC_FIX_OUTPUT: "patch",
+        ADC_REVIEW_JOIN_SIDE: "one",
+        ADC_FIX_CHECK_CONTEXT: "own",
+        ADC_SFX_MODEL: "claude-sonnet-5-5",
+      }),
+    ).toMatchObject({
+      fixEffort: "medium",
+      fixOutput: "patch",
+      reviewJoinSide: "one",
+      fixCheckContext: "own",
+      sfxModel: "claude-sonnet-5-5",
+    });
+    expect(readTuning({ ADC_SFX_MODEL: " ", ADC_FIX_EFFORT: "" })).toMatchObject({
+      sfxModel: null,
+      fixEffort: null,
+    });
   });
 
   it("провайдери музики і SFX — незалежні перемикачі, дефолт elevenlabs", () => {
@@ -125,6 +159,10 @@ describe("readTuning", () => {
     ["ADC_AUTHOR_MAX_MINUTES", "2"],
     ["ADC_MUSIC_PROVIDER", "suno"],
     ["ADC_SFX_PROVIDER", "Epidemic"],
+    ["ADC_FIX_EFFORT", "huge"],
+    ["ADC_FIX_OUTPUT", "diff"],
+    ["ADC_REVIEW_JOIN_SIDE", "two"],
+    ["ADC_FIX_CHECK_CONTEXT", "none"],
   ])("невалідне %s=%s — помилка, не тихий дефолт", (name, value) => {
     expect(() => readTuning({ [name]: value })).toThrow(TuningError);
     expect(() => readTuning({ [name]: value })).toThrow(name);

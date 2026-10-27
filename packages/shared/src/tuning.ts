@@ -42,6 +42,19 @@ export const Tuning = z.object({
   musicProvider: AudioProvider.default("elevenlabs"),
   /** Хто дає SFX: генерація ElevenLabs або семпли з каталогу Epidemic Sound. */
   sfxProvider: AudioProvider.default("elevenlabs"),
+  /** Effort fix для reason qa/review; null — frontmatter `code-fix.md`. Для `check` — як і раніше `fixCheckEffort`. */
+  fixEffort: Effort.nullable().default(null),
+  /** file — fix повертає повний файл сцени (як зараз); patch — блоки правок `<edits>` (Блок 5). */
+  fixOutput: z.enum(["file", "patch"]).default("file"),
+  /** both — join-зауваження рецензента правлять обидві сцени (як зараз); one — лише сцену `fixSceneId`. */
+  reviewJoinSide: z.enum(["both", "one"]).default("both"),
+  /**
+   * film — fix(check) бачить код усього фільму (як зараз); own — лише свій код і помилки, якщо в усіх цілях кола
+   * лише помилки компіляції / AST-guard, без runtime (B5).
+   */
+  fixCheckContext: z.enum(["film", "own"]).default("film"),
+  /** Модель sfx-design; null — frontmatter `sfx-design.md` (B7). */
+  sfxModel: z.string().min(1).nullable().default(null),
 });
 export type Tuning = z.infer<typeof Tuning>;
 
@@ -67,6 +80,11 @@ export const TUNING_ENV: Record<keyof Tuning, string> = {
   reviewMaxRounds: "ADC_REVIEW_MAX_ROUNDS",
   musicProvider: "ADC_MUSIC_PROVIDER",
   sfxProvider: "ADC_SFX_PROVIDER",
+  fixEffort: "ADC_FIX_EFFORT",
+  fixOutput: "ADC_FIX_OUTPUT",
+  reviewJoinSide: "ADC_REVIEW_JOIN_SIDE",
+  fixCheckContext: "ADC_FIX_CHECK_CONTEXT",
+  sfxModel: "ADC_SFX_MODEL",
 };
 
 const NUMBER_FIELDS = new Set<keyof Tuning>([

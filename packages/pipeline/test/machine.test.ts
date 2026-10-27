@@ -1375,6 +1375,7 @@ describe("nextStep — звукорежисер і рецензент (sfxMode: 
       kind: "low_contrast",
       description: "d",
       fix: "f",
+      fixSceneId: null,
       ...over,
     };
   }
@@ -1790,6 +1791,7 @@ describe("драйвер: звукорежисер і рецензент (Harnes
       kind: "sfx_wrong_cue",
       description: "клік замість удару",
       fix: "impact на e1",
+      fixSceneId: null,
     };
     const h = new Harness({
       tuning: () => ({ speculativeRender: false, sfxMode: "designer", filmReview: true, reviewMaxRounds: 1 }),
