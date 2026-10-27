@@ -5,6 +5,8 @@ import {
   applySfxPlan,
   type LocalStorage,
   ReviewIssue,
+  readCosts,
+  readTuning,
   revPaths,
   type SfxDecision,
   SfxPlan,
@@ -15,8 +17,8 @@ import {
 } from "@adc/shared";
 import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
-import { cueTable, sfxStage, sfxViolations, trimToLimits } from "../src/stages/sfx.ts";
-import { makeCtx, type Reply, seedProject, systemText, tmpStorage, userText } from "./helpers.ts";
+import { createSfxStage, cueTable, sfxStage, sfxViolations, trimToLimits } from "../src/stages/sfx.ts";
+import { makeCtx, PROJECT_ID, type Reply, seedProject, systemText, tmpStorage, userText } from "./helpers.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures", "sfx");
 const COLORS: Record<string, [string, string]> = {
@@ -113,6 +115,20 @@ function callImages(params: unknown): number {
   return (p.messages[0]?.content ?? []).filter((c) => c.type === "image").length;
 }
 
+type Block = { type: string; cache_control?: unknown };
+
+/** Форма запиту: типи блоків system і `messages[0].content`, `+cache` — блок із `cache_control`. */
+function requestShape(params: unknown): { system: string[]; user: string[] } {
+  const p = params as { system: Block[]; messages: Array<{ content: Block[] }> };
+  const shape = (b: Block) => (b.cache_control ? `${b.type}+cache` : b.type);
+  return { system: p.system.map(shape), user: (p.messages[0]?.content ?? []).map(shape) };
+}
+
+/** Мільйон вхідних і 100k вихідних токенів: Opus 5.5 — $6, Sonnet 5.5 — $3. */
+const BIG_USAGE = { input_tokens: 1_000_000, output_tokens: 100_000 };
+
+const stageWith = (env: Record<string, string> = {}) => createSfxStage({ tuning: () => readTuning(env) });
+
 async function readPlan(storage: LocalStorage, rev = 1): Promise<SfxPlan> {
   return storage.readJson(revPaths("p1", rev).sfxPlan, (v) => SfxPlan.parse(v));
 }
@@ -191,6 +207,76 @@ describe("sfxStage", () => {
 
     expect((await readPlan(storage)).decisions).toEqual(GOOD);
     expect(res.outputs.muted).toBe(2);
+  });
+
+  it("жоден user-блок не пише кеш (і в ретраї за лімітами), system — з cache_control", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage, { storyboard: null });
+    await seedRev(storage, 1);
+    const ctx = makeCtx(storage, "sfx", { sceneIds: null, instructions: [] }, [reply(BAD), reply(GOOD)]);
+    await stageWith()(ctx);
+
+    expect(ctx.anthropic.calls).toHaveLength(2);
+    for (const { params } of ctx.anthropic.calls) {
+      const shape = requestShape(params);
+      // 5 кадрів, userCached (розкадровка, cue, previousPlan) без cache_control, хвіст
+      expect(shape.user).toEqual(["image", "image", "image", "image", "image", "text", "text"]);
+      expect(shape.system).toEqual(["text+cache"]);
+    }
+    expect(userText(ctx.anthropic.calls[1]?.params)).toContain("<previous_answer>");
+    expect((await readPlan(storage)).decisions).toEqual(GOOD);
+  });
+
+  it("ADC_SFX_MODEL=claude-sonnet-5-5 → обидва виклики на Sonnet, витрати за цінами Sonnet", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage, { storyboard: null });
+    await seedRev(storage, 1);
+    const ctx = makeCtx(storage, "sfx", { sceneIds: null, instructions: [] }, [
+      { ...reply(BAD), usage: BIG_USAGE },
+      { ...reply(GOOD), usage: BIG_USAGE },
+    ]);
+    await stageWith({ ADC_SFX_MODEL: "claude-sonnet-5-5" })(ctx);
+
+    expect(ctx.anthropic.calls.map((c) => (c.params as { model: string }).model)).toEqual([
+      "claude-sonnet-5-5",
+      "claude-sonnet-5-5",
+    ]);
+    const costs = (await readCosts(storage, PROJECT_ID)).filter((e) => e.promptName === "sfx-design");
+    expect(costs.map((e) => [e.model, e.usd, e.detail ?? null])).toEqual([
+      ["claude-sonnet-5-5", 3, null],
+      ["claude-sonnet-5-5", 3, "limits-retry"],
+    ]);
+    expect(costs[0]?.unitPrices).toMatchObject({ input: 2, output: 10 });
+  });
+
+  it("без ADC_SFX_MODEL — модель із frontmatter (Opus 5.5) і ціни Opus", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage, { storyboard: null });
+    await seedRev(storage, 1);
+    const ctx = makeCtx(storage, "sfx", { sceneIds: null, instructions: [] }, [
+      { ...reply(GOOD), usage: BIG_USAGE },
+    ]);
+    await stageWith()(ctx);
+
+    expect(ctx.anthropic.calls.map((c) => (c.params as { model: string }).model)).toEqual([
+      "claude-opus-5-5",
+    ]);
+    const costs = (await readCosts(storage, PROJECT_ID)).filter((e) => e.promptName === "sfx-design");
+    expect(costs.map((e) => [e.model, e.usd])).toEqual([["claude-opus-5-5", 6]]);
+  });
+
+  it("план іншої моделі за хешем не перевикористовується", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage, { storyboard: null });
+    await seedRev(storage, 1);
+    const first = await stageWith()(
+      makeCtx(storage, "sfx", { sceneIds: null, instructions: [] }, [reply(GOOD)]),
+    );
+    const ctx = makeCtx(storage, "sfx", { sceneIds: null, instructions: [] }, [reply(GOOD)]);
+    const second = await stageWith({ ADC_SFX_MODEL: "claude-sonnet-5-5" })(ctx);
+    expect(ctx.anthropic.calls).toHaveLength(1);
+    expect(second.reused).toBeUndefined();
+    expect(second.inputsHash).not.toBe(first.inputsHash);
   });
 
   it("порушення й після ретраю → зайві звуки вимикаються детерміновано від кінця ролика", async () => {
