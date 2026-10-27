@@ -339,6 +339,11 @@ export function createQaStage(): Stage<"qa"> {
     const { storage, projectId, rev, logger } = ctx;
     const rp = revPaths(projectId, rev);
     const dp = directorPaths(projectId, rev);
+    /** qa.json запуску + знімок у історію за attempt (A0). */
+    const writeQa = async (report: QaReport) => {
+      await storage.writeJson(rp.qa, report);
+      await storage.writeJson(rp.qaHistory(ctx.attempt), report);
+    };
     const project = await readProject(storage, projectId);
     const brandFile = await readCurrentBrandKit(storage, projectId, project);
     const storyboard = await readStoryboard(storage, projectId, rev);
@@ -402,7 +407,7 @@ export function createQaStage(): Stage<"qa"> {
       );
       const baseQa = await readOptional(storage, revPaths(projectId, base).qa, (v) => QaReport.parse(v));
       if (baseMeta?.inputsHash === hash && baseQa) {
-        await storage.writeJson(rp.qa, baseQa);
+        await writeQa(baseQa);
         await storage.writeJson(dp.qaMeta, { inputsHash: hash });
         return {
           artifacts: [rp.qa],
@@ -473,7 +478,7 @@ export function createQaStage(): Stage<"qa"> {
       issues,
       summary: report.summary,
     });
-    await storage.writeJson(rp.qa, final);
+    await writeQa(final);
     await storage.writeJson(dp.qaMeta, { inputsHash: hash });
     artifacts.add(rp.qa);
 

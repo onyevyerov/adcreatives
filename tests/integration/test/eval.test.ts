@@ -26,6 +26,7 @@ import {
   loadPrices,
   ProjectState,
   projectPaths,
+  type QaReport,
   RenderMeta,
   type ReviewIssue,
   readTuning,
@@ -45,8 +46,11 @@ import {
   buildCaseReport,
   buildSiteReport,
   type CaseReport,
+  type CostSwitches,
   caseReportMarkdown,
+  currentCostSwitches,
   type EvalReport,
+  fixStats,
   loadSites,
   measureAudioFile,
   measureCaseAudio,
@@ -97,6 +101,15 @@ async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Pr
 
 const ELEVEN = { musicProvider: "elevenlabs", sfxProvider: "elevenlabs" } as const;
 const NO_EPIDEMIC: SiteReport["audio"] = { ...ELEVEN, epidemic: null };
+/** Перемикачі вартості за замовчуванням (поточна поведінка). */
+const DEFAULT_SWITCHES: CostSwitches = {
+  fixEffort: null,
+  fixOutput: "file",
+  reviewJoinSide: "both",
+  fixCheckContext: "film",
+  fixCheckEffort: null,
+  sfxModel: null,
+};
 
 describe("pnpm eval — порожній список", () => {
   it("завершується повідомленням «список порожній» без помилки й без ключів API", async () => {
@@ -440,6 +453,8 @@ describe("звіт", () => {
     qaWarnings: { critical: 0, major: 1, minor: 2 },
     review: null,
     sound: null,
+    qa: { rounds: [] },
+    fix: null,
     usd: 2,
     usdByStage: [
       { key: "codegen", usd: 1.2 },
@@ -487,6 +502,7 @@ describe("звіт", () => {
       finishedAt: "2026-10-06T16:00:00.000Z",
       mode: "pipeline",
       soundMode: { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1, ...ELEVEN },
+      switches: DEFAULT_SWITCHES,
       from: null,
       baseRun: null,
       only: false,
@@ -614,6 +630,8 @@ const caseSite = (over: Partial<SiteReport> = {}): SiteReport => ({
   qaWarnings: { critical: 0, major: 0, minor: 0 },
   review: null,
   sound: null,
+  qa: { rounds: [] },
+  fix: null,
   usd: 1.5,
   usdByStage: [{ key: "codegen", usd: 1.5 }],
   usdByProvider: [{ key: "anthropic", usd: 1.5 }],
@@ -884,7 +902,9 @@ describe("звіт кейсу", () => {
     expect(none.criteria.every((c) => c.ok === null)).toBe(true);
     // Без review.json і sound-sheet.json (старі прогони) — null і прочерки в таблиці, а не падіння.
     expect(r).toMatchObject({ review: null, sound: null });
-    expect(caseReportMarkdown(r)).toContain("| old | — | — | — | — | — | — | — | — | — |");
+    expect(caseReportMarkdown(r)).toContain("| old | — | — | — | — | — | — | — | — | — | — |");
+    expect(r).toMatchObject({ qa: { rounds: [] }, fix: null });
+    expect(caseReportMarkdown(r)).toContain("| old | — | — | — | — | — | — |");
   });
 });
 
@@ -987,6 +1007,8 @@ describe("звук і рецензія у звітах", () => {
       issues: 4,
       byRoute: { fix: 1, sfx: 2, music: 1, none: 0 },
       bySeverity: { critical: 1, major: 1, minor: 2 },
+      // без історії — одне коло з самого review.json
+      rounds: [{ round: 1, score: 6, verdict: "fix", major: 1, critical: 1, joinBreaks: 1 }],
     });
   });
 
@@ -1022,8 +1044,9 @@ describe("звук і рецензія у звітах", () => {
     });
     const md = caseReportMarkdown(report);
     expect(md).toContain("| Режим звуку | designer, рецензія on (кіл ≤ 1) |");
-    expect(md).toContain("| Кейс | score | Вердикт | offBeat | muted |");
-    expect(md).toContain("| parity | 6 | fix | 2 | 1 | 8 | 1 | 1 | 1/2/1 | 1/1/2 |");
+    expect(md).toContain("| Кейс | score | score по колах | Вердикт | offBeat | muted |");
+    // історії кіл немає (старий прогін), а коло 1 — ранніх кіл не видно: «… → 6»
+    expect(md).toContain("| parity | 6 | … → 6 | fix | 2 | 1 | 8 | 1 | 1 | 1/2/1 | 1/1/2 |");
     expect(md).toContain("Рецензент (коло 1): Історія тримається; у s2 каша зі звуків.");
 
     // Файли не за схемою (формат до Кроку 0) — як відсутні, звіт не падає.
@@ -1051,6 +1074,7 @@ describe("звук і рецензія у звітах", () => {
       finishedAt: "2026-10-15T11:00:00.000Z",
       mode: "pipeline",
       soundMode: { sfxMode: "storyboard", filmReview: false, reviewMaxRounds: 1, ...ELEVEN },
+      switches: DEFAULT_SWITCHES,
       from: null,
       baseRun: null,
       only: false,
@@ -1061,8 +1085,261 @@ describe("звук і рецензія у звітах", () => {
     expect(md).toContain("Звук: storyboard, рецензія off.");
     expect(md).toContain("| Оцінка рецензента, середня | 6 |");
     expect(md).toContain("## Звук і рецензія");
-    expect(md).toContain("| 01-parity | 6 | fix | 2 | 1 | 8 | 1 | 1 | 1/2/1 | 1/1/2 |");
-    expect(md).toContain("| 02-old | — | — | — | — | — | — | — | — | — |");
+    expect(md).toContain("| 01-parity | 6 | … → 6 | fix | 2 | 1 | 8 | 1 | 1 | 1/2/1 | 1/1/2 |");
+    expect(md).toContain("| 02-old | — | — | — | — | — | — | — | — | — | — |");
+    // Fix: старі сайти без історії й витрат fix — прочерки
+    expect(md).toContain("| 02-old | — | — | — | — | — | — |");
+  });
+});
+
+// ───────────────────────────── A/B: кола, запуски qa, fix, перемикачі ─────────────────────────────
+
+const qaReport = (verdict: QaReport["verdict"], serious: number, minor: number): QaReport => ({
+  verdict,
+  summary: "",
+  issues: [
+    ...Array.from({ length: serious }, () => ({
+      sceneId: "s1",
+      format: "vertical" as const,
+      severity: "major" as const,
+      kind: "clipped_text" as const,
+      description: "d",
+      fix: "f",
+    })),
+    ...Array.from({ length: minor }, () => ({
+      sceneId: "s2",
+      format: "vertical" as const,
+      severity: "minor" as const,
+      kind: "overlap" as const,
+      description: "d",
+      fix: "f",
+    })),
+  ],
+});
+
+describe("звіт для A/B: рецензія по колах, QA по запусках, fix, перемикачі", () => {
+  /** Проєкт з рецензією двох кіл (6 → 7), трьома знімками qa, витратами fix і trace — до й після `since`. */
+  async function abProject(storage: LocalStorage, since: Date) {
+    await storage.writeJson(projectPaths("p1").project, fixtureProject({ id: "p1", status: "delivered" }));
+    const rev = projectPaths("p1").rev(1);
+    await storage.writeJson(rev.storyboard, fixtureStoryboard);
+    const r0: FilmReview = {
+      ...fixtureReview,
+      round: 0,
+      score: 6,
+      verdict: "fix",
+      issues: [
+        reviewIssue("join_break", "major"),
+        reviewIssue("join_break", "minor"),
+        reviewIssue("pace", "critical"),
+      ],
+    };
+    const r1: FilmReview = {
+      ...fixtureReview,
+      round: 1,
+      score: 7,
+      verdict: "pass",
+      issues: [reviewIssue("sfx_off_beat", "minor")],
+    };
+    await storage.writeJson(rev.review, r1);
+    await storage.writeJson(rev.reviewHistory(0), r0);
+    await storage.writeJson(rev.reviewHistory(1), r1);
+    // коло 2 — від попереднього прогону (`--from` скинув коло рецензії на 0): у звіт не йде
+    await storage.writeJson(rev.reviewHistory(2), { ...r1, round: 2, score: 3 });
+
+    // qa-a1 — попередній прогін; цей прогін — спроби 2 і 3 (лічильник спроб продовжується)
+    await storage.writeJson(rev.qa, qaReport("pass", 0, 1));
+    await storage.writeJson(rev.qaHistory(1), qaReport("fix", 5, 5));
+    await storage.writeJson(rev.qaHistory(2), qaReport("fix", 2, 1));
+    await storage.writeJson(rev.qaHistory(3), qaReport("pass", 0, 1));
+    const tracer = createTracer(storage, "p1");
+    const entry = { rev: 1, phase: "first_delivery" as const, jobId: null, ok: true, error: null };
+    const before = new Date(since.getTime() - 60_000).toISOString();
+    const after = (s: number) => new Date(since.getTime() + s * 1000).toISOString();
+    await tracer.record({ ...entry, stage: "qa", attempt: 1, startedAt: before, durationMs: 1000 });
+    await tracer.record({ ...entry, stage: "qa", attempt: 2, startedAt: after(10), durationMs: 1000 });
+    await tracer.record({ ...entry, stage: "fix", attempt: 1, startedAt: after(20), durationMs: 1000 });
+    await tracer.record({ ...entry, stage: "qa", attempt: 3, startedAt: after(30), durationMs: 1000 });
+
+    const fixAt = (at: string) =>
+      createCostRecorder(
+        storage,
+        loadPrices(),
+        { projectId: "p1", rev: 1, stage: "fix", phase: "first_delivery", source: "eval", attempt: 1 },
+        () => new Date(at),
+      );
+    const tokens = (input: number, cacheRead: number, output: number) => ({
+      provider: "anthropic" as const,
+      model: "claude-opus-5-5",
+      units: { input, output, cacheWrite: 0, cacheRead },
+    });
+    // до since — не цей прогін
+    await fixAt(before).record({ ...tokens(9999, 9999, 9999), detail: "scene:s1" });
+    // прогрів не лічиться викликом fix
+    await fixAt(after(20)).record({ ...tokens(100, 0, 1), detail: "warm" });
+    await fixAt(after(21)).record({ ...tokens(5000, 70_000, 800), detail: "scene:s1" });
+    await fixAt(after(22)).record({ ...tokens(6000, 71_000, 900), detail: "scene:s2" });
+    await fixAt(after(23)).record({ ...tokens(7000, 72_000, 4000), detail: "scene:s2:file-fallback" });
+  }
+
+  it("кола рецензії з history/review-r*.json, запуски qa цього прогону, лічильники fix — у report.json і report.md", async () => {
+    const storage = new LocalStorage(tmp);
+    const since = new Date("2026-10-27T10:00:00.000Z");
+    await abProject(storage, since);
+
+    const site = await buildSiteReport(storage, "p1", { name: "01-profitstore", since, wallSeconds: 60 });
+    expect(site.review?.rounds).toEqual([
+      { round: 0, score: 6, verdict: "fix", major: 1, critical: 1, joinBreaks: 2 },
+      { round: 1, score: 7, verdict: "pass", major: 0, critical: 0, joinBreaks: 0 },
+    ]);
+    expect(site.qa).toEqual({
+      rounds: [
+        { attempt: 2, verdict: "fix", serious: 2, minor: 1 },
+        { attempt: 3, verdict: "pass", serious: 0, minor: 1 },
+      ],
+    });
+    expect(site.fix).toEqual({
+      calls: 3,
+      fileFallbacks: 1,
+      input: 18_000,
+      cacheRead: 213_000,
+      output: 5700,
+    });
+
+    const switches: CostSwitches = { ...DEFAULT_SWITCHES, fixEffort: "medium", fixOutput: "patch" };
+    const report = await buildCaseReport(storage, "p1", {
+      caseName: "profitstore",
+      run: "r",
+      since,
+      site,
+      mode: "pipeline",
+      soundMode: { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1, ...ELEVEN },
+      switches,
+      decode,
+    });
+    expect(report).toMatchObject({
+      switches,
+      review: { score: 7, rounds: [{ score: 6 }, { score: 7 }] },
+      qa: { rounds: [{ attempt: 2 }, { attempt: 3 }] },
+      fix: { calls: 3, fileFallbacks: 1 },
+    });
+    const caseMd = caseReportMarkdown(report);
+    expect(caseMd).toContain(
+      "| Перемикачі | ADC_FIX_EFFORT=medium, ADC_FIX_OUTPUT=patch, ADC_REVIEW_JOIN_SIDE=both, " +
+        "ADC_FIX_CHECK_CONTEXT=film, ADC_FIX_CHECK_EFFORT=—, ADC_SFX_MODEL=— («—» — frontmatter промпту) |",
+    );
+    expect(caseMd).toContain("| profitstore | 7 | 6 → 7 | pass |");
+    expect(caseMd).toContain("## Fix");
+    expect(caseMd).toContain(
+      "| Кейс | QA по запусках | Викликів fix | з них file-fallback | input | cache read | output |",
+    );
+    expect(caseMd).toContain("| profitstore | fix 2/1 → pass 0/1 | 3 | 1 | 18000 | 213000 | 5700 |");
+
+    const md = reportMarkdown({
+      run: "r",
+      startedAt: "2026-10-27T10:00:00.000Z",
+      finishedAt: "2026-10-27T11:00:00.000Z",
+      mode: "pipeline",
+      soundMode: { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1, ...ELEVEN },
+      switches,
+      from: "check",
+      baseRun: "prod-profitstore",
+      only: false,
+      sites: [site],
+      epidemicUsed: null,
+      summary: summarize([site]),
+    });
+    expect(md).toContain(
+      "Перемикачі: ADC_FIX_EFFORT=medium, ADC_FIX_OUTPUT=patch, ADC_REVIEW_JOIN_SIDE=both, " +
+        "ADC_FIX_CHECK_CONTEXT=film, ADC_FIX_CHECK_EFFORT=—, ADC_SFX_MODEL=— («—» — frontmatter промпту).",
+    );
+    expect(md).toContain("| 01-profitstore | 7 | 6 → 7 | pass |");
+    expect(md).toContain("| 01-profitstore | fix 2/1 → pass 0/1 | 3 | 1 | 18000 | 213000 | 5700 |");
+    // $ за етапами — лише цей прогін (витрати fix до since не входять)
+    expect(site.usdByStage.map((g) => g.key)).toEqual(["fix"]);
+  });
+
+  it("старий прогін без історії: одне коло з review.json, qa і fix — «—», без падіння; старий report.json без нових полів", async () => {
+    const storage = new LocalStorage(tmp);
+    await storage.writeJson(projectPaths("p1").project, fixtureProject({ id: "p1", status: "delivered" }));
+    const rev = projectPaths("p1").rev(1);
+    await storage.writeJson(rev.storyboard, fixtureStoryboard);
+    await storage.writeJson(rev.review, { ...fixtureReview, round: 0 });
+    await storage.writeJson(rev.qa, qaReport("pass", 0, 1));
+    const tracer = createTracer(storage, "p1");
+    await tracer.record({
+      rev: 1,
+      attempt: 1,
+      phase: "first_delivery",
+      jobId: null,
+      ok: true,
+      error: null,
+      stage: "qa",
+      startedAt: "2026-10-20T10:00:00.000Z",
+      durationMs: 1000,
+    });
+    const site = await buildSiteReport(storage, "p1", { name: "01-old", since: new Date(0), wallSeconds: 1 });
+    expect(site.review?.rounds).toEqual([
+      { round: 0, score: 6, verdict: "fix", major: 1, critical: 1, joinBreaks: 1 },
+    ]);
+    // qa був, але знімка запуску немає (до A0) — запусків немає, а не падіння
+    expect(site.qa).toEqual({ rounds: [] });
+    expect(site.fix).toBeNull();
+
+    const sites = [site];
+    const report = {
+      run: "old",
+      startedAt: "2026-10-20T10:00:00.000Z",
+      finishedAt: "2026-10-20T11:00:00.000Z",
+      mode: "pipeline",
+      soundMode: { sfxMode: "designer", filmReview: true, reviewMaxRounds: 1, ...ELEVEN },
+      switches: DEFAULT_SWITCHES,
+      from: null,
+      baseRun: null,
+      only: false,
+      sites,
+      epidemicUsed: null,
+      summary: summarize(sites),
+    } satisfies EvalReport;
+    const md = reportMarkdown(report);
+    expect(md).toContain("| 01-old | 6 | 6 | fix |");
+    expect(md).toContain("| 01-old | — | — | — | — | — | — |");
+
+    // report.json до Блоку 6: немає switches, qa, fix і review.rounds — markdown не падає
+    const { switches: _s, ...oldReport } = report;
+    const oldSite = { ...site, review: { ...site.review, rounds: undefined } } as unknown as SiteReport;
+    delete (oldSite as Partial<SiteReport>).qa;
+    delete (oldSite as Partial<SiteReport>).fix;
+    const oldMd = reportMarkdown({ ...oldReport, sites: [oldSite] } as unknown as EvalReport);
+    expect(oldMd).not.toContain("Перемикачі:");
+    expect(oldMd).toContain("| 01-old | 6 | — | fix |");
+    expect(oldMd).toContain("| 01-old | — | — | — | — | — | — |");
+  });
+
+  it("fixStats: без витрат стадії fix — null (старі прогони й прогони без fix)", () => {
+    expect(fixStats([])).toBeNull();
+  });
+
+  it("currentCostSwitches: з env; невалідний env — дефолти", () => {
+    expect(currentCostSwitches({})).toEqual(DEFAULT_SWITCHES);
+    expect(
+      currentCostSwitches({
+        ADC_FIX_EFFORT: "medium",
+        ADC_FIX_OUTPUT: "patch",
+        ADC_REVIEW_JOIN_SIDE: "one",
+        ADC_FIX_CHECK_CONTEXT: "own",
+        ADC_FIX_CHECK_EFFORT: "low",
+        ADC_SFX_MODEL: "claude-sonnet-5-5",
+      }),
+    ).toEqual({
+      fixEffort: "medium",
+      fixOutput: "patch",
+      reviewJoinSide: "one",
+      fixCheckContext: "own",
+      fixCheckEffort: "low",
+      sfxModel: "claude-sonnet-5-5",
+    });
+    expect(currentCostSwitches({ ADC_FIX_OUTPUT: "diff" })).toEqual(DEFAULT_SWITCHES);
   });
 });
 
@@ -1196,6 +1473,66 @@ describe("pnpm eval --case --mode (стадії-заглушки, без мер�
     } finally {
       restore();
     }
+  });
+
+  it("перемикачі вартості з env — у рядку старту, заголовку report.md і в report.json прогону й кейсу; невалідне — код 2", async () => {
+    const sites = path.join(tmp, "sites.json");
+    await writeFile(sites, JSON.stringify([{ url: "https://parity.example.com/", name: "parity" }]));
+    const crawl: Stage<"crawl"> = async () => {
+      throw new StageError("заглушка", "stub_crawl", "Сайт недоступний (тест).", false);
+    };
+    const runsDir = path.join(tmp, "runs");
+    const env = {
+      ADC_FIX_EFFORT: "medium",
+      ADC_FIX_OUTPUT: "patch",
+      ADC_REVIEW_JOIN_SIDE: "one",
+      ADC_FIX_CHECK_CONTEXT: "own",
+      ADC_FIX_CHECK_EFFORT: "low",
+      ADC_SFX_MODEL: "claude-sonnet-5-5",
+    };
+    const expected = {
+      fixEffort: "medium",
+      fixOutput: "patch",
+      reviewJoinSide: "one",
+      fixCheckContext: "own",
+      fixCheckEffort: "low",
+      sfxModel: "claude-sonnet-5-5",
+    };
+    const line =
+      "ADC_FIX_EFFORT=medium, ADC_FIX_OUTPUT=patch, ADC_REVIEW_JOIN_SIDE=one, ADC_FIX_CHECK_CONTEXT=own, " +
+      "ADC_FIX_CHECK_EFFORT=low, ADC_SFX_MODEL=claude-sonnet-5-5";
+    await withEnv(env, async () => {
+      const lines: string[] = [];
+      const code = await runEvalCli(["--sites", sites, "--out", runsDir, "--case", "parity"], {
+        anthropic: createMockAnthropic([]),
+        registry: createStageRegistry({ overrides: { crawl } }),
+        print: (l) => lines.push(l),
+      });
+      expect(code).toBe(0);
+      expect(lines.join("\n")).toContain(`eval: перемикачі ${line}`);
+      const [run] = await readdir(runsDir);
+      const runReport = JSON.parse(
+        await readFile(path.join(runsDir, run as string, "report.json"), "utf8"),
+      ) as EvalReport;
+      expect(runReport.switches).toEqual(expected);
+      expect(runReport.sites[0]).toMatchObject({ qa: { rounds: [] }, fix: null });
+      const md = await readFile(path.join(runsDir, run as string, "report.md"), "utf8");
+      expect(md).toContain(`Перемикачі: ${line} («—» — frontmatter промпту).`);
+      expect(md).toContain("## Fix");
+      const caseReport = JSON.parse(
+        await readFile(path.join(tmp, "out", "parity", "report.json"), "utf8"),
+      ) as CaseReport;
+      expect(caseReport.switches).toEqual(expected);
+    });
+    await withEnv({ ADC_FIX_OUTPUT: "diff" }, async () => {
+      const bad: string[] = [];
+      const code = await runEvalCli(["--sites", sites, "--out", runsDir, "--case", "parity"], {
+        anthropic: createMockAnthropic([]),
+        print: (l) => bad.push(l),
+      });
+      expect(code).toBe(2);
+      expect(bad.join("\n")).toContain("ADC_FIX_OUTPUT=diff");
+    });
   });
 });
 
@@ -1415,6 +1752,7 @@ describe("Epidemic у eval", () => {
       finishedAt: "2026-10-19T11:00:00.000Z",
       mode: "pipeline",
       soundMode: { sfxMode: "designer", filmReview: false, reviewMaxRounds: 1, ...ELEVEN },
+      switches: DEFAULT_SWITCHES,
       from: "audio",
       baseRun: "r0",
       only: false,
