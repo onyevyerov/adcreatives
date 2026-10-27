@@ -9,6 +9,7 @@ import {
   momentLegend,
   primaryFormat,
   type ReviewIssue,
+  readTuning,
   revPaths,
   type SfxDecision,
   SfxPlan,
@@ -21,6 +22,7 @@ import {
   type Storage,
   type Storyboard,
   sha256,
+  type Tuning,
   t,
 } from "@adc/shared";
 import {
@@ -38,7 +40,10 @@ import { qaSceneImages, toQaJpeg } from "./qa.ts";
 
 export const SFX_PROMPT = "sfx-design";
 
-export type SfxStageDeps = Record<string, never>;
+export interface SfxStageDeps {
+  /** Перемикачі генерації; дефолт — `readTuning()` з env на кожен запуск стадії. */
+  tuning?: () => Tuning;
+}
 
 /** Важких ударів (`HIT_SOUND_CUES`) на весь ролик — не більше. */
 export const MAX_FILM_HITS = 3;
@@ -447,11 +452,15 @@ function retryText(draft: SfxPlanDraft, violations: readonly SfxViolation[]): st
  * чернетковим звуком → рішення cue/акцент/мовчання для кожної існуючої події → `rev/<n>/sfx-plan.json`.
  * Код після моделі: невідомі події відкидаються, ліміти (`sfxViolations`) — один точковий ретрай, далі
  * `trimToLimits`. Сцени поза scope — з попереднього плану цієї ревізії або ревізії-основи. Пропуск за хешем
- * входів (розкадровка без звуку, зображення, instructions, scope, промпт).
+ * входів (розкадровка без звуку, зображення, instructions, scope, промпт; модель — якщо задана `sfxModel`).
+ * Модель — `Tuning.sfxModel` (null → frontmatter). userCached без `cache_control`: префікс (кадри й
+ * розкадровка) читав би лише ретрай за лімітами, а він рідкісний — запис 5m-кешу був би марним.
  */
-export function createSfxStage(_deps: SfxStageDeps = {}): Stage<"sfx"> {
+export function createSfxStage(deps: SfxStageDeps = {}): Stage<"sfx"> {
+  const getTuning = deps.tuning ?? (() => readTuning());
   return async (ctx: StageContext<"sfx">) => {
     const { storage, projectId, rev, logger } = ctx;
+    const { sfxModel } = getTuning();
     const rp = revPaths(projectId, rev);
     const project = await readProject(storage, projectId);
     const brandFile = await readCurrentBrandKit(storage, projectId, project);
@@ -521,6 +530,8 @@ export function createSfxStage(_deps: SfxStageDeps = {}): Stage<"sfx"> {
       format,
       brand: { musicHints: vars.musicHints, voice: vars.voice, language: vars.language },
       prompt: promptHash,
+      // Лише задана модель: з дефолтом хеш як раніше, а план іншої моделі не перевикористовується.
+      ...(sfxModel !== null ? { model: sfxModel } : {}),
     });
 
     // Пропуск за хешем: план цієї ревізії або ревізії-основи з тими самими входами.
@@ -551,6 +562,8 @@ export function createSfxStage(_deps: SfxStageDeps = {}): Stage<"sfx"> {
       const call = (userText?: string) =>
         ctx.llm.structured(SFX_PROMPT, vars, SfxPlanDraft, {
           images: images.map((img) => img.image),
+          cacheUserPrefix: false,
+          ...(sfxModel !== null ? { model: sfxModel } : {}),
           ...(userText ? { userText, costDetail: "limits-retry" } : {}),
           ...(ctx.signal ? { signal: ctx.signal } : {}),
         });
