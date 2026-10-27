@@ -244,6 +244,8 @@ export declare function Headline(props: {
     emphasis?: string[];
     /** Без preset — статичний. */
     preset?: TextPreset;
+    /** Дефолт "word"; "line" — швидка поява довгого тексту. */
+    by?: "word" | "line";
     startFrame?: number;
     /** Дефолт 3. */
     maxLines?: number;
@@ -258,6 +260,8 @@ export declare function Headline(props: {
 export declare function Body(props: {
     text: string;
     preset?: TextPreset;
+    /** З preset дефолт "line", без нього "word"; "line" — швидка поява довгого тексту. */
+    by?: "word" | "line";
     startFrame?: number;
     /** Дефолт 3. */
     maxLines?: number;
