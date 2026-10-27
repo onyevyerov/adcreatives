@@ -6,6 +6,7 @@ import {
   CheckReport,
   type LocalStorage,
   type RenderStillOptions,
+  readTuning,
   revPaths,
   type ScenePreviewProps,
   STILL_PLAN,
@@ -16,7 +17,7 @@ import { directorPaths } from "../src/io.ts";
 import { readLedger } from "../src/ledger.ts";
 import { createCheckStage } from "../src/stages/check.ts";
 import { codegenStage } from "../src/stages/codegen.ts";
-import { fixStage } from "../src/stages/fix.ts";
+import { createFixStage, FILM_OMITTED, fixStage } from "../src/stages/fix.ts";
 import {
   exampleSources,
   fileBlocks,
@@ -85,6 +86,13 @@ const sceneOf = (o: RenderStillOptions) => (o.inputProps as ScenePreviewProps).s
 /** Рендери стілів (без кадрів стрічки). */
 const stillRenders = (engine: { stills: RenderStillOptions[] }) =>
   engine.stills.filter((o) => o.out.replaceAll("\\", "/").includes("/stills/"));
+type Block = { type: string; text?: string; cache_control?: unknown };
+const contentOf = (params: unknown) =>
+  (params as { messages: Array<{ content: Block[] }> }).messages[0]?.content ?? [];
+const filmOf = (params: unknown) =>
+  /<film>\n([\s\S]*?)\n<\/film>/.exec(contentOf(params)[0]?.text ?? "")?.[1] ?? "";
+const codeOf = (text: string) => (/<code>\n([\s\S]*?)\n<\/code>/.exec(text)?.[1] ?? "").trim();
+
 /** autoIssues без `event_unused` (у фікстурі s2 має події, а еталонний код їх не знає). */
 const withoutEvents = <T extends { kind: string }>(xs: T[]) => xs.filter((i) => i.kind !== "event_unused");
 
@@ -309,6 +317,14 @@ describe("fixStage (записані відповіді LLM)", () => {
     expect(s2Prompt).toContain('size="huge"');
     const s3Prompt = prompts.find((p) => p.includes("Repair scene s3")) ?? "";
     expect(s3Prompt).toMatch(/AST-guard[\s\S]*Date/);
+    // film-блок: s1 і s2 (TS-помилка — не guard), без s3 (відхилена guard'ом), один на всі виклики
+    const film = filmOf(ctx.anthropic.calls[0]?.params);
+    expect(film).toContain('<file name="s1.tsx">');
+    expect(film).toContain('<file name="s2.tsx">');
+    expect(film).not.toContain('<file name="s3.tsx">');
+    for (const c of ctx.anthropic.calls) expect(filmOf(c.params)).toBe(film);
+    expect(codeOf(s2Prompt)).toBe("(the current code of this scene is the file s2.tsx in <film>)");
+    expect(codeOf(s3Prompt)).toContain("new Date");
     // наскрізний об'єкт розкадровки доходить до ремонту (у фікстурі його немає — null)
     expect(s2Prompt).toContain("<throughline>\nnull\n</throughline>");
     // ремонт знає правила курсора, камери, blur і наскрізного об'єкта (R2–R4, R6) і як лагодити «object»
@@ -337,6 +353,49 @@ describe("fixStage (записані відповіді LLM)", () => {
     );
     expect(res2.outputs.failedScenes).toEqual([]);
     expect((await readCheck(storage)).stills).toHaveLength(18);
+  });
+
+  it("ADC_FIX_CHECK_CONTEXT=own: лише TS / AST-guard → без коду фільму, свій код у <code>; runtime-помилка → film", async () => {
+    const storage = await generated({ s1: ex["hook-photo"], s2: TS_BAD, s3: GUARD_BAD });
+    await createCheckStage({ engine: movingEngine() })(makeCtx(storage, "check", { sceneIds: null }));
+    const recorded = (name: string) => readFileSync(path.join(FIXTURES, name), "utf8");
+    const reply = (params: unknown) =>
+      userText(params).includes("Repair scene s2")
+        ? { text: recorded("fix-s2.txt") }
+        : { text: recorded("fix-s3.txt") };
+    const run = async (env: Record<string, string>) => {
+      const ctx = makeCtx(storage, "fix", { sceneIds: ["s2", "s3"], reason: "check" }, [reply, reply]);
+      await createFixStage({ tuning: () => readTuning(env) })(ctx);
+      return ctx.anthropic.calls.map((c) => c.params);
+    };
+    const own = { ADC_FIX_CHECK_CONTEXT: "own", ADC_FIX_CHECK_EFFORT: "medium" };
+
+    const calls = await run(own);
+    expect(calls).toHaveLength(3); // прогрів + 2 сцени
+    for (const p of calls) {
+      expect(filmOf(p)).toBe(FILM_OMITTED);
+      expect(userText(p)).not.toContain('<file name="s1.tsx">');
+      expect((p as { output_config: { effort: string } }).output_config.effort).toBe("medium");
+    }
+    const tail = (id: string) => userText(calls.find((p) => userText(p).includes(`Repair scene ${id}`)));
+    expect(codeOf(tail("s2"))).toContain('size="huge"');
+    expect(codeOf(tail("s3"))).toContain("new Date");
+    expect(contentOf(calls[1]).map((b) => b.type)).toEqual(["text", "text"]);
+    expect(contentOf(calls[1])[0]).toEqual(contentOf(calls[0])[0]);
+
+    // runtime-помилка хоч в одній цілі → film для всіх
+    const rp = revPaths(PROJECT_ID, 1);
+    const report = await readCheck(storage);
+    await storage.writeJson(rp.check, {
+      ...report,
+      runtimeErrors: [{ sceneId: "s3", format: "vertical", frame: 10, message: "boom" }],
+    });
+    const withRuntime = await run(own);
+    for (const p of withRuntime) expect(filmOf(p)).toContain('<file name="s1.tsx">');
+
+    // дефолт film і без runtime-помилок
+    await storage.writeJson(rp.check, report);
+    for (const p of await run({})) expect(filmOf(p)).toContain('<file name="s1.tsx">');
   });
 
   it("відповідь з забороненим кодом → нова версія відхилена, сцена поза реєстром", async () => {

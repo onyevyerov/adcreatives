@@ -40,7 +40,7 @@ import {
   type SceneLedger,
   writeLedger,
 } from "../ledger.ts";
-import { reviewProblemLines } from "../review-issues.ts";
+import { type ReviewForFix, reviewProblemLines } from "../review-issues.ts";
 import { brandForCode } from "./codegen.ts";
 import { qaSceneImages } from "./qa.ts";
 import { assetsForPrompt } from "./storyboard.ts";
@@ -97,28 +97,41 @@ function fileBlock(sceneId: string, code: string): string {
   return `<file name="${sceneId}.tsx">\n${code.trim()}\n</file>`;
 }
 
+/** Код фільму для `<film>`: текст блоку і сцени, чий код у ньому є. */
+export interface FilmScenes {
+  text: string;
+  sceneIds: ReadonlySet<string>;
+}
+
 /**
- * Код усіх інших сцен фільму (контекст «тільки для читання») у порядку розкадровки: сусіди для
+ * Код усіх сцен фільму (`<film>`) у порядку розкадровки, разом зі сценами, які правлять: сусіди для
  * match-cut, спільна мова фільму. Шаблонні сцени й версії, відхилені guard'ом, — без коду.
+ * Рахується один раз на запуск стадії: текст однаковий у всіх викликах кола і стоїть у кешованому блоці.
  */
-export async function readonlyScenesFor(args: {
+export async function filmScenesFor(args: {
   storage: Storage;
   projectId: string;
   rev: number;
   ledger: SceneLedger;
   storyboard: Pick<Storyboard, "scenes">;
-  sceneId: string;
   templates: ReadonlySet<string>;
-}): Promise<string> {
+}): Promise<FilmScenes> {
   const blocks: string[] = [];
+  const sceneIds = new Set<string>();
   for (const { id } of args.storyboard.scenes) {
-    if (id === args.sceneId || args.templates.has(id)) continue;
+    if (args.templates.has(id)) continue;
     if (currentVersion(args.ledger, id)?.guardOk === false) continue;
     const code = await readCurrentCode(args.storage, args.projectId, args.rev, args.ledger, id);
-    if (code) blocks.push(fileBlock(id, code));
+    if (!code) continue;
+    blocks.push(fileBlock(id, code));
+    sceneIds.add(id);
   }
-  return blocks.join("\n\n") || "(немає)";
+  return { text: blocks.join("\n\n") || "(немає)", sceneIds };
 }
+
+/** `<film>` для fix(check) у режимі `ADC_FIX_CHECK_CONTEXT=own` (B5): без коду фільму. */
+export const FILM_OMITTED =
+  "(omitted for this repair: fix only the TypeScript / AST-guard errors in `<problems>`, change nothing else)";
 
 /** Опис проблем сцени для промпта: помилки check (guard, типи, runtime), зауваження QA або рецензента + autoIssues. */
 export function describeProblems(args: {
@@ -127,7 +140,7 @@ export function describeProblems(args: {
   check: CheckReport | null;
   qa: QaReport | null;
   /** `review.json` ревізії (лише для `reason: "review"`). */
-  review?: Pick<FilmReview, "issues"> | null;
+  review?: ReviewForFix | null;
   guardViolations: readonly string[];
 }): string {
   const { sceneId, reason, check, qa } = args;
@@ -175,15 +188,18 @@ export function describeProblems(args: {
  * Стадія `fix`: окремий виклик моделі на кожну проблемну сцену (паралельно), на вході код сцени +
  * помилки або зауваження; новий код знову проходить AST-guard і стає новою версією сцени.
  * Ліміти кіл і заміну на TemplateScene вирішує оркестратор.
- * - Контекст фільму: код усіх інших сцен у `readonlyScenes` (сусіди для match-cut); змінюється лише своя.
+ * - Контекст фільму: код усіх сцен (і своєї) у `filmScenes` — над `=== cache ===`, один текст на все коло
+ *   (сусіди для match-cut); змінюється лише своя. `ADC_FIX_CHECK_CONTEXT=own` (B5): для `check`, коли в
+ *   жодної цілі немає runtime-помилок, `<film>` без коду, свій код — у `<code>`.
  * - Guard з `allowedTexts: allowedScreenTexts(scene, brand)` — тексти в кадрі лише з розкадровки.
  * - `reason: "qa"` — модель бачить і аркуш стрічки сцени в кожному обраному форматі, що є в `check.json`
- *   (запасний варіант — кадри 25/50/90%): зображення перед текстом, легенда — в `<problems>`.
+ *   (запасний варіант — кадри 25/50/90%): зображення між кодом фільму і хвостом, легенда — в `<problems>`.
  *   `reason: "review"` — те саме, а зауваження — з `review.json` (маршрут fix, зокрема склейки, де сцена —
  *   будь-яка сторона). `reason: "check"` — без зображень.
  * - Від двох викликів спершу один `llm.warm()` тими самими model / effort, потім паралельно: виклики
- *   читають кеш (prefix, system, а без зображень — і спільну частину user), а не пишуть його кожен.
- * - Effort: `check` — `Tuning.fixCheckEffort` (null → frontmatter), `qa` і `review` — frontmatter.
+ *   читають кеш (prefix, system і спільну частину user з кодом фільму — зображення йдуть після неї),
+ *   а не пишуть його кожен.
+ * - Effort: `check` — `Tuning.fixCheckEffort`, `qa` і `review` — `Tuning.fixEffort` (null → frontmatter).
  * `outputs.sceneIds` — сцени, що отримали нову версію (зокрема відхилену guard'ом: її помилки
  * покаже наступний `check` як compileErrors).
  */
@@ -220,8 +236,18 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
     let done = 0;
 
     // Ті самі model / effort у прогріві й паралельних викликах — інакше кеш не прочитається.
-    const effort = params.reason === "check" ? tuning.fixCheckEffort : null;
+    const effort = params.reason === "check" ? tuning.fixCheckEffort : tuning.fixEffort;
     const modelOpts: Pick<LlmCallOptions, "effort"> = effort !== null ? { effort } : {};
+
+    // Код фільму — один раз до prepare: байт-однаковий текст кешованого блоку в усіх викликах кола.
+    // B5: fix(check) без коду фільму, лише якщо в жодної цілі немає runtime-помилок — інакше film для всіх.
+    const ownContext =
+      params.reason === "check" &&
+      tuning.fixCheckContext === "own" &&
+      !check?.runtimeErrors.some((e) => targets.includes(e.sceneId));
+    const film: FilmScenes = ownContext
+      ? { text: FILM_OMITTED, sceneIds: new Set() }
+      : await filmScenesFor({ storage, projectId, rev, ledger, storyboard, templates });
 
     /** Вхід виклику сцени: змінні промпта і (для `qa`/`review`) кадри. */
     const prepare = async (sceneId: string) => {
@@ -256,19 +282,13 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
         formats: formats.join(", "),
         brand: brandForCode(brandFile),
         scene: scene ?? null,
-        readonlyScenes: await readonlyScenesFor({
-          storage,
-          projectId,
-          rev,
-          ledger,
-          storyboard,
-          sceneId,
-          templates,
-        }),
+        filmScenes: film.text,
         concept: storyboard.concept,
         throughline: storyboard.throughline ?? null,
         assets: assetsForPrompt(brandFile, manifest),
-        code: code ?? "(no code: the previous generation returned nothing — write the scene from scratch)",
+        code: film.sceneIds.has(sceneId)
+          ? `(the current code of this scene is the file ${sceneId}.tsx in <film>)`
+          : (code ?? "(no code: the previous generation returned nothing — write the scene from scratch)"),
         problems: shots.legend.length ? `${imagesLegend(shots.legend)}\n\n${problems}` : problems,
       };
       return { sceneId, vars, images: shots.images };
@@ -296,9 +316,10 @@ export function createFixStage(deps: FixStageDeps = {}): Stage<"fix"> {
         ...modelOpts,
         ...(images.length ? { images } : {}),
         costDetail: `scene:${sceneId}`,
-        // Спільна частина user (бренд, асети, концепт) читається з прогріву лише без зображень:
-        // зображення йдуть перед нею, і префікс кожного виклику з кадрами унікальний.
-        cacheUserPrefix: parallel && images.length === 0,
+        // Спільна частина user (бренд, асети, концепт, код фільму) — перед кадрами, тож її читають з
+        // прогріву і виклики з зображеннями.
+        imagesAfterCache: true,
+        cacheUserPrefix: parallel,
         ...(ctx.signal ? { signal: ctx.signal } : {}),
       });
       done++;
