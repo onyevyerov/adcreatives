@@ -5,7 +5,8 @@ export type ReviewForFix = Pick<FilmReview, "issues"> & { joinSide?: FilmReview[
 
 /**
  * Зауваження рецензента фільму для сцени: маршрут `fix` (`routeOf`), сцена — `sceneId`, а для `join` —
- * і `nextSceneId`: як зараз обидві сторони (правити склейку може будь-яка; режим one — Блок 3).
+ * і `nextSceneId`: обидві сторони, бо й у режимі one друга сторона, якщо вона в fix з інших причин, має знати,
+ * що її край склейки не чіпати (текст — `reviewLine`).
  */
 export function reviewIssuesFor(review: ReviewForFix | null, sceneId: string): ReviewIssue[] {
   return (review?.issues ?? []).filter(
@@ -17,10 +18,14 @@ export function reviewIssuesFor(review: ReviewForFix | null, sceneId: string): R
 
 /**
  * Рядок зауваження рецензента для `<problems>`: де, що, інструкція; для склейки — що з чим зшити.
- * `joinSide` undefined = "both".
+ * `joinSide` undefined = "both". У режимі one склейку з `fixSceneId` править лише та сцена; друга сторона
+ * отримує лише вказівку не чіпати свої перші/останні кадри.
  */
-export function reviewLine(i: ReviewIssue, sceneId: string, _joinSide?: FilmReview["joinSide"]): string {
+export function reviewLine(i: ReviewIssue, sceneId: string, joinSide?: FilmReview["joinSide"]): string {
   const own = i.sceneId === sceneId;
+  if (i.scope === "join" && joinSide === "one" && i.fixSceneId !== null && i.fixSceneId !== sceneId) {
+    return `- [${i.severity}, join] At the cut with ${i.fixSceneId} the other scene is changed to match you: keep your ${own ? "last" : "first"} frames exactly as they are.`;
+  }
   const where = [
     i.format,
     i.eventId ? `event ${i.eventId}` : null,

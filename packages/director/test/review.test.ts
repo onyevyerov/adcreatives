@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { makeGradientPng } from "@adc/render/testing";
 import {
@@ -10,6 +10,7 @@ import {
   type LogMeta,
   noopLogger,
   type ReviewIssue,
+  readTuning,
   revPaths,
   SoundCue,
   StageError,
@@ -17,7 +18,13 @@ import {
 } from "@adc/shared";
 import { fixtureStoryboard } from "@adc/shared/fixtures";
 import { describe, expect, it } from "vitest";
-import { NO_SOUND_SHEET, reviewStage, routesOf, sanitizeIssues } from "../src/stages/review.ts";
+import {
+  createReviewStage,
+  NO_SOUND_SHEET,
+  reviewStage,
+  routesOf,
+  sanitizeIssues,
+} from "../src/stages/review.ts";
 import { makeCtx, type Reply, seedProject, systemText, tmpStorage, userText } from "./helpers.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures", "review");
@@ -133,6 +140,14 @@ function callImages(params: unknown): number {
 async function readReview(storage: LocalStorage, rev = 1): Promise<FilmReview> {
   return storage.readJson(revPaths("p1", rev).review, (v) => FilmReview.parse(v));
 }
+
+async function readHistory(storage: LocalStorage, round: number, rev = 1): Promise<FilmReview> {
+  return storage.readJson(revPaths("p1", rev).reviewHistory(round), (v) => FilmReview.parse(v));
+}
+
+/** Стадія з режимом склейок `ADC_REVIEW_JOIN_SIDE`, решта перемикачів — дефолт. */
+const stageWith = (reviewJoinSide: "both" | "one") =>
+  createReviewStage({ tuning: () => ({ ...readTuning({}), reviewJoinSide }) });
 
 function captureWarnings(ctx: { logger: typeof noopLogger }): Array<{ msg: string; meta?: LogMeta }> {
   const warnings: Array<{ msg: string; meta?: LogMeta }> = [];
@@ -285,13 +300,18 @@ describe("reviewStage", () => {
     await seedProject(storage, { storyboard: null });
     await seedRev(storage, 1);
     const first = await reviewStage(makeCtx(storage, "review", { round: 0 }, [reply(MIXED)]));
+    const r0 = await readReview(storage);
+    expect(await readHistory(storage, 0)).toEqual(r0);
 
+    // перевикористана рецензія теж пише історію (знімок стерто — повтор його відновлює)
+    rmSync(storage.absPath(revPaths("p1", 1).reviewHistory(0)));
     const again = makeCtx(storage, "review", { round: 0 }, []);
     const second = await reviewStage(again);
     expect(again.anthropic.calls).toHaveLength(0);
     expect(second.reused).toBe(true);
     expect(second.inputsHash).toBe(first.inputsHash);
     expect(second.outputs).toEqual(first.outputs);
+    expect(await readHistory(storage, 0)).toEqual(r0);
 
     // коло 1: інші входи (round) → виклик; модель бачить зауваження кола 0
     const round1 = makeCtx(storage, "review", { round: 1 }, [reply([], "pass", 9)]);
@@ -304,6 +324,9 @@ describe("reviewStage", () => {
     expect(text).toContain("Review round: 1.");
     expect(third.outputs).toEqual({ verdict: "pass", score: 9, routes: { fix: [], sfx: [], music: 0 } });
     expect((await readReview(storage)).round).toBe(1);
+    // історія кіл: review-r0.json і review-r1.json, r0 не перезаписано колом 1
+    expect(await readHistory(storage, 0)).toEqual(r0);
+    expect(await readHistory(storage, 1)).toEqual(await readReview(storage));
 
     // повтор кола 1 — reused, хоча review.json тепер уже кола 1
     const round1Again = makeCtx(storage, "review", { round: 1 }, []);
@@ -333,6 +356,78 @@ describe("reviewStage", () => {
     expect(res.reused).toBe(true);
     expect(res.outputs).toEqual(base.outputs);
     expect(await readReview(storage, 2)).toEqual(await readReview(storage, 1));
+    expect(await readHistory(storage, 0, 2)).toEqual(await readReview(storage, 1));
+  });
+
+  it("ADC_REVIEW_JOIN_SIDE=one: join лише в сцену fixSceneId, joinSide у review.json і в хеші входів", async () => {
+    const issues = [
+      issue({ scope: "join", sceneId: "s2", nextSceneId: "s3", fixSceneId: "s3", kind: "join_break" }),
+      issue({ scope: "join", sceneId: "s1", fixSceneId: null, kind: "throughline_lost" }),
+    ];
+    const both = tmpStorage();
+    await seedProject(both, { storyboard: null });
+    await seedRev(both, 1);
+    const resBoth = await stageWith("both")(makeCtx(both, "review", { round: 0 }, [reply(issues)]));
+    expect(resBoth.outputs.routes.fix).toEqual(["s1", "s2", "s3"]);
+    expect((await readReview(both)).joinSide).toBe("both");
+    expect((await readReview(both)).issues.map((i) => i.fixSceneId)).toEqual(["s3", null]);
+
+    const one = tmpStorage();
+    await seedProject(one, { storyboard: null });
+    await seedRev(one, 1);
+    const resOne = await stageWith("one")(makeCtx(one, "review", { round: 0 }, [reply(issues)]));
+    // s2→s3 править лише s3; склейка s1→s2 без fixSceneId — обидві сторони, як у both
+    expect(resOne.outputs.routes.fix).toEqual(["s1", "s2", "s3"]);
+    const reviewOne = await readReview(one);
+    expect(reviewOne.joinSide).toBe("one");
+    expect(await readHistory(one, 0)).toEqual(reviewOne);
+    expect(resOne.inputsHash).not.toBe(resBoth.inputsHash);
+
+    // з тими самими входами рецензію не перевикористати між режимами
+    const switched = makeCtx(one, "review", { round: 0 }, [reply([issues[0] as ReviewIssue])]);
+    const resSwitched = await stageWith("both")(switched);
+    expect(resSwitched.reused).toBeUndefined();
+    expect(switched.anthropic.calls).toHaveLength(1);
+    expect(resSwitched.inputsHash).toBe(resBoth.inputsHash);
+    expect(resSwitched.outputs.routes.fix).toEqual(["s2", "s3"]);
+
+    const onlyJoin = tmpStorage();
+    await seedProject(onlyJoin, { storyboard: null });
+    await seedRev(onlyJoin, 1);
+    const resOnly = await stageWith("one")(
+      makeCtx(onlyJoin, "review", { round: 0 }, [reply([issues[0] as ReviewIssue])]),
+    );
+    expect(resOnly.outputs.routes.fix).toEqual(["s3"]);
+  });
+
+  it("дефолт (both) — хеш як без перемикача; старий review.json без нових полів читається як both і перевикористовується", async () => {
+    const storage = tmpStorage();
+    await seedProject(storage, { storyboard: null });
+    await seedRev(storage, 1);
+    const first = await stageWith("both")(makeCtx(storage, "review", { round: 0 }, [reply(MIXED)]));
+    const rp = revPaths("p1", 1);
+    const raw = (await storage.readJson(rp.review, (v) => v)) as Record<string, unknown> & {
+      issues: Array<Record<string, unknown>>;
+    };
+    const { joinSide: _joinSide, ...old } = raw;
+    await storage.writeJson(rp.review, {
+      ...old,
+      issues: old.issues.map(({ fixSceneId: _fixSceneId, ...i }) => i),
+    });
+
+    const again = makeCtx(storage, "review", { round: 0 }, []);
+    const res = await reviewStage(again);
+    expect(again.anthropic.calls).toHaveLength(0);
+    expect(res.reused).toBe(true);
+    expect(res.inputsHash).toBe(first.inputsHash);
+    const read = await readReview(storage);
+    expect(read.joinSide).toBe("both");
+    expect(read.issues.every((i) => i.fixSceneId === null)).toBe(true);
+
+    // той самий старий файл у режимі one — новий виклик
+    const one = makeCtx(storage, "review", { round: 0 }, [reply([])]);
+    expect((await stageWith("one")(one)).reused).toBeUndefined();
+    expect(one.anthropic.calls).toHaveLength(1);
   });
 
   it("template-сцени: позначені в легенді, зауваження на них відкинуто, у маршрути не потрапляють", async () => {
